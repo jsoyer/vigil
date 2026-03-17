@@ -43,10 +43,14 @@ REBOOT_COOLDOWN: int = int(os.getenv("WATCHDOG_REBOOT_COOLDOWN", "600"))
 # IP locale du USG (généralement la gateway du réseau)
 USG_IP: str = os.getenv("USG_IP", "192.168.1.1")
 
-# Username SSH (root pour USG/Gateways Ubiquiti)
-USG_USER: str = os.getenv("USG_USER", "admin")
+# Username SSH du USG
+# Note : sur les USG Ubiquiti, le compte SSH peut être 'maintenance', 'admin', 'ubnt' ou 'root'
+# selon la version du firmware et la configuration du controller UniFi.
+# Vérifier dans : UniFi Controller → Settings → System → Advanced → Device Authentication
+USG_USER: str = os.getenv("USG_USER", "maintenance")
 
 # Chemin vers la clé SSH privée dédiée (générée par scripts/setup_ssh.sh)
+# La clé est générée en Ed25519 pour compatibilité avec EdgeOS (OpenSSH 6.6.1)
 USG_SSH_KEY: str = os.getenv(
     "USG_SSH_KEY", "/opt/usg-watchdog/.ssh/usg_rsa"
 )
