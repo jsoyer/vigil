@@ -4,13 +4,16 @@ Envoie des alertes lors des événements clés (coupure, reboot, rétablissement
 """
 
 import logging
+import html
 from datetime import datetime
 from typing import Optional
 
 try:
     import requests
+
     REQUESTS_AVAILABLE = True
 except ImportError:
+    requests = None  # type: ignore[assignment]
     REQUESTS_AVAILABLE = False
 
 from config import (
@@ -28,6 +31,7 @@ def _get_hostname() -> str:
     if _HOSTNAME is None:
         try:
             import socket
+
             _HOSTNAME = socket.gethostname()
         except Exception:
             _HOSTNAME = "usg-watchdog"
@@ -37,6 +41,17 @@ def _get_hostname() -> str:
 def _is_configured() -> bool:
     """Vérifie que Telegram est configuré."""
     return bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+
+
+def _build_message(message: str, timestamp: str, hostname: str) -> str:
+    """Construit un message Telegram compatible avec le mode HTML."""
+    escaped_hostname = html.escape(hostname)
+    escaped_message = html.escape(message)
+    return (
+        f"<b>📡 USG Watchdog</b>\n"
+        f"<i>{escaped_hostname} — {timestamp}</i>\n\n"
+        f"{escaped_message}"
+    )
 
 
 def send_notification(message: str) -> bool:
@@ -53,17 +68,21 @@ def send_notification(message: str) -> bool:
         return False
 
     if not REQUESTS_AVAILABLE:
-        logging.warning("Module 'requests' non installé — notification Telegram impossible")
+        logging.warning(
+            "Module 'requests' non installé — notification Telegram impossible"
+        )
         return False
 
-    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    hostname = _get_hostname()
+    if requests is None:
+        logging.warning(
+            "Module 'requests' indisponible — notification Telegram impossible"
+        )
+        return False
 
-    full_message = (
-        f"<b>📡 USG Watchdog</b>\n"
-        f"<i>{hostname} — {timestamp}</i>\n\n"
-        f"{message}"
-    )
+    requests_module = requests
+
+    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    full_message = _build_message(message, timestamp, _get_hostname())
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -74,16 +93,18 @@ def send_notification(message: str) -> bool:
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=TELEGRAM_TIMEOUT)
+        response = requests_module.post(url, json=payload, timeout=TELEGRAM_TIMEOUT)
         response.raise_for_status()
         logging.debug("📬 Notification Telegram envoyée")
         return True
-    except requests.exceptions.Timeout:
+    except requests_module.exceptions.Timeout:
         logging.warning("Timeout envoi Telegram — notification ignorée")
-    except requests.exceptions.ConnectionError:
+    except requests_module.exceptions.ConnectionError:
         logging.warning("Erreur réseau Telegram (normal si connexion DOWN)")
-    except requests.exceptions.HTTPError as e:
-        logging.warning(f"Erreur HTTP Telegram : {e.response.status_code} — {e.response.text}")
+    except requests_module.exceptions.HTTPError as e:
+        logging.warning(
+            f"Erreur HTTP Telegram : {e.response.status_code} — {e.response.text}"
+        )
     except Exception as e:
         logging.warning(f"Erreur notification Telegram : {e}")
 

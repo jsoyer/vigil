@@ -37,7 +37,7 @@ cd usg-watchdog
 
 ```python
 USG_IP   = "192.168.1.1"   # IP de votre USG
-USG_USER = "admin"          # Username SSH (souvent 'admin' ou 'root')
+USG_USER = "maintenance"    # Username SSH (souvent 'maintenance', 'admin' ou 'root')
 
 # Telegram (optionnel)
 TELEGRAM_BOT_TOKEN = "123456:ABC..."
@@ -51,7 +51,7 @@ sudo ./scripts/setup_ssh.sh
 ```
 
 Ce script :
-- Génère une clé RSA 4096 bits dédiée dans `/opt/usg-watchdog/.ssh/`
+- Génère une clé Ed25519 dédiée dans `/opt/usg-watchdog/.ssh/`
 - Déploie la clé publique sur le USG via `ssh-copy-id`
 - Teste la connexion sans mot de passe
 
@@ -131,7 +131,7 @@ Environment="LOG_LEVEL=DEBUG"
 | Variable              | Défaut                          | Description                         |
 |-----------------------|---------------------------------|-------------------------------------|
 | `USG_IP`              | `192.168.1.1`                   | IP locale du USG                    |
-| `USG_USER`            | `admin`                         | Username SSH                        |
+| `USG_USER`            | `maintenance`                   | Username SSH                        |
 | `USG_SSH_KEY`         | `/opt/usg-watchdog/.ssh/usg_rsa`| Clé SSH privée                      |
 | `CHECK_INTERVAL`      | `30`                            | Délai entre checks (secondes)       |
 | `FAILURE_THRESHOLD`   | `3`                             | Échecs consécutifs avant reboot     |

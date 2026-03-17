@@ -53,6 +53,7 @@ fi
 # ─── Copie des fichiers ───────────────────────────────────────────────────────
 log_info "Copie des fichiers vers ${INSTALL_DIR}..."
 mkdir -p "${INSTALL_DIR}"
+mkdir -p "${INSTALL_DIR}/src"
 
 # Conserver le dossier .ssh existant
 if [[ -d "${INSTALL_DIR}/.ssh" ]]; then

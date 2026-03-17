@@ -5,15 +5,30 @@ Modifier ce fichier selon votre environnement.
 
 import os
 
+
+def _get_env(*names: str, default: str) -> str:
+    """Retourne la premiere variable d'environnement non vide."""
+    for name in names:
+        value = os.getenv(name)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def _get_int_env(*names: str, default: int) -> int:
+    """Retourne une variable d'environnement convertie en entier."""
+    return int(_get_env(*names, default=str(default)))
+
+
 # ─────────────────────────────────────────────
 # CONNEXION — Cibles de ping
 # ─────────────────────────────────────────────
 
 # Plusieurs cibles pour éviter les faux positifs (Google DNS, Cloudflare, Quad9)
 PING_TARGETS: list[str] = [
-    "8.8.8.8",   # Google DNS
-    "1.1.1.1",   # Cloudflare DNS
-    "9.9.9.9",   # Quad9 DNS
+    "8.8.8.8",  # Google DNS
+    "1.1.1.1",  # Cloudflare DNS
+    "9.9.9.9",  # Quad9 DNS
 ]
 
 # Timeout ping en secondes
@@ -23,18 +38,24 @@ PING_TIMEOUT: int = 3
 # LOGIQUE DE SURVEILLANCE
 # ─────────────────────────────────────────────
 
-# Délai entre chaque check (secondes)
-# 30s → réactif sans être agressif
-CHECK_INTERVAL: int = int(os.getenv("WATCHDOG_CHECK_INTERVAL", "30"))
+# Delai entre chaque check (secondes)
+# 30s -> reactif sans etre agressif
+CHECK_INTERVAL: int = _get_int_env(
+    "CHECK_INTERVAL", "WATCHDOG_CHECK_INTERVAL", default=30
+)
 
-# Nombre d'échecs CONSÉCUTIFS avant de rebooter
-# 3 échecs × 30s = 90s de coupure confirmée avant reboot
-FAILURE_THRESHOLD: int = int(os.getenv("WATCHDOG_FAILURE_THRESHOLD", "3"))
+# Nombre d'echecs CONSECUTIFS avant de rebooter
+# 3 echecs x 30s = 90s de coupure confirmee avant reboot
+FAILURE_THRESHOLD: int = _get_int_env(
+    "FAILURE_THRESHOLD", "WATCHDOG_FAILURE_THRESHOLD", default=3
+)
 
-# Cooldown après un reboot (secondes)
-# Évite les boucles de reboot si le problème persiste
+# Cooldown apres un reboot (secondes)
+# Evite les boucles de reboot si le probleme persiste
 # 600s = 10 minutes
-REBOOT_COOLDOWN: int = int(os.getenv("WATCHDOG_REBOOT_COOLDOWN", "600"))
+REBOOT_COOLDOWN: int = _get_int_env(
+    "REBOOT_COOLDOWN", "WATCHDOG_REBOOT_COOLDOWN", default=600
+)
 
 # ─────────────────────────────────────────────
 # UBIQUITI USG — Connexion SSH
@@ -51,9 +72,7 @@ USG_USER: str = os.getenv("USG_USER", "maintenance")
 
 # Chemin vers la clé SSH privée dédiée (générée par scripts/setup_ssh.sh)
 # La clé est générée en Ed25519 pour compatibilité avec EdgeOS (OpenSSH 6.6.1)
-USG_SSH_KEY: str = os.getenv(
-    "USG_SSH_KEY", "/opt/usg-watchdog/.ssh/usg_rsa"
-)
+USG_SSH_KEY: str = os.getenv("USG_SSH_KEY", "/opt/usg-watchdog/.ssh/usg_rsa")
 
 # Mot de passe SSH (déconseillé — préférer la clé SSH)
 # Laisser vide si vous utilisez une clé SSH

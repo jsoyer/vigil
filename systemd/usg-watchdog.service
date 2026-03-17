@@ -21,7 +21,7 @@ RestartSec=15
 # Variables d'environnement (surcharge optionnelle de config.py)
 # Décommenter et adapter si vous préférez ne pas modifier config.py
 # Environment="USG_IP=192.168.1.1"
-# Environment="USG_USER=admin"
+# Environment="USG_USER=maintenance"
 # Environment="USG_SSH_KEY=/opt/usg-watchdog/.ssh/usg_rsa"
 # Environment="TELEGRAM_BOT_TOKEN=votre_token"
 # Environment="TELEGRAM_CHAT_ID=votre_chat_id"

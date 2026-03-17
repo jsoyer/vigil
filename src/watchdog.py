@@ -8,6 +8,7 @@ import logging
 import logging.handlers
 import sys
 from datetime import datetime
+from typing import Optional
 
 from config import (
     CHECK_INTERVAL,
@@ -49,7 +50,21 @@ def setup_logging():
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
     except PermissionError:
-        logging.warning(f"Impossible d'écrire dans {LOG_FILE} — logs console uniquement")
+        logging.warning(
+            f"Impossible d'écrire dans {LOG_FILE} — logs console uniquement"
+        )
+
+
+def _get_outage_duration_seconds(
+    outage_started_at: Optional[float], failure_count: int
+) -> int:
+    """Calcule la duree de coupure sans perdre l'historique apres reboot."""
+    fallback_duration = failure_count * CHECK_INTERVAL
+    if outage_started_at is None:
+        return fallback_duration
+
+    elapsed_duration = int(time.time() - outage_started_at)
+    return max(elapsed_duration, fallback_duration)
 
 
 def main():
@@ -58,6 +73,7 @@ def main():
     failure_count = 0
     last_reboot_time = 0.0
     was_down = False
+    outage_started_at: Optional[float] = None
 
     logging.info("=" * 60)
     logging.info("🚀 USG Watchdog démarré")
@@ -73,17 +89,23 @@ def main():
 
         if is_up:
             if was_down:
-                down_duration = failure_count * CHECK_INTERVAL
+                down_duration = _get_outage_duration_seconds(
+                    outage_started_at, failure_count
+                )
                 msg = f"✅ Connexion rétablie après {down_duration}s de coupure"
                 logging.info(msg)
                 send_notification(msg)
                 was_down = False
+                outage_started_at = None
 
             if failure_count > 0:
                 logging.debug(f"Remise à zéro du compteur (était à {failure_count})")
             failure_count = 0
 
         else:
+            if not was_down:
+                outage_started_at = time.time()
+
             failure_count += 1
             was_down = True
             logging.warning(
@@ -101,7 +123,9 @@ def main():
                         f"⏳ Cooldown actif — prochain reboot possible dans {remaining}s"
                     )
                 else:
-                    down_duration = failure_count * CHECK_INTERVAL
+                    down_duration = _get_outage_duration_seconds(
+                        outage_started_at, failure_count
+                    )
                     logging.warning(
                         f"🔴 Seuil atteint ({down_duration}s de coupure) — Lancement du reboot USG"
                     )
