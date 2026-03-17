@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+venv/
+.venv/
+env/
+
+# Secrets & clés SSH — NE JAMAIS COMMITTER
+.ssh/
+*.pem
+*.key
+*.rsa
+*_rsa
+*_ed25519
+
+# Logs
+*.log
+*.log.*
+
+# Config locale (surcharge de config.py)
+.env
+.env.*
+config.local.py
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

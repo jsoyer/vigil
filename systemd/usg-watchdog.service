@@ -1,0 +1,43 @@
+[Unit]
+Description=USG Connection Watchdog — Surveillance fibre + reboot automatique USG Ubiquiti
+Documentation=https://github.com/VOTRE_USERNAME/usg-watchdog
+After=network-online.target
+Wants=network-online.target
+# S'assure que le watchdog ne démarre qu'une fois la connexion réseau locale établie
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/usg-watchdog/src
+
+# Executable Python du virtualenv
+ExecStart=/opt/usg-watchdog/venv/bin/python /opt/usg-watchdog/src/watchdog.py
+
+# Redémarrage automatique en cas de crash
+Restart=always
+RestartSec=15
+
+# Variables d'environnement (surcharge optionnelle de config.py)
+# Décommenter et adapter si vous préférez ne pas modifier config.py
+# Environment="USG_IP=192.168.1.1"
+# Environment="USG_USER=admin"
+# Environment="USG_SSH_KEY=/opt/usg-watchdog/.ssh/usg_rsa"
+# Environment="TELEGRAM_BOT_TOKEN=votre_token"
+# Environment="TELEGRAM_CHAT_ID=votre_chat_id"
+# Environment="CHECK_INTERVAL=30"
+# Environment="FAILURE_THRESHOLD=3"
+# Environment="REBOOT_COOLDOWN=600"
+# Environment="LOG_LEVEL=INFO"
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=usg-watchdog
+
+# Sécurité
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
