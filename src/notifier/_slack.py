@@ -1,12 +1,10 @@
 """Slack notification channel via incoming webhook."""
 
+import json
 import logging
 import re
-
-try:
-    import requests
-except ImportError:
-    requests = None  # type: ignore[assignment]
+import urllib.error
+import urllib.request
 
 from config import SLACK_WEBHOOK_URL, SLACK_TIMEOUT
 from notifier._types import Level, NotificationContext
@@ -57,10 +55,6 @@ def send(
     timestamp: str,
 ) -> bool:
     """Send a Slack webhook notification. Never raises."""
-    if requests is None:
-        logging.warning("Module 'requests' non installe -- Slack impossible")
-        return False
-
     emoji = _LEVEL_EMOJI.get(level, "")
     blocks: list[dict] = [
         {
@@ -86,18 +80,26 @@ def send(
     payload = {"blocks": blocks}
 
     try:
-        response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=SLACK_TIMEOUT)
-        if response.status_code == 200:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            SLACK_WEBHOOK_URL,
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=SLACK_TIMEOUT) as resp:
+            status = resp.status
+        if status == 200:
             logging.debug("Slack: notification envoyee")
             return True
-        response.raise_for_status()
-        return True
-    except requests.exceptions.Timeout:
-        logging.warning("Slack: timeout")
-    except requests.exceptions.ConnectionError:
-        logging.warning("Slack: erreur reseau")
-    except requests.exceptions.HTTPError as e:
-        logging.warning("Slack: HTTP %d", e.response.status_code)
+        logging.warning("Slack: HTTP %d", status)
+        return False
+    except urllib.error.HTTPError as e:
+        logging.warning("Slack: HTTP %d", e.code)
+    except urllib.error.URLError as e:
+        if "timed out" in str(e.reason).lower():
+            logging.warning("Slack: timeout")
+        else:
+            logging.warning("Slack: erreur reseau")
     except Exception as e:
         logging.warning("Slack: erreur -- %s", e)
     return False

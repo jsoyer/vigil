@@ -172,8 +172,16 @@ def extract_tarball(tarball: Path, dest: Path) -> bool:
                 if "/" not in member.name:
                     continue
                 member.name = member.name[len(prefix) + 1:]
-                if member.name:
-                    tar.extract(member, dest)
+                if not member.name:
+                    continue
+                # Path traversal protection
+                if ".." in member.name or member.name.startswith("/"):
+                    log.warning("Tarball: path suspect ignore: %s", member.name)
+                    continue
+                if member.issym() or member.islnk():
+                    log.warning("Tarball: symlink ignore: %s", member.name)
+                    continue
+                tar.extract(member, dest)
 
         log.info("Extrait dans %s", dest)
         return True

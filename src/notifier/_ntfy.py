@@ -1,11 +1,8 @@
 """Ntfy notification channel -- supports cloud and self-hosted instances."""
 
 import logging
-
-try:
-    import requests
-except ImportError:
-    requests = None  # type: ignore[assignment]
+import urllib.error
+import urllib.request
 
 from config import NTFY_URL, NTFY_TOPIC, NTFY_TIMEOUT
 from notifier._types import Level, NotificationContext, format_context_inline
@@ -35,10 +32,6 @@ def send(
     timestamp: str,
 ) -> bool:
     """Send a Ntfy notification. Never raises."""
-    if requests is None:
-        logging.warning("Module 'requests' non installe -- Ntfy impossible")
-        return False
-
     url = f"{NTFY_URL.rstrip('/')}/{NTFY_TOPIC}"
 
     body = f"{message}\n\n{hostname} -- {timestamp}"
@@ -51,21 +44,26 @@ def send(
         "Title": "USG Watchdog",
         "Priority": str(_LEVEL_PRIORITY.get(level, 3)),
         "Tags": _LEVEL_TAGS.get(level, ""),
+        "Content-Type": "text/plain; charset=utf-8",
     }
 
     try:
-        response = requests.post(url, data=body.encode("utf-8"), headers=headers, timeout=NTFY_TIMEOUT)
-        if response.status_code == 200:
+        data = body.encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=NTFY_TIMEOUT) as resp:
+            status = resp.status
+        if status == 200:
             logging.debug("Ntfy: notification envoyee")
             return True
-        response.raise_for_status()
-        return True
-    except requests.exceptions.Timeout:
-        logging.warning("Ntfy: timeout")
-    except requests.exceptions.ConnectionError:
-        logging.warning("Ntfy: erreur reseau")
-    except requests.exceptions.HTTPError as e:
-        logging.warning("Ntfy: HTTP %d", e.response.status_code)
+        logging.warning("Ntfy: HTTP %d", status)
+        return False
+    except urllib.error.HTTPError as e:
+        logging.warning("Ntfy: HTTP %d", e.code)
+    except urllib.error.URLError as e:
+        if "timed out" in str(e.reason).lower():
+            logging.warning("Ntfy: timeout")
+        else:
+            logging.warning("Ntfy: erreur reseau")
     except Exception as e:
         logging.warning("Ntfy: erreur -- %s", e)
     return False

@@ -354,3 +354,23 @@ WEEKLY_REPORT_DAY: int = _get_int_env("WEEKLY_REPORT_DAY", default=0, minimum=-1
 
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE: str = os.getenv("LOG_FILE", "/var/log/usg-watchdog.log")
+
+
+# ---------------------------------------------
+# VALIDATION CROISEE
+# ---------------------------------------------
+
+def validate() -> list[str]:
+    """Valide la coherence entre les parametres. Appele au demarrage."""
+    errors: list[str] = []
+    if MAX_SCORE < REBOOT_SCORE_THRESHOLD:
+        errors.append(f"MAX_SCORE ({MAX_SCORE}) < REBOOT_SCORE_THRESHOLD ({REBOOT_SCORE_THRESHOLD})")
+    if MAX_REBOOT_COOLDOWN < REBOOT_COOLDOWN:
+        errors.append(f"MAX_REBOOT_COOLDOWN ({MAX_REBOOT_COOLDOWN}) < REBOOT_COOLDOWN ({REBOOT_COOLDOWN})")
+    if DAILY_REPORT_HOUR > 23:
+        errors.append(f"DAILY_REPORT_HOUR ({DAILY_REPORT_HOUR}) > 23")
+    if WEEKLY_REPORT_DAY > 6:
+        errors.append(f"WEEKLY_REPORT_DAY ({WEEKLY_REPORT_DAY}) > 6")
+    if LOG_LEVEL.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        errors.append(f"LOG_LEVEL invalide : '{LOG_LEVEL}'")
+    return errors

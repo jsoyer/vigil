@@ -18,8 +18,8 @@ class DataPoint:
 class HistoryBuffer:
     """Thread-safe ring buffer storing the last N data points."""
 
-    def __init__(self, max_points: int = 240) -> None:
-        # 240 points * 30s interval = 2 hours
+    def __init__(self, max_points: int = 120) -> None:
+        # 120 points * 30s interval = 1 hour (was 240 = 2h, saves ~69 KB on Pi Zero)
         self._points: deque[DataPoint] = deque(maxlen=max_points)
         self._lock = threading.Lock()
 

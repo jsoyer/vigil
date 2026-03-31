@@ -1,11 +1,9 @@
 """Pushover notification channel -- native iOS/Android push."""
 
 import logging
-
-try:
-    import requests
-except ImportError:
-    requests = None  # type: ignore[assignment]
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from config import PUSHOVER_USER_KEY, PUSHOVER_API_TOKEN, PUSHOVER_TIMEOUT
 from notifier._types import Level, NotificationContext, format_context_inline
@@ -29,39 +27,41 @@ def send(
     timestamp: str,
 ) -> bool:
     """Send a Pushover notification. Never raises."""
-    if requests is None:
-        logging.warning("Module 'requests' non installe -- Pushover impossible")
-        return False
-
     body = f"{message}\n\n{hostname} -- {timestamp}"
     if context is not None:
         ctx_str = format_context_inline(context)
         if ctx_str:
             body += f"\n{ctx_str}"
 
-    payload = {
+    fields = {
         "token": PUSHOVER_API_TOKEN,
         "user": PUSHOVER_USER_KEY,
         "message": body,
         "title": "USG Watchdog",
-        "priority": _LEVEL_PRIORITY.get(level, 0),
+        "priority": str(_LEVEL_PRIORITY.get(level, 0)),
     }
 
     try:
-        response = requests.post(
+        data = urllib.parse.urlencode(fields).encode("utf-8")
+        req = urllib.request.Request(
             "https://api.pushover.net/1/messages.json",
-            data=payload,
-            timeout=PUSHOVER_TIMEOUT,
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        if response.status_code == 200:
+        with urllib.request.urlopen(req, timeout=PUSHOVER_TIMEOUT) as resp:
+            status = resp.status
+        if status == 200:
             logging.debug("Pushover: notification envoyee")
             return True
-        response.raise_for_status()
-        return True
-    except requests.exceptions.Timeout:
-        logging.warning("Pushover: timeout")
-    except requests.exceptions.ConnectionError:
-        logging.warning("Pushover: erreur reseau")
+        logging.warning("Pushover: HTTP %d", status)
+        return False
+    except urllib.error.HTTPError as e:
+        logging.warning("Pushover: HTTP %d", e.code)
+    except urllib.error.URLError as e:
+        if "timed out" in str(e.reason).lower():
+            logging.warning("Pushover: timeout")
+        else:
+            logging.warning("Pushover: erreur reseau")
     except Exception as e:
         logging.warning("Pushover: erreur -- %s", e)
     return False
