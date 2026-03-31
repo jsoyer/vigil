@@ -200,6 +200,19 @@ NTFY_TIMEOUT: int = _get_int_env("NTFY_TIMEOUT", default=5, minimum=2)
 NTFY_MIN_LEVEL: str = os.getenv("NTFY_MIN_LEVEL", "INFO")
 
 # ---------------------------------------------
+# MQTT / HOME ASSISTANT (optionnel)
+# ---------------------------------------------
+
+# Adresse du broker MQTT (vide = desactive)
+MQTT_BROKER: str = os.getenv("MQTT_BROKER", "")
+MQTT_PORT: int = _get_int_env("MQTT_PORT", default=1883, minimum=1)
+MQTT_TOPIC_PREFIX: str = os.getenv("MQTT_TOPIC_PREFIX", "usg-watchdog")
+MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "")
+# Envoyer les configs auto-discovery Home Assistant
+MQTT_HA_DISCOVERY: bool = os.getenv("MQTT_HA_DISCOVERY", "true").lower() in ("true", "1", "yes")
+
+# ---------------------------------------------
 # COORDINATION PEER (optionnel)
 # ---------------------------------------------
 

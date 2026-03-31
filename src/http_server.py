@@ -30,6 +30,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                     self._handle_events()
                 elif self.path == "/api/config":
                     self._handle_config()
+                elif self.path == "/api/maintenance":
+                    self._handle_get_maintenance()
                 elif self.path == "/metrics":
                     self._handle_metrics()
                 elif self.path == "/api/report":
@@ -50,6 +52,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                 elif self.path == "/api/reboot":
                     holder.send_command(CMD_REBOOT)
                     self._respond_json(200, {"ok": True, "command": "reboot"})
+                elif self.path == "/api/maintenance":
+                    self._handle_post_maintenance()
                 else:
                     self._respond_json(404, {"error": "not found"})
             except Exception:
@@ -168,6 +172,35 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                 "isp_outage_detection_delay": _config.ISP_OUTAGE_DETECTION_DELAY,
             }
             self._respond_json(200, cfg)
+
+        def _handle_get_maintenance(self) -> None:
+            """Return current maintenance windows."""
+            snapshot = holder.state
+            maint = {
+                "surveillance_only": snapshot.surveillance_only if snapshot else False,
+                "info": "POST /api/maintenance avec JSON {\"duration_minutes\": N} pour programmer une pause",
+            }
+            self._respond_json(200, maint)
+
+        def _handle_post_maintenance(self) -> None:
+            """Schedule a maintenance pause."""
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+                data = json.loads(body)
+                duration_min = int(data.get("duration_minutes", 60))
+                duration_min = max(1, min(duration_min, 1440))  # 1 min to 24h
+            except (json.JSONDecodeError, ValueError, TypeError):
+                self._respond_json(400, {"error": "JSON invalide. Format: {\"duration_minutes\": 60}"})
+                return
+
+            # Send pause command + schedule resume via a maintenance command
+            holder.send_command(f"maintenance:{duration_min}")
+            self._respond_json(200, {
+                "ok": True,
+                "command": "maintenance",
+                "duration_minutes": duration_min,
+            })
 
         def _handle_metrics(self) -> None:
             """Prometheus exposition format."""
