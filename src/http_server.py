@@ -87,6 +87,8 @@ def _make_handler_class(
                     self._respond_json(200, {"ok": True, "command": "reboot"})
                 elif self.path == "/api/ddns/update":
                     self._handle_ddns_update()
+                elif self.path == "/api/tailscale/sync":
+                    self._handle_tailscale_sync()
                 elif self.path == "/api/backup/unifi":
                     self._handle_backup_unifi()
                 elif self.path == "/api/maintenance":
@@ -299,6 +301,18 @@ def _make_handler_class(
                 self._respond_json(200, {"ok": True, "reloaded": reloaded})
             except Exception:
                 self._respond_json(500, {"ok": False, "error": "reload failed"})
+
+        def _handle_tailscale_sync(self) -> None:
+            """Force Tailscale DNS sync."""
+            from tailscale_dns import sync_tailscale_dns, is_configured
+            if not is_configured():
+                self._respond_json(200, {"ok": False, "error": "not configured"})
+                return
+            result = sync_tailscale_dns(force=True)
+            if result is None:
+                self._respond_json(200, {"ok": False, "error": "sync failed"})
+                return
+            self._respond_json(200, {"ok": result.ok, **result.to_dict()})
 
         def _handle_ddns_update(self) -> None:
             """Force a DDNS update."""

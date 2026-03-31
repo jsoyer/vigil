@@ -116,6 +116,18 @@ def _handle_command(
         bresult = run_backup(source="telegram")
         _send(chat_id, bresult.summary())
 
+    elif cmd == "/tailscale":
+        from tailscale_dns import sync_tailscale_dns, is_configured as ts_ok
+        if not ts_ok():
+            _send(chat_id, "Tailscale DNS sync non configure.")
+            return
+        _send(chat_id, "Sync Tailscale DNS en cours...")
+        ts_result = sync_tailscale_dns(force=True)
+        if ts_result is None:
+            _send(chat_id, "Sync echouee.")
+        else:
+            _send(chat_id, ts_result.summary())
+
     elif cmd == "/help":
         _send(chat_id,
             "<b>Commandes disponibles :</b>\n\n"
@@ -124,6 +136,7 @@ def _handle_command(
             "/resume - Reprendre le mode normal\n"
             "/reboot - Forcer un reboot USG\n"
             "/ddns - Forcer une MAJ DNS Cloudflare\n"
+            "/tailscale - Forcer une sync DNS Tailscale\n"
             "/backup - Lancer un backup UniFi\n"
             "/help - Cette aide"
         )

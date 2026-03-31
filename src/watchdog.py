@@ -58,6 +58,7 @@ from diagnostics import run_traceroute
 from connectivity import gateway_latency, internet_latency
 from ddns_cloudflare import check_and_update as ddns_check, is_configured as ddns_configured
 from backup_unifi import run_backup as unifi_backup, is_configured as backup_configured
+from tailscale_dns import sync_tailscale_dns, is_configured as tailscale_configured
 from mqtt_publisher import MqttPublisher
 from snmp_monitor import read_usg_metrics, UsgMetrics
 from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
@@ -855,6 +856,21 @@ def main() -> None:
                     )
             except Exception as e:
                 logging.debug("Speedtest error: %s", e)
+
+        # --- Periodic Tailscale DNS sync (rate-limited internally) ---
+        if tailscale_configured() and failure_score == 0:
+            try:
+                ts_result = sync_tailscale_dns()
+                if ts_result and (ts_result.created or ts_result.updated or ts_result.deleted):
+                    logging.info("Tailscale DNS: %s", ts_result.summary())
+                    event_log.record(
+                        "tailscale_dns_sync",
+                        created=ts_result.created,
+                        updated=ts_result.updated,
+                        deleted=ts_result.deleted,
+                    )
+            except Exception as e:
+                logging.debug("Tailscale DNS sync error: %s", e)
 
         cycle_count += 1
 

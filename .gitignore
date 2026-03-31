@@ -33,6 +33,9 @@ update-cloudflare-dns.conf
 update-cloudflare-dns.sh
 backup-unifi.conf
 backup-unifi.sh
+tailscale-cloudflare-dnssync/
+cloudflare-key.txt
+tailscale-key.txt
 
 # Pytest
 .pytest_cache/
