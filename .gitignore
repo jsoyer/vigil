@@ -30,6 +30,11 @@ env/
 .env.*
 config.local.py
 
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
 # IDE
 .idea/
 .vscode/

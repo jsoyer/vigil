@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """
-USG Watchdog — Surveillance de connexion fibre + reboot automatique USG Ubiquiti
+USG Watchdog -- Surveillance de connexion fibre + reboot automatique USG Ubiquiti
+
+Systeme de scoring avec circuit breaker :
+- Scoring : penalites par cycle (gateway KO, internet KO), recuperation si OK
+- Backoff exponentiel : cooldown double a chaque reboot sans recuperation
+- Max reboots/jour : passe en mode surveillance apres le cap
+- Backoff SSH : ralentit les tentatives SSH en cas d'echec repete
+- Detection ISP : identifie "gateway OK + internet KO" prolonge comme panne ISP
+- Synthese au retablissement : resume de la coupure envoyee par Telegram
 """
 
 import time
@@ -8,22 +16,50 @@ import logging
 import logging.handlers
 import sys
 from datetime import datetime
-from typing import Optional
 
 from config import (
     CHECK_INTERVAL,
-    FAILURE_THRESHOLD,
+    REBOOT_SCORE_THRESHOLD,
+    MAX_SCORE,
+    SCORE_GATEWAY_DOWN,
+    SCORE_INTERNET_ALL_DOWN,
+    SCORE_INTERNET_PARTIAL,
+    SCORE_DECAY_OK,
+    SCORE_DECAY_PARTIAL,
+    POST_REBOOT_GRACE,
     REBOOT_COOLDOWN,
+    MAX_REBOOT_COOLDOWN,
+    MAX_REBOOTS_PER_DAY,
+    SSH_FAILURE_BACKOFF_START,
+    SSH_FAILURE_COOLDOWN,
+    MAX_SSH_COOLDOWN,
+    ISP_OUTAGE_DETECTION_DELAY,
+    USG_REBOOT_WAIT,
+    INSTANCE_PRIORITY,
+    PEER_IP,
+    HTTP_PORT,
+    DAILY_REPORT_HOUR,
     LOG_FILE,
     LOG_LEVEL,
 )
 from connectivity import check_connectivity
 from usg import reboot_usg
-from notifier import send_notification
+from notifier import notify, Level, NotificationContext
+from state import WatchdogState, StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
+from http_server import start_http_server
+from peer import should_reboot as peer_should_reboot, get_peer_info, check_divergence
+from report import generate_daily_report, format_report_notification
+import messages as msg
+from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
+from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
 
 
-def setup_logging():
+def setup_logging() -> None:
     """Configure le logging vers fichier + console avec rotation."""
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        return
+
     level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
 
     formatter = logging.Formatter(
@@ -31,15 +67,12 @@ def setup_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
-    # Handler console
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    # Handler fichier avec rotation (10 MB max, 5 fichiers)
     try:
         file_handler = logging.handlers.RotatingFileHandler(
             LOG_FILE,
@@ -50,121 +83,594 @@ def setup_logging():
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
     except PermissionError:
-        logging.warning(
-            f"Impossible d'écrire dans {LOG_FILE} — logs console uniquement"
+        root_logger.warning(
+            "Impossible d'ecrire dans %s -- logs console uniquement", LOG_FILE
         )
 
 
-def _get_outage_duration_seconds(
-    outage_started_at: Optional[float], failure_count: int
-) -> int:
-    """Calcule la duree de coupure sans perdre l'historique apres reboot."""
-    fallback_duration = failure_count * CHECK_INTERVAL
-    if outage_started_at is None:
-        return fallback_duration
-
-    elapsed_duration = int(time.time() - outage_started_at)
-    return max(elapsed_duration, fallback_duration)
+def clamp(value: int, min_value: int, max_value: int) -> int:
+    """Borne une valeur entre min et max."""
+    return max(min_value, min(value, max_value))
 
 
-def main():
+def compute_cycle_delta(gateway_ok: bool, internet_ok_count: int) -> int:
+    """
+    Calcule le delta de score pour un cycle de verification.
+
+    Penalites :
+      gateway KO          -> +SCORE_GATEWAY_DOWN
+      internet 0/N        -> +SCORE_INTERNET_ALL_DOWN
+      internet 1/N        -> +SCORE_INTERNET_PARTIAL
+      internet >= 2/N     -> +0
+
+    Recuperation :
+      gateway OK + internet >= 2  -> -SCORE_DECAY_OK
+      gateway OK + internet == 1  -> -SCORE_DECAY_PARTIAL
+    """
+    delta = 0
+
+    if not gateway_ok:
+        delta += SCORE_GATEWAY_DOWN
+
+    if internet_ok_count == 0:
+        delta += SCORE_INTERNET_ALL_DOWN
+    elif internet_ok_count == 1:
+        delta += SCORE_INTERNET_PARTIAL
+
+    if gateway_ok and internet_ok_count >= 2:
+        delta -= SCORE_DECAY_OK
+    elif gateway_ok and internet_ok_count == 1:
+        delta -= SCORE_DECAY_PARTIAL
+
+    return delta
+
+
+def compute_effective_cooldown(consecutive_reboots: int) -> int:
+    """
+    Cooldown exponentiel : double a chaque reboot sans recuperation.
+    Reboot 1: REBOOT_COOLDOWN (15 min)
+    Reboot 2: x2 (30 min)
+    Reboot 3: x4 (1h)
+    Reboot 4: x8 (2h)
+    Reboot 5+: cap a MAX_REBOOT_COOLDOWN (4h)
+    """
+    exponent = min(consecutive_reboots, 5)
+    cooldown = REBOOT_COOLDOWN * (2 ** exponent)
+    return min(cooldown, MAX_REBOOT_COOLDOWN)
+
+
+def compute_ssh_retry_delay(consecutive_ssh_failures: int) -> int:
+    """
+    Delai avant de retenter SSH apres echecs consecutifs.
+    < SSH_FAILURE_BACKOFF_START echecs : pas de delai
+    Ensuite : SSH_FAILURE_COOLDOWN double a chaque palier, cap MAX_SSH_COOLDOWN.
+    """
+    if consecutive_ssh_failures < SSH_FAILURE_BACKOFF_START:
+        return 0
+    exponent = (consecutive_ssh_failures - SSH_FAILURE_BACKOFF_START) // 3
+    delay = SSH_FAILURE_COOLDOWN * (2 ** min(exponent, 4))
+    return min(delay, MAX_SSH_COOLDOWN)
+
+
+def _format_duration(seconds: int) -> str:
+    """Formate une duree en texte lisible."""
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}min"
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    if minutes:
+        return f"{hours}h{minutes:02d}"
+    return f"{hours}h"
+
+
+def main() -> None:
     setup_logging()
 
-    failure_count = 0
+    # Scoring state
+    failure_score = 0
+    was_degraded = False
+
+    # Reboot state
     last_reboot_time = 0.0
-    was_down = False
-    outage_started_at: Optional[float] = None
+    grace_until = 0.0
+    consecutive_reboots = 0
+    reboots_today = 0
+    today_date = datetime.now().date()
+    surveillance_only = False
+
+    # SSH backoff state
+    consecutive_ssh_failures = 0
+    last_ssh_attempt_time = 0.0
+
+    # ISP outage detection
+    isp_pattern_start = 0.0  # timestamp when "gw OK + inet KO" pattern started
+    isp_outage_detected = False
+
+    # Outage tracking for summary
+    outage_start_time = 0.0
+    outage_reboot_count = 0
+    outage_reboot_helped = False
+
+    # Coordination
+    threshold_reached_time = 0.0
+    start_time = time.time()
+    peer_info: dict[str, str | int] = {"status": "unknown", "score": 0, "gateway": "", "internet": ""}
+    divergence_notified = False
+    last_report_date = datetime.now().date()
+
+    # Version (read from VERSION file)
+    _version = "0.0.0"
+    for vpath in ("VERSION", "../VERSION", "../../VERSION"):
+        try:
+            _version = open(vpath).read().strip()
+            break
+        except FileNotFoundError:
+            continue
+
+    # Event history + HTTP state server
+    global _event_log
+    event_log = EventLog()
+    _event_log = event_log
+    state_holder = StateHolder()
+    start_http_server(state_holder, HTTP_PORT, event_log)
 
     logging.info("=" * 60)
-    logging.info("🚀 USG Watchdog démarré")
-    logging.info(f"   Check toutes les {CHECK_INTERVAL}s")
-    logging.info(f"   Seuil de reboot : {FAILURE_THRESHOLD} échecs consécutifs")
-    logging.info(f"   Cooldown post-reboot : {REBOOT_COOLDOWN}s")
+    logging.info("USG Watchdog demarre")
+    logging.info("   Instance : priority=%d", INSTANCE_PRIORITY)
+    if PEER_IP:
+        logging.info("   Peer : %s:%d", PEER_IP, HTTP_PORT)
+    else:
+        logging.info("   Mode : standalone (pas de peer)")
+    logging.info("   Check toutes les %ds", CHECK_INTERVAL)
+    logging.info(
+        "   Seuil de reboot : score >= %d (max %d)",
+        REBOOT_SCORE_THRESHOLD, MAX_SCORE,
+    )
+    logging.info("   Grace post-reboot : %ds", POST_REBOOT_GRACE)
+    logging.info(
+        "   Cooldown : %ds (backoff jusqu'a %ds)",
+        REBOOT_COOLDOWN, MAX_REBOOT_COOLDOWN,
+    )
+    logging.info("   Max reboots/jour : %d", MAX_REBOOTS_PER_DAY)
+    logging.info("   HTTP state : port %d", HTTP_PORT)
     logging.info("=" * 60)
 
-    send_notification("🚀 USG Watchdog démarré")
+    peer_info_str = f"peer={PEER_IP}" if PEER_IP else "standalone"
+    text, level, ctx = msg.startup()
+    notify(text, level, ctx)
+    event_log.record(STARTUP, priority=INSTANCE_PRIORITY, peer=peer_info_str)
 
     while True:
-        is_up = check_connectivity()
+        now = time.time()
 
-        if is_up:
-            if was_down:
-                down_duration = _get_outage_duration_seconds(
-                    outage_started_at, failure_count
+        # Reset daily reboot counter at midnight
+        current_date = datetime.now().date()
+        if current_date != today_date:
+            if reboots_today > 0:
+                logging.info(
+                    "Nouveau jour -- reset compteur reboots (hier: %d)", reboots_today
                 )
-                msg = f"✅ Connexion rétablie après {down_duration}s de coupure"
-                logging.info(msg)
-                send_notification(msg)
-                was_down = False
-                outage_started_at = None
+            reboots_today = 0
+            today_date = current_date
+            if surveillance_only:
+                surveillance_only = False
+                logging.info("Mode surveillance desactive -- reboots autorises")
 
-            if failure_count > 0:
-                logging.debug(f"Remise à zéro du compteur (était à {failure_count})")
-            failure_count = 0
+        # --- Daily report ---
+        if (
+            DAILY_REPORT_HOUR >= 0
+            and current_date != last_report_date
+            and datetime.now().hour >= DAILY_REPORT_HOUR
+        ):
+            last_report_date = current_date
+            try:
+                report = generate_daily_report(
+                    event_log,
+                    report_date=current_date if current_date != today_date else None,
+                    uptime_seconds=now - start_time,
+                    current_score=failure_score,
+                    peer_status=str(peer_info.get("status", "unknown")),
+                )
+                report_text = format_report_notification(report)
+                logging.info("Rapport quotidien envoye")
+                notify(report_text, Level.INFO)
+                event_log.record("daily_report")
+            except Exception as e:
+                logging.warning("Erreur generation rapport quotidien : %s", e)
 
+        # --- Process pending commands from HTTP API ---
+        cmd = state_holder.poll_command()
+        if cmd == CMD_PAUSE:
+            if not surveillance_only:
+                surveillance_only = True
+                logging.info("Mode surveillance active via API")
+                text, level, ctx = msg.api_pause()
+                notify(text, level, ctx)
+                event_log.record("api_pause")
+        elif cmd == CMD_RESUME:
+            if surveillance_only:
+                surveillance_only = False
+                logging.info("Mode surveillance desactive via API")
+                text, level, ctx = msg.api_resume()
+                notify(text, level, ctx)
+                event_log.record("api_resume")
+        elif cmd == CMD_REBOOT:
+            logging.warning("Reboot manuel demande via API")
+            text, level, ctx = msg.api_reboot()
+            notify(text, level, ctx)
+            event_log.record("api_reboot")
+            success = reboot_usg()
+            if success:
+                last_reboot_time = time.time()
+                grace_until = last_reboot_time + POST_REBOOT_GRACE
+                failure_score = 0
+                consecutive_reboots += 1
+                reboots_today += 1
+                outage_reboot_count += 1
+                event_log.record(REBOOT, attempt=consecutive_reboots, source="api")
+                logging.info("Reboot USG envoye via API -- Grace %ds", POST_REBOOT_GRACE)
+                for _ in range(USG_REBOOT_WAIT):
+                    time.sleep(1)
+            else:
+                logging.error("Reboot manuel echoue")
+                event_log.record(REBOOT_FAILED, source="api")
+
+        # Grace post-reboot : on ignore les echecs
+        if now < grace_until:
+            remaining = int(grace_until - now)
+            logging.debug("Grace post-reboot -- %ds restants", remaining)
+            time.sleep(CHECK_INTERVAL)
+            continue
+
+        result = check_connectivity()
+        delta = compute_cycle_delta(result.gateway_ok, result.internet_ok_count)
+        failure_score = clamp(failure_score + delta, 0, MAX_SCORE)
+
+        # --- ISP outage pattern detection ---
+        is_isp_pattern = result.gateway_ok and result.internet_ok_count == 0
+        if is_isp_pattern:
+            if isp_pattern_start == 0.0:
+                isp_pattern_start = now
+            elif not isp_outage_detected:
+                elapsed = now - isp_pattern_start
+                if elapsed >= ISP_OUTAGE_DETECTION_DELAY:
+                    isp_outage_detected = True
+                    event_log.record(ISP_OUTAGE, duration=_format_duration(int(elapsed)))
+                    logging.warning(
+                        "Probable panne ISP detectee (gw OK + inet KO depuis %s)",
+                        _format_duration(int(elapsed)),
+                    )
+                    text, level, ctx = msg.isp_outage_detected(
+                        _format_duration(int(elapsed)), result.internet_total,
+                    )
+                    notify(text, level, ctx)
         else:
-            if not was_down:
-                outage_started_at = time.time()
+            if isp_outage_detected and result.internet_ok_count >= 2:
+                isp_outage_detected = False
+                event_log.record(ISP_RECOVERY)
+                logging.info("Pattern ISP termine -- retour a la normale")
+            if not is_isp_pattern:
+                isp_pattern_start = 0.0
 
-            failure_count += 1
-            was_down = True
+        # --- Logging ---
+        if delta > 0:
             logging.warning(
-                f"⚠️  Connexion DOWN — Échec {failure_count}/{FAILURE_THRESHOLD} "
-                f"({failure_count * CHECK_INTERVAL}s de coupure)"
+                "gw=%s internet=%d/%d delta=%+d score=%d/%d%s",
+                "OK" if result.gateway_ok else "KO",
+                result.internet_ok_count,
+                result.internet_total,
+                delta,
+                failure_score,
+                REBOOT_SCORE_THRESHOLD,
+                " [ISP?]" if isp_outage_detected else "",
+            )
+        elif delta < 0:
+            logging.info(
+                "gw=%s internet=%d/%d delta=%+d score=%d/%d",
+                "OK" if result.gateway_ok else "KO",
+                result.internet_ok_count,
+                result.internet_total,
+                delta,
+                failure_score,
+                REBOOT_SCORE_THRESHOLD,
+            )
+        else:
+            logging.debug(
+                "gw=%s internet=%d/%d delta=%+d score=%d/%d",
+                "OK" if result.gateway_ok else "KO",
+                result.internet_ok_count,
+                result.internet_total,
+                delta,
+                failure_score,
+                REBOOT_SCORE_THRESHOLD,
             )
 
-            if failure_count >= FAILURE_THRESHOLD:
-                now = time.time()
-                elapsed_since_reboot = now - last_reboot_time
+        # --- Peer status + divergence detection ---
+        peer_info = get_peer_info()
 
-                if elapsed_since_reboot < REBOOT_COOLDOWN:
-                    remaining = int(REBOOT_COOLDOWN - elapsed_since_reboot)
+        if failure_score > 0 or (peer_info["status"] not in ("standalone", "unreachable", "unknown") and peer_info["score"] > 0):
+            divergence_raw = check_divergence(
+                failure_score, result.gateway_ok, result.internet_ok_count,
+            )
+            if divergence_raw and not divergence_notified:
+                divergence_notified = True
+                logging.warning("Divergence peer detectee")
+                text, level, ctx = msg.divergence_detected(
+                    failure_score, result.gateway_ok, result.internet_ok_count,
+                    int(peer_info.get("score", 0)),
+                    str(peer_info.get("gateway", "?")),
+                    str(peer_info.get("internet", "?")),
+                )
+                notify(text, level, ctx)
+                event_log.record("divergence", local_score=failure_score, peer_score=peer_info["score"])
+        else:
+            divergence_notified = False
+
+        # Track if reboot helped: score back to 0 after at least one reboot
+        if failure_score == 0 and outage_reboot_count > 0 and not outage_reboot_helped:
+            outage_reboot_helped = True
+
+        # --- Recovery detection ---
+        if was_degraded and failure_score == 0:
+            duration_str = ""
+            if outage_start_time > 0:
+                outage_duration = int(now - outage_start_time)
+                duration_str = f" apres {_format_duration(outage_duration)}"
+
+            dur = _format_duration(int(now - outage_start_time)) if outage_start_time > 0 else "?"
+
+            if outage_reboot_count > 0:
+                text, level, ctx = msg.recovery_with_reboot(
+                    dur, outage_reboot_count, outage_reboot_helped,
+                )
+            else:
+                text, level, ctx = msg.recovery_no_reboot(dur)
+
+            logging.info("Connexion retablie apres %s", dur)
+            event_log.record(
+                RECOVERY,
+                reboots=outage_reboot_count,
+                helped=outage_reboot_helped,
+                duration=dur,
+            )
+            notify(text, level, ctx)
+
+            was_degraded = False
+            outage_start_time = 0.0
+            outage_reboot_count = 0
+            outage_reboot_helped = False
+            consecutive_reboots = 0
+            consecutive_ssh_failures = 0
+
+        if failure_score > 0 and not was_degraded:
+            was_degraded = True
+            outage_start_time = now
+
+        # Track when threshold is first reached (for secondary takeover delay)
+        if failure_score >= REBOOT_SCORE_THRESHOLD and threshold_reached_time == 0.0:
+            threshold_reached_time = now
+        elif failure_score < REBOOT_SCORE_THRESHOLD:
+            threshold_reached_time = 0.0
+
+        # --- Reboot decision ---
+        if failure_score >= REBOOT_SCORE_THRESHOLD:
+            # Check surveillance-only mode (max reboots/day)
+            if surveillance_only:
+                logging.info(
+                    "Seuil atteint (score=%d) mais mode surveillance "
+                    "(max %d reboots/jour depasse)",
+                    failure_score,
+                    MAX_REBOOTS_PER_DAY,
+                )
+                time.sleep(CHECK_INTERVAL)
+                continue
+
+            # Check cooldown with exponential backoff
+            effective_cooldown = compute_effective_cooldown(consecutive_reboots)
+            elapsed_since_reboot = now - last_reboot_time
+
+            if last_reboot_time > 0 and elapsed_since_reboot < effective_cooldown:
+                remaining = int(effective_cooldown - elapsed_since_reboot)
+                logging.info(
+                    "Seuil atteint (score=%d) mais cooldown actif "
+                    "(%s, tentative #%d) -- %ds restants",
+                    failure_score,
+                    _format_duration(effective_cooldown),
+                    consecutive_reboots + 1,
+                    remaining,
+                )
+                time.sleep(CHECK_INTERVAL)
+                continue
+
+            # Check SSH backoff
+            ssh_retry_delay = compute_ssh_retry_delay(consecutive_ssh_failures)
+            if ssh_retry_delay > 0:
+                elapsed_since_ssh = now - last_ssh_attempt_time
+                if elapsed_since_ssh < ssh_retry_delay:
+                    remaining = int(ssh_retry_delay - elapsed_since_ssh)
                     logging.info(
-                        f"⏳ Cooldown actif — prochain reboot possible dans {remaining}s"
+                        "SSH backoff actif (%d echecs) -- retry dans %ds",
+                        consecutive_ssh_failures,
+                        remaining,
                     )
-                else:
-                    down_duration = _get_outage_duration_seconds(
-                        outage_started_at, failure_count
-                    )
+                    time.sleep(CHECK_INTERVAL)
+                    continue
+
+            # ISP outage: skip reboot if pattern detected
+            if isp_outage_detected:
+                logging.info(
+                    "Seuil atteint (score=%d) mais panne ISP probable "
+                    "-- reboot USG inutile",
+                    failure_score,
+                )
+                time.sleep(CHECK_INTERVAL)
+                continue
+
+            # Peer coordination check
+            current_state = WatchdogState(
+                failure_score=failure_score,
+                threshold=REBOOT_SCORE_THRESHOLD,
+                was_degraded=was_degraded,
+                last_reboot_time=last_reboot_time,
+                grace_until=grace_until,
+                consecutive_reboots=consecutive_reboots,
+                reboots_today=reboots_today,
+                surveillance_only=surveillance_only,
+                consecutive_ssh_failures=consecutive_ssh_failures,
+                last_ssh_attempt_time=last_ssh_attempt_time,
+                isp_outage_detected=isp_outage_detected,
+                outage_start_time=outage_start_time,
+                outage_reboot_count=outage_reboot_count,
+                outage_reboot_helped=outage_reboot_helped,
+                threshold_reached_time=threshold_reached_time,
+                instance_priority=INSTANCE_PRIORITY,
+                gateway_ok=result.gateway_ok,
+                internet_ok_count=result.internet_ok_count,
+                internet_total=result.internet_total,
+                version=_version,
+                timestamp=datetime.now().isoformat(),
+                uptime_seconds=now - start_time,
+            )
+            state_holder.state = current_state
+
+            proceed, reason = peer_should_reboot(current_state, result.gateway_ok)
+            if not proceed:
+                logging.info("Reboot differe (peer) : %s", reason)
+                event_log.record(PEER_STANDDOWN, reason=reason)
+                time.sleep(CHECK_INTERVAL)
+                continue
+
+            # --- Execute reboot ---
+            logging.warning(
+                "Seuil atteint (score=%d) -- Lancement du reboot USG (tentative #%d)",
+                failure_score,
+                consecutive_reboots + 1,
+            )
+            text, level, ctx = msg.reboot_launching(
+                attempt=consecutive_reboots + 1,
+                score=failure_score,
+                gateway_ok=result.gateway_ok,
+                inet_count=result.internet_ok_count,
+                inet_total=result.internet_total,
+                reboots_today=reboots_today,
+                peer_info=peer_info,
+            )
+            notify(text, level, ctx)
+
+            last_ssh_attempt_time = now
+            success = reboot_usg()
+
+            if success:
+                last_reboot_time = time.time()
+                grace_until = last_reboot_time + POST_REBOOT_GRACE
+                failure_score = 0
+                consecutive_reboots += 1
+                reboots_today += 1
+                consecutive_ssh_failures = 0
+                outage_reboot_count += 1
+
+                event_log.record(
+                    REBOOT, attempt=consecutive_reboots,
+                    score=failure_score, reboots_today=reboots_today,
+                )
+                next_cooldown = compute_effective_cooldown(consecutive_reboots)
+                reboot_time_str = datetime.now().strftime("%H:%M:%S")
+                logging.info(
+                    "Reboot USG envoye a %s -- Grace %ds + Cooldown %s "
+                    "(reboots aujourd'hui: %d/%d)",
+                    reboot_time_str,
+                    POST_REBOOT_GRACE,
+                    _format_duration(next_cooldown),
+                    reboots_today,
+                    MAX_REBOOTS_PER_DAY,
+                )
+
+                if reboots_today >= MAX_REBOOTS_PER_DAY:
+                    surveillance_only = True
+                    event_log.record(MAX_REBOOTS, reboots_today=reboots_today)
                     logging.warning(
-                        f"🔴 Seuil atteint ({down_duration}s de coupure) — Lancement du reboot USG"
+                        "Max reboots/jour atteint (%d) -- passage en mode surveillance",
+                        MAX_REBOOTS_PER_DAY,
                     )
-                    send_notification(
-                        f"🔴 Connexion DOWN depuis {down_duration}s\n"
-                        f"🔄 Reboot USG en cours..."
+                    text, level, ctx = msg.max_reboots_reached(reboots_today)
+                    notify(text, level, ctx)
+
+                logging.info(
+                    "Pause de %ds -- attente du redemarrage USG...",
+                    USG_REBOOT_WAIT,
+                )
+                for _ in range(USG_REBOOT_WAIT):
+                    time.sleep(1)
+            else:
+                consecutive_ssh_failures += 1
+                ssh_delay = compute_ssh_retry_delay(consecutive_ssh_failures)
+
+                event_log.record(REBOOT_FAILED, ssh_failures=consecutive_ssh_failures)
+                if consecutive_ssh_failures == SSH_FAILURE_BACKOFF_START:
+                    text, level, ctx = msg.ssh_failure(
+                        consecutive_ssh_failures, _format_duration(ssh_delay),
                     )
+                    notify(text, level, ctx)
+                logging.error(
+                    "Reboot SSH echoue (%d echecs, retry dans %s)",
+                    consecutive_ssh_failures,
+                    _format_duration(ssh_delay) if ssh_delay > 0 else "30s",
+                )
 
-                    success = reboot_usg()
-
-                    if success:
-                        last_reboot_time = now
-                        failure_count = 0
-                        reboot_time_str = datetime.now().strftime("%H:%M:%S")
-                        logging.info(
-                            f"✅ Reboot USG envoyé à {reboot_time_str} — "
-                            f"Cooldown de {REBOOT_COOLDOWN}s activé"
-                        )
-                        # Attendre que le USG redémarre avant de reprendre les checks
-                        logging.info("⏳ Pause de 60s — attente du redémarrage USG...")
-                        time.sleep(60)
-                    else:
-                        send_notification(
-                            "❌ Reboot SSH a échoué !\n"
-                            "Vérifier les logs pour plus de détails."
-                        )
-                        logging.error("❌ Reboot SSH échoué — retry au prochain cycle")
+        # Publish state for HTTP server + peer queries
+        state_holder.state = WatchdogState(
+            failure_score=failure_score,
+            threshold=REBOOT_SCORE_THRESHOLD,
+            was_degraded=was_degraded,
+            last_reboot_time=last_reboot_time,
+            grace_until=grace_until,
+            consecutive_reboots=consecutive_reboots,
+            reboots_today=reboots_today,
+            surveillance_only=surveillance_only,
+            consecutive_ssh_failures=consecutive_ssh_failures,
+            last_ssh_attempt_time=last_ssh_attempt_time,
+            isp_outage_detected=isp_outage_detected,
+            outage_start_time=outage_start_time,
+            outage_reboot_count=outage_reboot_count,
+            outage_reboot_helped=outage_reboot_helped,
+            threshold_reached_time=threshold_reached_time,
+            instance_priority=INSTANCE_PRIORITY,
+            gateway_ok=result.gateway_ok,
+            internet_ok_count=result.internet_ok_count,
+            internet_total=result.internet_total,
+            peer_status=str(peer_info.get("status", "unknown")),
+            peer_score=int(peer_info.get("score", 0)),
+            peer_gateway=str(peer_info.get("gateway", "")),
+            peer_internet=str(peer_info.get("internet", "")),
+            version=_version,
+            timestamp=datetime.now().isoformat(),
+            uptime_seconds=time.time() - start_time,
+        )
 
         time.sleep(CHECK_INTERVAL)
+
+
+_event_log: EventLog | None = None
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        logging.info("🛑 USG Watchdog arrêté manuellement")
-        send_notification("🛑 USG Watchdog arrêté")
+        logging.info("USG Watchdog arrete manuellement")
+        if _event_log:
+            _event_log.record(SHUTDOWN, reason="manual")
+            _event_log.persist_now()
+        text, level, ctx = msg.shutdown("arret manuel")
+        notify(text, level, ctx)
         sys.exit(0)
-    except Exception as e:
-        logging.critical(f"💥 Erreur fatale : {e}", exc_info=True)
-        send_notification(f"💥 USG Watchdog crashé : {e}")
+    except Exception:
+        logging.critical("Erreur fatale", exc_info=True)
+        if _event_log:
+            _event_log.record(SHUTDOWN, reason="crash")
+            _event_log.persist_now()
+        text, level, ctx = msg.shutdown("crash")
+        notify(text, level, ctx)
         sys.exit(1)

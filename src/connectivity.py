@@ -1,18 +1,35 @@
 """
-Module de vérification de la connexion internet.
-Utilise ping multi-cibles pour éviter les faux positifs.
+Module de verification de la connexion internet et du gateway LAN.
+Ping gateway USG + multi-cibles internet pour scoring precis.
 """
 
+import ipaddress
 import subprocess
 import logging
-from config import PING_TARGETS, PING_TIMEOUT
+from dataclasses import dataclass
+
+from config import PING_TARGETS, PING_TIMEOUT, USG_IP
+
+
+@dataclass(frozen=True)
+class ConnectivityResult:
+    """Resultat d'un cycle de verification."""
+    gateway_ok: bool
+    internet_ok_count: int
+    internet_total: int
 
 
 def ping_host(host: str, timeout: int = PING_TIMEOUT) -> bool:
     """
     Ping un host unique.
-    Retourne True si le host répond, False sinon.
+    Retourne True si le host repond, False sinon.
     """
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        logging.error("Cible de ping invalide (doit etre une adresse IP) : %s", host)
+        return False
+
     try:
         result = subprocess.run(
             ["ping", "-c", "1", "-W", str(timeout), host],
@@ -22,50 +39,59 @@ def ping_host(host: str, timeout: int = PING_TIMEOUT) -> bool:
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
-        logging.debug(f"Ping timeout → {host}")
+        logging.debug("Ping timeout -> %s", host)
         return False
     except FileNotFoundError:
-        logging.error("Commande 'ping' introuvable — vérifier l'installation")
+        logging.error("Commande 'ping' introuvable -- verifier l'installation")
         return False
     except Exception as e:
-        logging.debug(f"Erreur ping {host} : {e}")
+        logging.debug("Erreur ping %s : %s", host, e)
         return False
 
 
-def check_connectivity() -> bool:
+def ping_gateway() -> bool:
+    """Ping le gateway USG sur le LAN."""
+    ok = ping_host(USG_IP)
+    if ok:
+        logging.debug("Gateway %s repond", USG_IP)
+    else:
+        logging.debug("Gateway %s ne repond pas", USG_IP)
+    return ok
+
+
+def check_internet() -> int:
     """
-    Vérifie la connexion internet en pingant plusieurs cibles.
-
-    Stratégie : connexion considérée UP si AU MOINS 1 cible répond.
-    Cela évite un reboot si c'est un serveur DNS externe qui est down,
-    plutôt que notre connexion fibre.
-
-    Retourne True si internet est UP, False si DOWN.
+    Ping les cibles internet et retourne le nombre de reponses.
+    Short-circuit impossible ici : on a besoin du count exact pour le scoring.
     """
     if not PING_TARGETS:
-        logging.error("PING_TARGETS est vide — impossible de vérifier la connexion")
-        return True  # On assume UP pour ne pas rebooter par erreur de config
+        logging.error("PING_TARGETS est vide -- impossible de verifier la connexion")
+        return 0
 
-    results = {}
+    ok_count = 0
     for host in PING_TARGETS:
-        up = ping_host(host)
-        results[host] = up
-        if up:
-            logging.debug(f"✓ {host} répond")
+        if ping_host(host):
+            ok_count += 1
+            logging.debug("Internet %s repond", host)
         else:
-            logging.debug(f"✗ {host} ne répond pas")
+            logging.debug("Internet %s ne repond pas", host)
 
-    reachable = sum(1 for v in results.values() if v)
-    total = len(PING_TARGETS)
+    return ok_count
 
-    if reachable == 0:
-        logging.debug(f"Connexion DOWN — 0/{total} cibles accessibles")
-        return False
-    elif reachable < total:
-        logging.debug(
-            f"Connexion partielle — {reachable}/{total} cibles accessibles (considérée UP)"
-        )
-        return True
-    else:
-        logging.debug(f"Connexion UP — {reachable}/{total} cibles accessibles")
-        return True
+
+def check_connectivity() -> ConnectivityResult:
+    """
+    Effectue un cycle complet de verification :
+    1. Ping du gateway USG (LAN)
+    2. Ping des cibles internet
+
+    Retourne un ConnectivityResult avec le detail.
+    """
+    gateway_ok = ping_gateway()
+    internet_ok_count = check_internet()
+
+    return ConnectivityResult(
+        gateway_ok=gateway_ok,
+        internet_ok_count=internet_ok_count,
+        internet_total=len(PING_TARGETS),
+    )

@@ -1,0 +1,18 @@
+[Unit]
+Description=USG Watchdog Auto-Updater
+After=network-online.target usg-watchdog.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/usg-watchdog
+ExecStart=/opt/usg-watchdog/venv/bin/python /opt/usg-watchdog/updater/update.py
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=usg-watchdog-updater
+
+# Timeout: 10 min max for download + validation + restart
+TimeoutStartSec=600
