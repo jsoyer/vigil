@@ -161,6 +161,80 @@ def generate_weekly_report(
     }
 
 
+def calculate_monthly_sla(event_log: EventLog) -> dict:
+    """Calculate monthly uptime SLA from event history.
+
+    Returns dict with uptime_pct, downtime_minutes, month.
+    """
+    from datetime import timedelta
+
+    today = datetime.now().date()
+    month_start = today.replace(day=1)
+    month_str = today.strftime("%Y-%m")
+
+    all_events = event_log.get_all()
+    month_events = [e for e in all_events if e["ts"][:7] == month_str]
+
+    # Count recovery events (each represents one outage)
+    recoveries = [e for e in month_events if e["type"] == RECOVERY]
+
+    # Estimate total downtime from recovery durations
+    total_downtime_min = 0
+    for r in recoveries:
+        dur = r.get("data", {}).get("duration", "")
+        total_downtime_min += _parse_duration_to_minutes(str(dur))
+
+    days_in_month = (today - month_start).days + 1
+    total_minutes = days_in_month * 24 * 60
+    uptime_minutes = max(0, total_minutes - total_downtime_min)
+    uptime_pct = round((uptime_minutes / total_minutes) * 100, 3) if total_minutes > 0 else 100.0
+
+    # SLA tier
+    if uptime_pct >= 99.99:
+        tier = "99.99% (4 nines)"
+    elif uptime_pct >= 99.9:
+        tier = "99.9% (3 nines)"
+    elif uptime_pct >= 99.0:
+        tier = "99% (2 nines)"
+    else:
+        tier = f"< 99%"
+
+    return {
+        "month": month_str,
+        "days_elapsed": days_in_month,
+        "uptime_pct": uptime_pct,
+        "downtime_minutes": total_downtime_min,
+        "outage_count": len(recoveries),
+        "sla_tier": tier,
+    }
+
+
+def _parse_duration_to_minutes(dur: str) -> int:
+    """Parse duration strings like '5min', '2h30', '45s' to minutes."""
+    if not dur or dur == "?" or dur == "unknown":
+        return 5  # default estimate
+    dur = dur.strip()
+    if dur.endswith("s"):
+        try:
+            return max(1, int(dur[:-1]) // 60)
+        except ValueError:
+            return 5
+    if dur.endswith("min"):
+        try:
+            return int(dur[:-3])
+        except ValueError:
+            return 5
+    if "h" in dur:
+        parts = dur.split("h")
+        try:
+            hours = int(parts[0])
+            mins = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+            return hours * 60 + mins
+        except ValueError:
+            return 5
+    return 5
+
+
 def format_weekly_report(report: dict) -> str:
     """Format a weekly report as notification text."""
     lines = [

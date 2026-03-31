@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
 from dashboard import DASHBOARD_HTML
-from report import generate_daily_report
+from report import generate_daily_report, calculate_monthly_sla
 from metrics import render_metrics
 from history import HistoryBuffer
 
@@ -41,6 +41,11 @@ def _make_handler_class(
                     self._handle_get_backup_unifi()
                 elif self.path == "/api/history":
                     self._respond_json(200, history.get_all() if history else [])
+                elif self.path == "/api/sla":
+                    if event_log:
+                        self._respond_json(200, calculate_monthly_sla(event_log))
+                    else:
+                        self._respond_json(200, {})
                 elif self.path == "/metrics":
                     self._handle_metrics()
                 elif self.path == "/api/report":
