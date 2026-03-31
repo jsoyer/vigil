@@ -49,6 +49,11 @@ class WatchdogState:
     peer_gateway: str = ""
     peer_internet: str = ""
 
+    # Latency
+    gateway_rtt_ms: float | None = None
+    internet_avg_rtt_ms: float | None = None
+    latency_degraded: bool = False
+
     # Version
     version: str = "0.0.0"
 

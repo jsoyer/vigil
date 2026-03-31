@@ -293,6 +293,86 @@ class TestSlack:
 
 
 # ===================================================================
+# Ntfy channel
+# ===================================================================
+
+
+class TestNtfy:
+    @mock.patch("src.notifier._ntfy.NTFY_URL", "")
+    @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "")
+    def test_not_configured_when_empty(self):
+        from src.notifier._ntfy import is_configured
+        assert is_configured() is False
+
+    @mock.patch("src.notifier._ntfy.NTFY_URL", "https://ntfy.sh")
+    @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "test-topic")
+    @mock.patch("src.notifier._ntfy.requests")
+    def test_sends_with_priority(self, mock_requests):
+        from src.notifier._ntfy import send
+        mock_response = mock.Mock(status_code=200)
+        mock_requests.post.return_value = mock_response
+        mock_requests.exceptions = __import__("requests").exceptions
+
+        result = send("test msg", Level.CRITICAL, None, "host", "ts")
+        assert result is True
+        call_kwargs = mock_requests.post.call_args
+        assert "ntfy.sh/test-topic" in call_kwargs[0][0]
+        assert call_kwargs[1]["headers"]["Priority"] == "5"
+
+    @mock.patch("src.notifier._ntfy.NTFY_URL", "http://pi:8080")
+    @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "watchdog")
+    @mock.patch("src.notifier._ntfy.requests")
+    def test_self_hosted_url(self, mock_requests):
+        from src.notifier._ntfy import send
+        mock_response = mock.Mock(status_code=200)
+        mock_requests.post.return_value = mock_response
+        mock_requests.exceptions = __import__("requests").exceptions
+
+        send("test", Level.INFO, None, "h", "t")
+        url = mock_requests.post.call_args[0][0]
+        assert url == "http://pi:8080/watchdog"
+
+    @mock.patch("src.notifier._ntfy.NTFY_URL", "https://ntfy.sh")
+    @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "test")
+    @mock.patch("src.notifier._ntfy.requests")
+    def test_returns_false_on_timeout(self, mock_requests):
+        from src.notifier._ntfy import send
+        import requests as real_requests
+        mock_requests.post.side_effect = real_requests.exceptions.Timeout
+        mock_requests.exceptions = real_requests.exceptions
+        assert send("test", Level.INFO, None, "h", "t") is False
+
+    @mock.patch("src.notifier._ntfy.NTFY_URL", "https://ntfy.sh")
+    @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "test")
+    @mock.patch("src.notifier._ntfy.requests")
+    def test_returns_false_on_connection_error(self, mock_requests):
+        from src.notifier._ntfy import send
+        import requests as real_requests
+        mock_requests.post.side_effect = real_requests.exceptions.ConnectionError
+        mock_requests.exceptions = real_requests.exceptions
+        assert send("test", Level.INFO, None, "h", "t") is False
+
+    @mock.patch("src.notifier._ntfy.requests", None)
+    def test_returns_false_without_requests(self):
+        from src.notifier._ntfy import send
+        assert send("test", Level.INFO, None, "h", "t") is False
+
+    @mock.patch("src.notifier._ntfy.NTFY_URL", "https://ntfy.sh")
+    @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "test")
+    @mock.patch("src.notifier._ntfy.requests")
+    def test_includes_context(self, mock_requests):
+        from src.notifier._ntfy import send
+        mock_response = mock.Mock(status_code=200)
+        mock_requests.post.return_value = mock_response
+        mock_requests.exceptions = __import__("requests").exceptions
+
+        ctx = NotificationContext(score=12, threshold=10)
+        send("test", Level.WARNING, ctx, "host", "ts")
+        body = mock_requests.post.call_args[1]["data"].decode()
+        assert "score=12/10" in body
+
+
+# ===================================================================
 # Dispatch / public API
 # ===================================================================
 

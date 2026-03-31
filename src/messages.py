@@ -79,6 +79,7 @@ def reboot_launching(
     inet_total: int,
     reboots_today: int,
     peer_info: dict,
+    traceroute_summary: str = "",
 ) -> tuple[str, Level, NotificationContext]:
     lines = [
         f"Internet coupe -- redemarrage du routeur USG ({USG_IP}).",
@@ -96,6 +97,9 @@ def reboot_launching(
             f"gw={peer_info.get('gateway', '?')} "
             f"inet={peer_info.get('internet', '?')})"
         )
+
+    if traceroute_summary:
+        lines.extend(["", f"Diagnostic : {traceroute_summary}"])
 
     lines.extend([
         "",

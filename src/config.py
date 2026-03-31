@@ -189,6 +189,17 @@ SLACK_TIMEOUT: int = _get_int_env("SLACK_TIMEOUT", default=5, minimum=2)
 SLACK_MIN_LEVEL: str = os.getenv("SLACK_MIN_LEVEL", "INFO")
 
 # ---------------------------------------------
+# NOTIFICATIONS NTFY (optionnel)
+# ---------------------------------------------
+
+# URL du serveur Ntfy (cloud: https://ntfy.sh, self-hosted: http://pi:8080)
+NTFY_URL: str = os.getenv("NTFY_URL", "")
+# Topic Ntfy (ex: usg-watchdog)
+NTFY_TOPIC: str = os.getenv("NTFY_TOPIC", "")
+NTFY_TIMEOUT: int = _get_int_env("NTFY_TIMEOUT", default=5, minimum=2)
+NTFY_MIN_LEVEL: str = os.getenv("NTFY_MIN_LEVEL", "INFO")
+
+# ---------------------------------------------
 # COORDINATION PEER (optionnel)
 # ---------------------------------------------
 

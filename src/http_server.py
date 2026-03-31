@@ -87,6 +87,11 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                 "reboots_today": snapshot.reboots_today,
                 "isp_outage": snapshot.isp_outage_detected,
                 "uptime": int(snapshot.uptime_seconds),
+                "latency": {
+                    "gateway_ms": round(snapshot.gateway_rtt_ms, 1) if snapshot.gateway_rtt_ms is not None else None,
+                    "internet_avg_ms": round(snapshot.internet_avg_rtt_ms, 1) if snapshot.internet_avg_rtt_ms is not None else None,
+                    "degraded": snapshot.latency_degraded,
+                },
                 "version": snapshot.version,
                 "peer": {
                     "status": snapshot.peer_status,

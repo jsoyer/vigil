@@ -6,7 +6,7 @@ from datetime import datetime
 
 from notifier._types import Level, NotificationContext, NotificationChannel
 
-from config import TELEGRAM_MIN_LEVEL, DISCORD_MIN_LEVEL, SLACK_MIN_LEVEL
+from config import TELEGRAM_MIN_LEVEL, DISCORD_MIN_LEVEL, SLACK_MIN_LEVEL, NTFY_MIN_LEVEL
 
 
 def _parse_level(raw: str) -> Level:
@@ -29,11 +29,12 @@ def _get_hostname() -> str:
 
 def _get_channels() -> list[tuple[str, NotificationChannel, str]]:
     """Build channel list dynamically so mocks apply correctly."""
-    from notifier import _telegram, _discord, _slack
+    from notifier import _telegram, _discord, _slack, _ntfy
     return [
         ("telegram", _telegram, TELEGRAM_MIN_LEVEL),
         ("discord", _discord, DISCORD_MIN_LEVEL),
         ("slack", _slack, SLACK_MIN_LEVEL),
+        ("ntfy", _ntfy, NTFY_MIN_LEVEL),
     ]
 
 
