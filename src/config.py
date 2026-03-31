@@ -271,6 +271,22 @@ CLOUDFLARE_TTL: int = _get_int_env("CLOUDFLARE_TTL", default=120, minimum=1)
 DDNS_CHECK_INTERVAL: int = _get_int_env("DDNS_CHECK_INTERVAL", default=1800, minimum=60)
 
 # ---------------------------------------------
+# TAILSCALE DNS SYNC (optionnel)
+# ---------------------------------------------
+
+# API key Tailscale (tskey-api-...)
+TAILSCALE_API_KEY: str = os.getenv("TAILSCALE_API_KEY", "")
+# Tailnet (email ou nom d'org)
+TAILSCALE_TAILNET: str = os.getenv("TAILSCALE_TAILNET", "")
+# Sous-domaine pour les records (ex: "ts" pour hostname.ts.bbhome.wf, vide = hostname.bbhome.wf)
+TAILSCALE_DNS_SUBDOMAIN: str = os.getenv("TAILSCALE_DNS_SUBDOMAIN", "")
+# Prefix/postfix pour les hostnames
+TAILSCALE_DNS_PREFIX: str = os.getenv("TAILSCALE_DNS_PREFIX", "")
+TAILSCALE_DNS_POSTFIX: str = os.getenv("TAILSCALE_DNS_POSTFIX", "")
+# Intervalle de sync (secondes, defaut 600s = 10 min)
+TAILSCALE_SYNC_INTERVAL: int = _get_int_env("TAILSCALE_SYNC_INTERVAL", default=600, minimum=60)
+
+# ---------------------------------------------
 # BACKUP UNIFI (optionnel)
 # ---------------------------------------------
 
