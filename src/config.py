@@ -222,6 +222,15 @@ PUSHOVER_TIMEOUT: int = _get_int_env("PUSHOVER_TIMEOUT", default=5, minimum=2)
 PUSHOVER_MIN_LEVEL: str = os.getenv("PUSHOVER_MIN_LEVEL", "INFO")
 
 # ---------------------------------------------
+# ESCALADE D'ALERTES (optionnel)
+# ---------------------------------------------
+
+# Activer l'escalade (true/false)
+ALERT_ESCALATION_ENABLED: bool = os.getenv("ALERT_ESCALATION_ENABLED", "false").lower() in ("true", "1", "yes")
+# Delai avant escalade (minutes)
+ALERT_ESCALATION_DELAY: int = _get_int_env("ALERT_ESCALATION_DELAY", default=15, minimum=5)
+
+# ---------------------------------------------
 # MQTT / HOME ASSISTANT (optionnel)
 # ---------------------------------------------
 
