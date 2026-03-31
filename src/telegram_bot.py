@@ -1,0 +1,187 @@
+"""Telegram bot -- interactive commands via long-polling.
+
+Runs in a background thread. Allows controlling the watchdog from Telegram.
+Commands: /status, /pause, /resume, /reboot, /ddns, /backup, /help
+"""
+
+import json
+import logging
+import threading
+import time
+import urllib.request
+import urllib.error
+
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
+
+
+def is_configured() -> bool:
+    return bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+
+
+def _api(method: str, params: dict | None = None) -> dict | None:
+    """Call Telegram Bot API."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
+    if params:
+        data = json.dumps(params).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    else:
+        req = urllib.request.Request(url)
+
+    try:
+        with urllib.request.urlopen(req, timeout=35) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _send(chat_id: str, text: str) -> None:
+    _api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+
+
+def _handle_command(
+    command: str,
+    chat_id: str,
+    holder: StateHolder,
+) -> None:
+    """Process a bot command."""
+    cmd = command.strip().lower().split("@")[0]  # strip @botname
+
+    if cmd == "/status":
+        state = holder.state
+        if state is None:
+            _send(chat_id, "Watchdog en cours de demarrage...")
+            return
+
+        if state.surveillance_only:
+            status = "SURVEILLANCE"
+        elif state.failure_score >= state.threshold:
+            status = "CRITIQUE"
+        elif state.failure_score > 0:
+            status = "DEGRADE"
+        else:
+            status = "OK"
+
+        lines = [
+            f"<b>USG Watchdog</b>",
+            "",
+            f"Status : <b>{status}</b>",
+            f"Score : {state.failure_score}/{state.threshold}",
+            f"Gateway : {'OK' if state.gateway_ok else 'KO'}",
+            f"Internet : {state.internet_ok_count}/{state.internet_total}",
+        ]
+        if state.gateway_rtt_ms is not None:
+            lines.append(f"Latence GW : {round(state.gateway_rtt_ms, 1)}ms")
+        if state.internet_avg_rtt_ms is not None:
+            lines.append(f"Latence Internet : {round(state.internet_avg_rtt_ms, 1)}ms")
+        lines.extend([
+            f"Reboots aujourd'hui : {state.reboots_today}",
+            f"ISP : {'PANNE' if state.isp_outage_detected else 'OK'}",
+            f"Peer : {state.peer_status}",
+            f"Uptime : {int(state.uptime_seconds // 3600)}h",
+        ])
+        _send(chat_id, "\n".join(lines))
+
+    elif cmd == "/pause":
+        holder.send_command(CMD_PAUSE)
+        _send(chat_id, "Mode surveillance active. Le watchdog ne redemarrera plus le routeur.")
+
+    elif cmd == "/resume":
+        holder.send_command(CMD_RESUME)
+        _send(chat_id, "Mode normal reactive. Le watchdog peut redemarrer le routeur.")
+
+    elif cmd == "/reboot":
+        holder.send_command(CMD_REBOOT)
+        _send(chat_id, "Reboot USG demande. Coupure de ~2 min attendue.")
+
+    elif cmd == "/ddns":
+        from ddns_cloudflare import check_and_update, is_configured as ddns_ok
+        if not ddns_ok():
+            _send(chat_id, "DDNS non configure.")
+            return
+        result = check_and_update(force=True)
+        if result is None:
+            _send(chat_id, "Impossible de determiner l'IP publique.")
+        elif result.changed:
+            _send(chat_id, f"IP mise a jour : {result.previous_ip} -> {result.current_ip}")
+        else:
+            _send(chat_id, f"IP inchangee : {result.current_ip}")
+
+    elif cmd == "/backup":
+        from backup_unifi import run_backup, is_configured as backup_ok
+        if not backup_ok():
+            _send(chat_id, "Backup UniFi non configure.")
+            return
+        _send(chat_id, "Backup en cours...")
+        bresult = run_backup(source="telegram")
+        _send(chat_id, bresult.summary())
+
+    elif cmd == "/help":
+        _send(chat_id,
+            "<b>Commandes disponibles :</b>\n\n"
+            "/status - Etat du watchdog\n"
+            "/pause - Mode surveillance (plus de reboot)\n"
+            "/resume - Reprendre le mode normal\n"
+            "/reboot - Forcer un reboot USG\n"
+            "/ddns - Forcer une MAJ DNS Cloudflare\n"
+            "/backup - Lancer un backup UniFi\n"
+            "/help - Cette aide"
+        )
+
+    else:
+        _send(chat_id, f"Commande inconnue : {cmd}\nTapez /help pour la liste.")
+
+
+class TelegramBot:
+    """Long-polling Telegram bot running in a background thread."""
+
+    def __init__(self, holder: StateHolder) -> None:
+        self._holder = holder
+        self._offset = 0
+
+    def start(self) -> bool:
+        """Start the bot in a background thread. Returns True if configured."""
+        if not is_configured():
+            return False
+
+        thread = threading.Thread(
+            target=self._poll_loop,
+            name="telegram-bot",
+            daemon=True,
+        )
+        thread.start()
+        logging.info("Telegram bot demarre (long-polling)")
+        return True
+
+    def _poll_loop(self) -> None:
+        while True:
+            try:
+                self._poll_updates()
+            except Exception as e:
+                logging.debug("Telegram bot poll error: %s", e)
+                time.sleep(10)
+
+    def _poll_updates(self) -> None:
+        result = _api("getUpdates", {
+            "offset": self._offset,
+            "timeout": 30,
+            "allowed_updates": ["message"],
+        })
+
+        if result is None or not result.get("ok"):
+            time.sleep(5)
+            return
+
+        for update in result.get("result", []):
+            self._offset = update["update_id"] + 1
+            message = update.get("message", {})
+            text = message.get("text", "")
+            chat_id = str(message.get("chat", {}).get("id", ""))
+
+            # Security: only respond to the configured chat
+            if chat_id != TELEGRAM_CHAT_ID:
+                logging.warning("Telegram bot: message ignore (chat_id=%s != %s)", chat_id, TELEGRAM_CHAT_ID)
+                continue
+
+            if text.startswith("/"):
+                _handle_command(text, chat_id, self._holder)

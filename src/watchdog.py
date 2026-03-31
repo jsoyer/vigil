@@ -59,6 +59,7 @@ from mqtt_publisher import MqttPublisher
 from snmp_monitor import read_usg_metrics, UsgMetrics
 from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
 from history import HistoryBuffer
+from telegram_bot import TelegramBot
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
@@ -233,6 +234,10 @@ def main() -> None:
     # MQTT publisher (optional)
     mqtt = MqttPublisher(state_holder)
     mqtt.start()
+
+    # Telegram bot (optional, uses same token as notifications)
+    telegram_bot = TelegramBot(state_holder)
+    telegram_bot.start()
 
     # Cycle counters for periodic tasks
     cycle_count = 0
