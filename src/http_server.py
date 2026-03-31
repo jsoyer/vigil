@@ -8,13 +8,18 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
 from dashboard import DASHBOARD_HTML
-from report import generate_daily_report
+from report import generate_daily_report, calculate_monthly_sla
 from metrics import render_metrics
+from history import HistoryBuffer
 
 import config as _config
 
 
-def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) -> type:
+def _make_handler_class(
+    holder: StateHolder,
+    event_log: EventLog | None = None,
+    history: HistoryBuffer | None = None,
+) -> type:
     """Create a request handler class with access to shared state."""
 
     class Handler(BaseHTTPRequestHandler):
@@ -34,6 +39,15 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                     self._handle_get_maintenance()
                 elif self.path == "/api/backup/unifi":
                     self._handle_get_backup_unifi()
+                elif self.path == "/api/history":
+                    self._respond_json(200, history.get_all() if history else [])
+                elif self.path == "/api/sla":
+                    if event_log:
+                        self._respond_json(200, calculate_monthly_sla(event_log))
+                    else:
+                        self._respond_json(200, {})
+                elif self.path == "/api/backup/config":
+                    self._handle_export_config()
                 elif self.path == "/metrics":
                     self._handle_metrics()
                 elif self.path == "/api/report":
@@ -60,6 +74,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                     self._handle_backup_unifi()
                 elif self.path == "/api/maintenance":
                     self._handle_post_maintenance()
+                elif self.path == "/api/config/reload":
+                    self._handle_config_reload()
                 else:
                     self._respond_json(404, {"error": "not found"})
             except Exception:
@@ -208,6 +224,42 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
             result = run_backup(source="api")
             self._respond_json(200, {"ok": result.ok, **result.to_dict()})
 
+        def _handle_export_config(self) -> None:
+            """Export config + events as JSON backup."""
+            snapshot = holder.state
+            export = {
+                "version": snapshot.version if snapshot else "unknown",
+                "exported_at": __import__("datetime").datetime.now().isoformat(),
+                "config": {},
+                "events": event_log.get_all() if event_log else [],
+            }
+            # Add non-secret config
+            for key in dir(_config):
+                if key.isupper() and not any(s in key for s in ("TOKEN", "PASSWORD", "SECRET", "WEBHOOK_URL")):
+                    val = getattr(_config, key)
+                    if isinstance(val, (str, int, float, bool, list)):
+                        export["config"][key] = val
+            self._respond_json(200, export)
+
+        def _handle_config_reload(self) -> None:
+            """Reload config by re-reading env vars from .env file."""
+            import importlib
+            try:
+                # Re-read .env file if it exists
+                env_path = "/opt/usg-watchdog/.env"
+                import os
+                if os.path.exists(env_path):
+                    with open(env_path) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#") and "=" in line:
+                                key, _, value = line.partition("=")
+                                os.environ[key.strip()] = value.strip().strip('"').strip("'")
+                importlib.reload(_config)
+                self._respond_json(200, {"ok": True, "message": "config reloaded"})
+            except Exception as e:
+                self._respond_json(500, {"ok": False, "error": str(e)})
+
         def _handle_ddns_update(self) -> None:
             """Force a DDNS update."""
             from ddns_cloudflare import check_and_update, is_configured
@@ -287,6 +339,7 @@ def start_http_server(
     holder: StateHolder,
     port: int,
     event_log: EventLog | None = None,
+    history: HistoryBuffer | None = None,
 ) -> threading.Thread | None:
     """Start the HTTP state server in a background daemon thread.
 
@@ -294,7 +347,7 @@ def start_http_server(
     Never raises.
     """
     try:
-        handler_class = _make_handler_class(holder, event_log)
+        handler_class = _make_handler_class(holder, event_log, history)
         server = HTTPServer(("0.0.0.0", port), handler_class)
     except OSError as e:
         logging.error(
