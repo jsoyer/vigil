@@ -41,6 +41,9 @@ from config import (
     DAILY_REPORT_HOUR,
     WEEKLY_REPORT_DAY,
     UNIFI_BACKUP_SCHEDULE_HOUR,
+    UNIFI_BACKUP_MAX_AGE_HOURS,
+    CLOUDFLARE_RECORD_NAMES,
+    ALERT_ESCALATION_DELAY,
     LOG_FILE,
     LOG_LEVEL,
 )
@@ -60,6 +63,8 @@ from snmp_monitor import read_usg_metrics, UsgMetrics
 from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
 from history import HistoryBuffer
 from telegram_bot import TelegramBot
+from alert_escalation import EscalationTracker
+from multiwan import check_wan_status
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
@@ -239,7 +244,8 @@ def main() -> None:
     telegram_bot = TelegramBot(state_holder)
     telegram_bot.start()
 
-    # Cycle counters for periodic tasks
+    # Alert escalation + cycle counters
+    escalation = EscalationTracker()
     cycle_count = 0
 
     logging.info("=" * 60)
@@ -354,7 +360,7 @@ def main() -> None:
                 if bresult.stale:
                     text_s, level_s, ctx_s = msg.backup_stale(
                         bresult.filename, bresult.stale_hours,
-                        __import__("config").UNIFI_BACKUP_MAX_AGE_HOURS,
+                        UNIFI_BACKUP_MAX_AGE_HOURS,
                     )
                     notify(text_s, level_s, ctx_s)
                     event_log.record("backup_stale", age_hours=bresult.stale_hours)
@@ -547,6 +553,7 @@ def main() -> None:
             outage_reboot_count = 0
             outage_reboot_helped = False
             consecutive_reboots = 0
+            escalation.on_recovery()
             consecutive_ssh_failures = 0
 
             # DDNS check on recovery (IP may have changed after reboot)
@@ -557,7 +564,7 @@ def main() -> None:
                         text_d, level_d, ctx_d = msg.ddns_updated(
                             ddns_result.previous_ip, ddns_result.current_ip,
                             ddns_result.records_updated,
-                            ", ".join(r.strip() for r in __import__("config").CLOUDFLARE_RECORD_NAMES.split(",")),
+                            ", ".join(r.strip() for r in CLOUDFLARE_RECORD_NAMES.split(",")),
                         )
                     else:
                         text_d, level_d, ctx_d = msg.ddns_failed(
@@ -712,6 +719,7 @@ def main() -> None:
                 peer_info=peer_info,
             )
             notify(text, level, ctx)
+            escalation.on_critical()
 
             last_ssh_attempt_time = now
             success = reboot_usg()
@@ -781,7 +789,7 @@ def main() -> None:
                     text_d, level_d, ctx_d = msg.ddns_updated(
                         ddns_result.previous_ip, ddns_result.current_ip,
                         ddns_result.records_updated,
-                        ", ".join(r.strip() for r in __import__("config").CLOUDFLARE_RECORD_NAMES.split(",")),
+                        ", ".join(r.strip() for r in CLOUDFLARE_RECORD_NAMES.split(",")),
                     )
                 else:
                     text_d, level_d, ctx_d = msg.ddns_failed(
@@ -808,8 +816,29 @@ def main() -> None:
                         cpu=usg_metrics.cpu_percent,
                         ram=usg_metrics.memory_percent,
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("SNMP check error: %s", e)
+
+        # --- Multi-WAN check (every 10 cycles) ---
+        if cycle_count % 10 == 5:  # offset from SNMP to spread load
+            try:
+                wan = check_wan_status()
+                if wan.reachable and wan.failover_active:
+                    logging.warning("WAN failover actif : %s", wan.active_interface)
+                    event_log.record("wan_failover", interface=wan.active_interface)
+            except Exception as e:
+                logging.debug("Multi-WAN check error: %s", e)
+
+        # --- Alert escalation check ---
+        if escalation.should_escalate():
+            logging.warning("Escalade d'alerte -- re-notification sur tous les canaux")
+            notify(
+                "ESCALADE : alerte critique non resolue depuis "
+                f"{ALERT_ESCALATION_DELAY} minutes.\n"
+                f"Score actuel : {failure_score}/{REBOOT_SCORE_THRESHOLD}",
+                Level.CRITICAL,
+            )
+            event_log.record("alert_escalated", score=failure_score)
 
         # --- Periodic speedtest (every SPEEDTEST_INTERVAL_CYCLES) ---
         if cycle_count % SPEEDTEST_INTERVAL_CYCLES == 0 and failure_score == 0:
@@ -824,8 +853,8 @@ def main() -> None:
                         mbps=round(speed_result.download_mbps or 0, 2),
                         duration_ms=speed_result.duration_ms,
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("Speedtest error: %s", e)
 
         cycle_count += 1
 

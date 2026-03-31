@@ -62,8 +62,20 @@ def _make_handler_class(
             except Exception:
                 self._respond_json(500, {"error": "internal error"})
 
+        def _check_auth(self) -> bool:
+            """Check API token if configured. Returns True if authorized."""
+            if not _config.API_TOKEN:
+                return True  # no auth configured
+            auth = self.headers.get("Authorization", "")
+            if auth == f"Bearer {_config.API_TOKEN}":
+                return True
+            self._respond_json(401, {"error": "unauthorized"})
+            return False
+
         def do_POST(self) -> None:
             try:
+                if not self._check_auth():
+                    return
                 if self.path == "/api/pause":
                     holder.send_command(CMD_PAUSE)
                     self._respond_json(200, {"ok": True, "command": "pause"})
@@ -229,41 +241,64 @@ def _make_handler_class(
             result = run_backup(source="api")
             self._respond_json(200, {"ok": result.ok, **result.to_dict()})
 
+        _EXPORT_SAFE_KEYS = frozenset({
+            "CHECK_INTERVAL", "REBOOT_SCORE_THRESHOLD", "MAX_SCORE",
+            "SCORE_GATEWAY_DOWN", "SCORE_INTERNET_ALL_DOWN", "SCORE_INTERNET_PARTIAL",
+            "SCORE_DECAY_OK", "SCORE_DECAY_PARTIAL", "POST_REBOOT_GRACE",
+            "REBOOT_COOLDOWN", "MAX_REBOOT_COOLDOWN", "MAX_REBOOTS_PER_DAY",
+            "PING_TARGETS", "PING_TIMEOUT", "INSTANCE_PRIORITY",
+            "HTTP_PORT", "PEER_PORT", "PEER_TAKEOVER_DELAY",
+            "DAILY_REPORT_HOUR", "WEEKLY_REPORT_DAY",
+            "DDNS_CHECK_INTERVAL", "LOG_LEVEL",
+            "ISP_OUTAGE_DETECTION_DELAY", "ALERT_ESCALATION_DELAY",
+        })
+
         def _handle_export_config(self) -> None:
-            """Export config + events as JSON backup."""
+            """Export safe config + events as JSON backup."""
+            from datetime import datetime as dt
             snapshot = holder.state
             export = {
                 "version": snapshot.version if snapshot else "unknown",
-                "exported_at": __import__("datetime").datetime.now().isoformat(),
+                "exported_at": dt.now().isoformat(),
                 "config": {},
                 "events": event_log.get_all() if event_log else [],
             }
-            # Add non-secret config
-            for key in dir(_config):
-                if key.isupper() and not any(s in key for s in ("TOKEN", "PASSWORD", "SECRET", "WEBHOOK_URL")):
-                    val = getattr(_config, key)
-                    if isinstance(val, (str, int, float, bool, list)):
-                        export["config"][key] = val
+            for key in self._EXPORT_SAFE_KEYS:
+                val = getattr(_config, key, None)
+                if val is not None:
+                    export["config"][key] = val
             self._respond_json(200, export)
 
+        _SAFE_RELOAD_KEYS = frozenset({
+            "CHECK_INTERVAL", "REBOOT_SCORE_THRESHOLD", "MAX_SCORE",
+            "SCORE_GATEWAY_DOWN", "SCORE_INTERNET_ALL_DOWN", "SCORE_INTERNET_PARTIAL",
+            "SCORE_DECAY_OK", "SCORE_DECAY_PARTIAL", "POST_REBOOT_GRACE",
+            "REBOOT_COOLDOWN", "MAX_REBOOT_COOLDOWN", "MAX_REBOOTS_PER_DAY",
+            "LOG_LEVEL", "DAILY_REPORT_HOUR", "WEEKLY_REPORT_DAY",
+            "DDNS_CHECK_INTERVAL", "PING_TIMEOUT",
+        })
+
         def _handle_config_reload(self) -> None:
-            """Reload config by re-reading env vars from .env file."""
+            """Reload safe tuning parameters from .env file."""
             import importlib
             try:
-                # Re-read .env file if it exists
                 env_path = "/opt/usg-watchdog/.env"
                 import os
+                reloaded = []
                 if os.path.exists(env_path):
                     with open(env_path) as f:
                         for line in f:
                             line = line.strip()
                             if line and not line.startswith("#") and "=" in line:
                                 key, _, value = line.partition("=")
-                                os.environ[key.strip()] = value.strip().strip('"').strip("'")
+                                key = key.strip()
+                                if key in self._SAFE_RELOAD_KEYS:
+                                    os.environ[key] = value.strip().strip('"').strip("'")
+                                    reloaded.append(key)
                 importlib.reload(_config)
-                self._respond_json(200, {"ok": True, "message": "config reloaded"})
-            except Exception as e:
-                self._respond_json(500, {"ok": False, "error": str(e)})
+                self._respond_json(200, {"ok": True, "reloaded": reloaded})
+            except Exception:
+                self._respond_json(500, {"ok": False, "error": "reload failed"})
 
         def _handle_ddns_update(self) -> None:
             """Force a DDNS update."""

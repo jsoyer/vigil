@@ -180,7 +180,7 @@ class TelegramBot:
 
             # Security: only respond to the configured chat
             if chat_id != TELEGRAM_CHAT_ID:
-                logging.warning("Telegram bot: message ignore (chat_id=%s != %s)", chat_id, TELEGRAM_CHAT_ID)
+                logging.warning("Telegram bot: message ignore de chat_id non autorise")
                 continue
 
             if text.startswith("/"):

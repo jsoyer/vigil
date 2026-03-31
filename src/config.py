@@ -231,6 +231,14 @@ ALERT_ESCALATION_ENABLED: bool = os.getenv("ALERT_ESCALATION_ENABLED", "false").
 ALERT_ESCALATION_DELAY: int = _get_int_env("ALERT_ESCALATION_DELAY", default=15, minimum=5)
 
 # ---------------------------------------------
+# API AUTHENTICATION (optionnel mais recommande)
+# ---------------------------------------------
+
+# Token d'authentification pour les endpoints POST
+# Si vide, les endpoints POST sont ouverts (LAN only)
+API_TOKEN: str = os.getenv("API_TOKEN", "")
+
+# ---------------------------------------------
 # MQTT / HOME ASSISTANT (optionnel)
 # ---------------------------------------------
 
