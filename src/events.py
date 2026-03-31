@@ -29,11 +29,8 @@ REBOOT_FAILED = "reboot_failed"
 RECOVERY = "recovery"
 ISP_OUTAGE = "isp_outage"
 ISP_RECOVERY = "isp_recovery"
-PEER_TAKEOVER = "peer_takeover"
 PEER_STANDDOWN = "peer_standdown"
-SSH_BACKOFF = "ssh_backoff"
 MAX_REBOOTS = "max_reboots"
-SURVEILLANCE_OFF = "surveillance_off"
 
 
 class EventLog:
