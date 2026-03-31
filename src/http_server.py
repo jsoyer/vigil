@@ -10,11 +10,16 @@ from events import EventLog
 from dashboard import DASHBOARD_HTML
 from report import generate_daily_report
 from metrics import render_metrics
+from history import HistoryBuffer
 
 import config as _config
 
 
-def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) -> type:
+def _make_handler_class(
+    holder: StateHolder,
+    event_log: EventLog | None = None,
+    history: HistoryBuffer | None = None,
+) -> type:
     """Create a request handler class with access to shared state."""
 
     class Handler(BaseHTTPRequestHandler):
@@ -34,6 +39,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                     self._handle_get_maintenance()
                 elif self.path == "/api/backup/unifi":
                     self._handle_get_backup_unifi()
+                elif self.path == "/api/history":
+                    self._respond_json(200, history.get_all() if history else [])
                 elif self.path == "/metrics":
                     self._handle_metrics()
                 elif self.path == "/api/report":
@@ -287,6 +294,7 @@ def start_http_server(
     holder: StateHolder,
     port: int,
     event_log: EventLog | None = None,
+    history: HistoryBuffer | None = None,
 ) -> threading.Thread | None:
     """Start the HTTP state server in a background daemon thread.
 
@@ -294,7 +302,7 @@ def start_http_server(
     Never raises.
     """
     try:
-        handler_class = _make_handler_class(holder, event_log)
+        handler_class = _make_handler_class(holder, event_log, history)
         server = HTTPServer(("0.0.0.0", port), handler_class)
     except OSError as e:
         logging.error(

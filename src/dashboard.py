@@ -102,6 +102,8 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
 .event-type-api_reboot { background: #da363322; color: #f85149; }
 .event-data { color: #8b949e; font-size: 0.8rem; }
 
+.chart { background: #0d1117; border-radius: 4px; }
+
 .controls { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .btn {
   padding: 0.5rem 1rem;
@@ -196,6 +198,16 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
       <div class="card-title">Peer</div>
       <div class="card-value"><span id="peer-badge" class="badge badge-starting">...</span></div>
       <div class="card-sub">Score <span id="peer-score">-</span> | GW <span id="peer-gw">-</span> | Net <span id="peer-inet">-</span></div>
+    </div>
+
+    <!-- Charts -->
+    <div class="card events-card">
+      <div class="card-title">Score (2h)</div>
+      <svg id="chart-score" width="100%" height="120" class="chart"></svg>
+    </div>
+    <div class="card events-card">
+      <div class="card-title">Latence (2h)</div>
+      <svg id="chart-latency" width="100%" height="120" class="chart"></svg>
     </div>
 
     <!-- Events -->
@@ -346,6 +358,53 @@ async function refresh() {
   }
 }
 
+// --- SVG Chart rendering ---
+function drawChart(svgId, data, valueKey, color, maxVal) {
+  var svg = document.getElementById(svgId);
+  if (!svg || !data.length) return;
+  var w = svg.clientWidth || 700;
+  var h = 120;
+  var pad = 2;
+  var n = data.length;
+  if (n < 2) return;
+
+  // Auto-scale max
+  var vals = data.map(function(d) { return d[valueKey] !== null ? d[valueKey] : 0; });
+  var autoMax = Math.max.apply(null, vals);
+  var yMax = maxVal || Math.max(autoMax * 1.2, 1);
+
+  var stepX = (w - pad * 2) / (n - 1);
+
+  // Build polyline points
+  var points = vals.map(function(v, i) {
+    var x = pad + i * stepX;
+    var y = h - pad - ((v / yMax) * (h - pad * 2));
+    return x + ',' + y;
+  }).join(' ');
+
+  // Threshold line for score chart
+  var threshLine = '';
+  if (svgId === 'chart-score') {
+    var ty = h - pad - ((10 / yMax) * (h - pad * 2));
+    threshLine = '<line x1="' + pad + '" y1="' + ty + '" x2="' + (w-pad) + '" y2="' + ty + '" stroke="#da3633" stroke-width="1" stroke-dasharray="4,4" opacity="0.5"/>';
+  }
+
+  svg.innerHTML =
+    '<rect width="100%" height="100%" fill="#0d1117" rx="4"/>' +
+    threshLine +
+    '<polyline points="' + points + '" fill="none" stroke="' + color + '" stroke-width="1.5" opacity="0.8"/>';
+}
+
+async function refreshCharts() {
+  try {
+    var res = await fetch('/api/history');
+    var data = await res.json();
+    if (!data.length) return;
+    drawChart('chart-score', data, 'score', '#58a6ff', 15);
+    drawChart('chart-latency', data, 'inet_rtt', '#3fb950', null);
+  } catch(e) {}
+}
+
 // Update pause/resume buttons based on status
 function updateControls(status) {
   var btnPause = document.getElementById('btn-pause');
@@ -384,7 +443,9 @@ function confirmReboot() {
 }
 
 refresh();
+refreshCharts();
 setInterval(refresh, 30000);
+setInterval(refreshCharts, 30000);
 </script>
 </body>
 </html>

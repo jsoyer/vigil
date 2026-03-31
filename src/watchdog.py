@@ -58,6 +58,7 @@ from backup_unifi import run_backup as unifi_backup, is_configured as backup_con
 from mqtt_publisher import MqttPublisher
 from snmp_monitor import read_usg_metrics, UsgMetrics
 from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
+from history import HistoryBuffer
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
@@ -226,7 +227,8 @@ def main() -> None:
     event_log = EventLog()
     _event_log = event_log
     state_holder = StateHolder()
-    start_http_server(state_holder, HTTP_PORT, event_log)
+    history_buffer = HistoryBuffer()
+    start_http_server(state_holder, HTTP_PORT, event_log, history_buffer)
 
     # MQTT publisher (optional)
     mqtt = MqttPublisher(state_holder)
@@ -821,6 +823,9 @@ def main() -> None:
                 pass
 
         cycle_count += 1
+
+        # Record history data point
+        history_buffer.record(failure_score, result.gateway_rtt_ms, result.internet_avg_rtt_ms)
 
         # Publish state for HTTP server + peer queries
         state_holder.state = WatchdogState(
