@@ -93,8 +93,8 @@ def setup_logging() -> None:
     try:
         file_handler = logging.handlers.RotatingFileHandler(
             LOG_FILE,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=5,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=1,
             encoding="utf-8",
         )
         file_handler.setFormatter(formatter)
@@ -182,8 +182,19 @@ def _format_duration(seconds: int) -> str:
     return f"{hours}h"
 
 
+def _build_state(**kwargs) -> WatchdogState:
+    """Build a WatchdogState snapshot. Single source of truth for all fields."""
+    return WatchdogState(**kwargs)
+
+
 def main() -> None:
     setup_logging()
+
+    # Validate config coherence
+    from config import validate as validate_config
+    config_errors = validate_config()
+    for err in config_errors:
+        logging.warning("Config: %s", err)
 
     # Scoring state
     failure_score = 0
@@ -235,7 +246,7 @@ def main() -> None:
     _event_log = event_log
     state_holder = StateHolder()
     history_buffer = HistoryBuffer()
-    start_http_server(state_holder, HTTP_PORT, event_log, history_buffer)
+    http_thread = start_http_server(state_holder, HTTP_PORT, event_log, history_buffer)
 
     # MQTT publisher (optional)
     mqtt = MqttPublisher(state_holder)
@@ -243,7 +254,7 @@ def main() -> None:
 
     # Telegram bot (optional, uses same token as notifications)
     telegram_bot = TelegramBot(state_holder)
-    telegram_bot.start()
+    tg_started = telegram_bot.start()
 
     # Alert escalation + cycle counters
     escalation = EscalationTracker()
@@ -277,6 +288,11 @@ def main() -> None:
 
     while True:
         now = time.time()
+
+        # --- Monitor daemon threads ---
+        if http_thread is not None and not http_thread.is_alive():
+            logging.error("HTTP server thread mort -- redemarrage")
+            http_thread = start_http_server(state_holder, HTTP_PORT, event_log, history_buffer)
 
         # Reset daily reboot counter at midnight
         current_date = datetime.now().date()
@@ -656,15 +672,11 @@ def main() -> None:
                 continue
 
             # Peer coordination check
-            current_state = WatchdogState(
-                failure_score=failure_score,
-                threshold=REBOOT_SCORE_THRESHOLD,
-                was_degraded=was_degraded,
-                last_reboot_time=last_reboot_time,
-                grace_until=grace_until,
-                consecutive_reboots=consecutive_reboots,
-                reboots_today=reboots_today,
-                surveillance_only=surveillance_only,
+            current_state = _build_state(
+                failure_score=failure_score, threshold=REBOOT_SCORE_THRESHOLD,
+                was_degraded=was_degraded, last_reboot_time=last_reboot_time,
+                grace_until=grace_until, consecutive_reboots=consecutive_reboots,
+                reboots_today=reboots_today, surveillance_only=surveillance_only,
                 consecutive_ssh_failures=consecutive_ssh_failures,
                 last_ssh_attempt_time=last_ssh_attempt_time,
                 isp_outage_detected=isp_outage_detected,
@@ -679,6 +691,10 @@ def main() -> None:
                 gateway_rtt_ms=result.gateway_rtt_ms,
                 internet_avg_rtt_ms=result.internet_avg_rtt_ms,
                 latency_degraded=internet_latency.is_degraded(),
+                peer_status=str(peer_info.get("status", "unknown")),
+                peer_score=int(peer_info.get("score", 0)),
+                peer_gateway=str(peer_info.get("gateway", "")),
+                peer_internet=str(peer_info.get("internet", "")),
                 version=_version,
                 timestamp=datetime.now().isoformat(),
                 uptime_seconds=now - start_time,
@@ -878,15 +894,11 @@ def main() -> None:
         history_buffer.record(failure_score, result.gateway_rtt_ms, result.internet_avg_rtt_ms)
 
         # Publish state for HTTP server + peer queries
-        state_holder.state = WatchdogState(
-            failure_score=failure_score,
-            threshold=REBOOT_SCORE_THRESHOLD,
-            was_degraded=was_degraded,
-            last_reboot_time=last_reboot_time,
-            grace_until=grace_until,
-            consecutive_reboots=consecutive_reboots,
-            reboots_today=reboots_today,
-            surveillance_only=surveillance_only,
+        state_holder.state = _build_state(
+            failure_score=failure_score, threshold=REBOOT_SCORE_THRESHOLD,
+            was_degraded=was_degraded, last_reboot_time=last_reboot_time,
+            grace_until=grace_until, consecutive_reboots=consecutive_reboots,
+            reboots_today=reboots_today, surveillance_only=surveillance_only,
             consecutive_ssh_failures=consecutive_ssh_failures,
             last_ssh_attempt_time=last_ssh_attempt_time,
             isp_outage_detected=isp_outage_detected,
@@ -898,13 +910,13 @@ def main() -> None:
             gateway_ok=result.gateway_ok,
             internet_ok_count=result.internet_ok_count,
             internet_total=result.internet_total,
+            gateway_rtt_ms=result.gateway_rtt_ms,
+            internet_avg_rtt_ms=result.internet_avg_rtt_ms,
+            latency_degraded=internet_latency.is_degraded(),
             peer_status=str(peer_info.get("status", "unknown")),
             peer_score=int(peer_info.get("score", 0)),
             peer_gateway=str(peer_info.get("gateway", "")),
             peer_internet=str(peer_info.get("internet", "")),
-            gateway_rtt_ms=result.gateway_rtt_ms,
-            internet_avg_rtt_ms=result.internet_avg_rtt_ms,
-            latency_degraded=internet_latency.is_degraded(),
             version=_version,
             timestamp=datetime.now().isoformat(),
             uptime_seconds=time.time() - start_time,

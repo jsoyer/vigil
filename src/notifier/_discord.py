@@ -1,12 +1,10 @@
 """Discord notification channel via webhook."""
 
+import json
 import logging
 import re
-
-try:
-    import requests
-except ImportError:
-    requests = None  # type: ignore[assignment]
+import urllib.error
+import urllib.request
 
 from config import DISCORD_WEBHOOK_URL, DISCORD_TIMEOUT
 from notifier._types import Level, NotificationContext
@@ -57,10 +55,6 @@ def send(
     timestamp: str,
 ) -> bool:
     """Send a Discord webhook notification. Never raises."""
-    if requests is None:
-        logging.warning("Module 'requests' non installe -- Discord impossible")
-        return False
-
     embed: dict = {
         "title": "USG Watchdog",
         "description": message,
@@ -76,21 +70,29 @@ def send(
     payload = {"embeds": [embed]}
 
     try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=DISCORD_TIMEOUT)
-        if response.status_code in (200, 204):
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            DISCORD_WEBHOOK_URL,
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=DISCORD_TIMEOUT) as resp:
+            status = resp.status
+        if status in (200, 204):
             logging.debug("Discord: notification envoyee")
             return True
-        if response.status_code == 429:
+        logging.warning("Discord: HTTP %d", status)
+        return False
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
             logging.warning("Discord: rate limited -- notification ignoree")
-            return False
-        response.raise_for_status()
-        return True
-    except requests.exceptions.Timeout:
-        logging.warning("Discord: timeout")
-    except requests.exceptions.ConnectionError:
-        logging.warning("Discord: erreur reseau")
-    except requests.exceptions.HTTPError as e:
-        logging.warning("Discord: HTTP %d", e.response.status_code)
+        else:
+            logging.warning("Discord: HTTP %d", e.code)
+    except urllib.error.URLError as e:
+        if "timed out" in str(e.reason).lower():
+            logging.warning("Discord: timeout")
+        else:
+            logging.warning("Discord: erreur reseau")
     except Exception as e:
         logging.warning("Discord: erreur -- %s", e)
     return False

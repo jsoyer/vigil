@@ -30,17 +30,18 @@ def _get_hostname() -> str:
         return "usg-watchdog"
 
 
-def _get_channels() -> list[tuple[str, NotificationChannel, str]]:
-    """Build channel list dynamically so mocks apply correctly."""
+@functools.cache
+def _get_channels() -> tuple[tuple[str, NotificationChannel, str], ...]:
+    """Build channel list once and cache it. Returns tuple for hashability."""
     from notifier import _telegram, _discord, _slack, _ntfy, _email, _pushover
-    return [
+    return (
         ("telegram", _telegram, TELEGRAM_MIN_LEVEL),
         ("discord", _discord, DISCORD_MIN_LEVEL),
         ("slack", _slack, SLACK_MIN_LEVEL),
         ("ntfy", _ntfy, NTFY_MIN_LEVEL),
         ("email", _email, SMTP_MIN_LEVEL),
         ("pushover", _pushover, PUSHOVER_MIN_LEVEL),
-    ]
+    )
 
 
 def dispatch(

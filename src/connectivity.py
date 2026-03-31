@@ -166,18 +166,26 @@ def check_dns(domain: str = DNS_CHECK_DOMAIN, timeout: int = 3) -> bool:
     """Check DNS resolution by resolving a well-known domain.
 
     Returns True if resolution succeeds, False otherwise. Never raises.
-    Uses a per-socket timeout to avoid corrupting the global default.
+    Uses getaddrinfo with a thread-based timeout to avoid a full TCP
+    connection (saves one SYN/ACK round-trip and avoids port-80 filtering).
     """
-    try:
-        # getaddrinfo doesn't support per-call timeout, so we use a
-        # TCP connect to verify resolution + reachability in one step
-        with socket.create_connection((domain, 80), timeout=timeout) as s:
+    import threading
+
+    result: list[bool] = [False]
+
+    def _resolve() -> None:
+        try:
+            socket.getaddrinfo(domain, None)
+            result[0] = True
+        except (socket.gaierror, OSError):
             pass
-        logging.debug("DNS resolution OK : %s", domain)
-        return True
-    except (socket.gaierror, socket.timeout, ConnectionRefusedError, OSError):
-        logging.debug("DNS resolution echouee : %s", domain)
-        return False
+
+    t = threading.Thread(target=_resolve, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    ok = result[0]
+    logging.debug("DNS resolution %s : %s", "OK" if ok else "echouee", domain)
+    return ok
 
 
 def check_tcp(targets: list[tuple[str, int]] | None = None, timeout: int = 3) -> tuple[int, int]:

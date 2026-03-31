@@ -45,7 +45,7 @@ class EventLog:
 
     def __init__(
         self,
-        max_events: int = 100,
+        max_events: int = 50,
         persist_path: str = "/var/log/usg-watchdog-events.json",
         persist_interval: int = 3600,
     ) -> None:
@@ -111,7 +111,7 @@ class EventLog:
             data = self.get_all()
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self._persist_path.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp_path.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
             tmp_path.rename(self._persist_path)
             self._last_persist = time.time()
             logging.debug("Events persisted: %d events -> %s", len(data), self._persist_path)

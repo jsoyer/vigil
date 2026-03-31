@@ -3,15 +3,42 @@
 import json
 import logging
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
-from dashboard import DASHBOARD_HTML
 from report import generate_daily_report, calculate_monthly_sla
 from metrics import render_metrics
 from history import HistoryBuffer
-from pwa import MANIFEST_JSON, SERVICE_WORKER_JS
+
+# Lazy-loaded at first HTTP request to avoid paying the parse cost at startup.
+_dashboard_html: str | None = None
+_manifest_json: str | None = None
+_service_worker_js: str | None = None
+
+
+def _get_dashboard_html() -> str:
+    global _dashboard_html
+    if _dashboard_html is None:
+        from dashboard import DASHBOARD_HTML
+        _dashboard_html = DASHBOARD_HTML
+    return _dashboard_html
+
+
+def _get_manifest_json() -> str:
+    global _manifest_json
+    if _manifest_json is None:
+        from pwa import MANIFEST_JSON
+        _manifest_json = MANIFEST_JSON
+    return _manifest_json
+
+
+def _get_service_worker_js() -> str:
+    global _service_worker_js
+    if _service_worker_js is None:
+        from pwa import SERVICE_WORKER_JS
+        _service_worker_js = SERVICE_WORKER_JS
+    return _service_worker_js
 
 import config as _config
 
@@ -29,9 +56,9 @@ def _make_handler_class(
                 if self.path == "/" or self.path == "/dashboard":
                     self._handle_dashboard()
                 elif self.path == "/manifest.json":
-                    self._respond_text("application/manifest+json", MANIFEST_JSON)
+                    self._respond_text("application/manifest+json", _get_manifest_json())
                 elif self.path == "/sw.js":
-                    self._respond_text("application/javascript", SERVICE_WORKER_JS)
+                    self._respond_text("application/javascript", _get_service_worker_js())
                 elif self.path == "/health":
                     self._handle_health()
                 elif self.path == "/api/state":
@@ -102,7 +129,7 @@ def _make_handler_class(
                 self._respond_json(500, {"error": "internal error"})
 
         def _handle_dashboard(self) -> None:
-            body = DASHBOARD_HTML.encode("utf-8")
+            body = _get_dashboard_html().encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -413,7 +440,7 @@ def start_http_server(
     """
     try:
         handler_class = _make_handler_class(holder, event_log, history)
-        server = ThreadingHTTPServer(("0.0.0.0", port), handler_class)
+        server = HTTPServer(("0.0.0.0", port), handler_class)
         server.timeout = 10
     except OSError as e:
         logging.error(

@@ -1,20 +1,18 @@
 """Telegram notification channel via Bot API."""
 
 import html
+import json
 import logging
-
-try:
-    import requests
-except ImportError:
-    requests = None  # type: ignore[assignment]
+import urllib.error
+import urllib.request
 
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_TIMEOUT
 from notifier._types import Level, NotificationContext, format_context_inline
 
 _LEVEL_ICONS: dict[Level, str] = {
-    Level.INFO: "ℹ️",
-    Level.WARNING: "⚠️",
-    Level.CRITICAL: "🔴",
+    Level.INFO: "i",
+    Level.WARNING: "!",
+    Level.CRITICAL: "X",
 }
 
 
@@ -30,10 +28,6 @@ def send(
     timestamp: str,
 ) -> bool:
     """Send a Telegram notification. Never raises."""
-    if requests is None:
-        logging.warning("Module 'requests' non installe -- Telegram impossible")
-        return False
-
     icon = _LEVEL_ICONS.get(level, "")
     escaped_msg = html.escape(message)
     escaped_host = html.escape(hostname)
@@ -54,16 +48,22 @@ def send(
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=TELEGRAM_TIMEOUT)
-        response.raise_for_status()
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=TELEGRAM_TIMEOUT) as resp:
+            resp.read()
         logging.debug("Telegram: notification envoyee")
         return True
-    except requests.exceptions.Timeout:
-        logging.warning("Telegram: timeout")
-    except requests.exceptions.ConnectionError:
-        logging.warning("Telegram: erreur reseau (normal si connexion DOWN)")
-    except requests.exceptions.HTTPError as e:
-        logging.warning("Telegram: HTTP %d", e.response.status_code)
+    except urllib.error.HTTPError as e:
+        logging.warning("Telegram: HTTP %d", e.code)
+    except urllib.error.URLError as e:
+        reason = str(e.reason)
+        if "timed out" in reason.lower():
+            logging.warning("Telegram: timeout")
+        else:
+            logging.warning("Telegram: erreur reseau (normal si connexion DOWN)")
     except Exception:
         logging.warning("Telegram: erreur inattendue (details masques pour proteger le token)")
     return False
