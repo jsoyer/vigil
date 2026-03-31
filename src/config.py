@@ -226,8 +226,10 @@ CLOUDFLARE_RECORD_NAMES: str = os.getenv("CLOUDFLARE_RECORD_NAMES", "")
 CLOUDFLARE_PROXIED: bool = os.getenv("CLOUDFLARE_PROXIED", "false").lower() in ("true", "1", "yes")
 # TTL en secondes (120-7200, ou 1 pour auto)
 CLOUDFLARE_TTL: int = _get_int_env("CLOUDFLARE_TTL", default=120, minimum=1)
-# Intervalle de check periodique DDNS (secondes, defaut 300s = 5 min)
-DDNS_CHECK_INTERVAL: int = _get_int_env("DDNS_CHECK_INTERVAL", default=300, minimum=60)
+# Intervalle de check periodique DDNS (secondes, defaut 1800s = 30 min)
+# Couvre le cas rare du renouvellement DHCP FAI sans coupure.
+# Le check force au retablissement gere les coupures/reboots.
+DDNS_CHECK_INTERVAL: int = _get_int_env("DDNS_CHECK_INTERVAL", default=1800, minimum=60)
 
 # ---------------------------------------------
 # COORDINATION PEER (optionnel)
