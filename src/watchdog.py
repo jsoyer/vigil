@@ -203,6 +203,7 @@ def main() -> None:
     divergence_notified = False
     last_report_date = datetime.now().date()
     last_weekly_report_week = datetime.now().isocalendar()[1]
+    maintenance_until = 0.0
 
     # Version (read from VERSION file)
     _version = "0.0.0"
@@ -343,6 +344,30 @@ def main() -> None:
             else:
                 logging.error("Reboot manuel echoue")
                 event_log.record(REBOOT_FAILED, source="api")
+        elif cmd and cmd.startswith("maintenance:"):
+            try:
+                duration_min = int(cmd.split(":")[1])
+                maintenance_until = now + (duration_min * 60)
+                surveillance_only = True
+                logging.info(
+                    "Mode maintenance active pour %d min via API", duration_min
+                )
+                notify(
+                    f"Mode maintenance active pour {duration_min} minutes.\n"
+                    f"Le watchdog ne redemarrera pas le routeur pendant cette periode.",
+                    Level.WARNING,
+                )
+                event_log.record("maintenance_start", duration_min=duration_min)
+            except (ValueError, IndexError):
+                logging.warning("Commande maintenance invalide: %s", cmd)
+
+        # Check maintenance window expiration
+        if surveillance_only and maintenance_until > 0 and now >= maintenance_until:
+            surveillance_only = False
+            maintenance_until = 0.0
+            logging.info("Mode maintenance termine")
+            notify("Mode maintenance termine. Surveillance normale reprise.")
+            event_log.record("maintenance_end")
 
         # Grace post-reboot : on ignore les echecs
         if now < grace_until:
