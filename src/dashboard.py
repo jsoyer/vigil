@@ -7,6 +7,8 @@ DASHBOARD_HTML = """\
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>USG Watchdog</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#58a6ff">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -446,6 +448,11 @@ refresh();
 refreshCharts();
 setInterval(refresh, 30000);
 setInterval(refreshCharts, 30000);
+
+// Register service worker for PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(function() {});
+}
 </script>
 </body>
 </html>
