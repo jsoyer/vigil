@@ -32,6 +32,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                     self._handle_config()
                 elif self.path == "/api/maintenance":
                     self._handle_get_maintenance()
+                elif self.path == "/api/backup/unifi":
+                    self._handle_get_backup_unifi()
                 elif self.path == "/metrics":
                     self._handle_metrics()
                 elif self.path == "/api/report":
@@ -54,6 +56,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                     self._respond_json(200, {"ok": True, "command": "reboot"})
                 elif self.path == "/api/ddns/update":
                     self._handle_ddns_update()
+                elif self.path == "/api/backup/unifi":
+                    self._handle_backup_unifi()
                 elif self.path == "/api/maintenance":
                     self._handle_post_maintenance()
                 else:
@@ -174,6 +178,35 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                 "isp_outage_detection_delay": _config.ISP_OUTAGE_DETECTION_DELAY,
             }
             self._respond_json(200, cfg)
+
+        def _handle_get_backup_unifi(self) -> None:
+            """Return last backup info."""
+            from backup_unifi import is_configured, find_latest_backup, check_backup_age
+            if not is_configured():
+                self._respond_json(200, {"configured": False})
+                return
+            latest = find_latest_backup()
+            if latest is None:
+                self._respond_json(200, {"configured": True, "latest": None})
+                return
+            is_stale, age_hours = check_backup_age(latest)
+            self._respond_json(200, {
+                "configured": True,
+                "latest": latest.name,
+                "size_bytes": latest.stat().st_size,
+                "size_mb": round(latest.stat().st_size / (1024 * 1024), 1),
+                "age_hours": age_hours,
+                "stale": is_stale,
+            })
+
+        def _handle_backup_unifi(self) -> None:
+            """Force a backup via API."""
+            from backup_unifi import is_configured, run_backup
+            if not is_configured():
+                self._respond_json(200, {"ok": False, "error": "not configured"})
+                return
+            result = run_backup(source="api")
+            self._respond_json(200, {"ok": result.ok, **result.to_dict()})
 
         def _handle_ddns_update(self) -> None:
             """Force a DDNS update."""

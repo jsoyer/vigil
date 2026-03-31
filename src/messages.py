@@ -344,6 +344,69 @@ def update_failed(
 # ===================================================================
 
 
+# ===================================================================
+# Backup UniFi
+# ===================================================================
+
+
+def backup_ok(
+    filename: str,
+    size_mb: float,
+    destination: str,
+    source: str = "scheduled",
+) -> tuple[str, Level, NotificationContext | None]:
+    lines = [
+        f"Backup UniFi config reussi.",
+        "",
+        f"Fichier : {filename} ({size_mb} MB)",
+        f"Destination : {destination}",
+        f"Declencheur : {source}",
+    ]
+    return "\n".join(lines), Level.INFO, None
+
+
+def backup_failed(
+    error: str,
+    filename: str = "",
+) -> tuple[str, Level, NotificationContext | None]:
+    lines = [
+        f"Echec du backup UniFi config.",
+        "",
+        f"Erreur : {error}",
+    ]
+    if filename:
+        lines.append(f"Fichier : {filename}")
+    lines.extend([
+        "",
+        "Verifier :",
+        "  - rclone est installe et configure",
+        "  - La destination remote est accessible",
+        "  - Le repertoire de backup UniFi existe",
+    ])
+    return "\n".join(lines), Level.WARNING, None
+
+
+def backup_stale(
+    filename: str,
+    age_hours: int,
+    max_hours: int,
+) -> tuple[str, Level, NotificationContext | None]:
+    lines = [
+        f"Le dernier backup UniFi date de {age_hours}h (max configure : {max_hours}h).",
+        "",
+        f"Fichier : {filename}",
+        "",
+        "L'auto-backup du UniFi Controller est peut-etre desactive ou en erreur.",
+        "Verifier dans : UniFi Controller > Settings > System > Backups",
+    ]
+    return "\n".join(lines), Level.WARNING, None
+
+
+# ===================================================================
+# DDNS Cloudflare
+# ===================================================================
+
+
 def ddns_updated(
     previous_ip: str,
     current_ip: str,

@@ -31,6 +31,8 @@ env/
 config.local.py
 update-cloudflare-dns.conf
 update-cloudflare-dns.sh
+backup-unifi.conf
+backup-unifi.sh
 
 # Pytest
 .pytest_cache/
