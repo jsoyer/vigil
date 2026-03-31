@@ -3,7 +3,7 @@
 import json
 import logging
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
@@ -63,9 +63,10 @@ def _make_handler_class(
                 self._respond_json(500, {"error": "internal error"})
 
         def _check_auth(self) -> bool:
-            """Check API token if configured. Returns True if authorized."""
+            """Check API token. Returns True if authorized."""
             if not _config.API_TOKEN:
-                return True  # no auth configured
+                self._respond_json(403, {"error": "API_TOKEN non configure -- POST desactive"})
+                return False
             auth = self.headers.get("Authorization", "")
             if auth == f"Bearer {_config.API_TOKEN}":
                 return True
@@ -338,7 +339,8 @@ def _make_handler_class(
         def _handle_post_maintenance(self) -> None:
             """Schedule a maintenance pause."""
             try:
-                content_length = int(self.headers.get("Content-Length", 0))
+                MAX_BODY = 8192
+                content_length = min(int(self.headers.get("Content-Length", 0)), MAX_BODY)
                 body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
                 data = json.loads(body)
                 duration_min = int(data.get("duration_minutes", 60))
@@ -388,6 +390,7 @@ def _make_handler_class(
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
 
@@ -410,7 +413,8 @@ def start_http_server(
     """
     try:
         handler_class = _make_handler_class(holder, event_log, history)
-        server = HTTPServer(("0.0.0.0", port), handler_class)
+        server = ThreadingHTTPServer(("0.0.0.0", port), handler_class)
+        server.timeout = 10
     except OSError as e:
         logging.error(
             "HTTP server: impossible de binder le port %d -- %s "
