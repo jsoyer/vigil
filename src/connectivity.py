@@ -10,7 +10,14 @@ import logging
 from collections import deque
 from dataclasses import dataclass, field
 
+import socket
+
 from config import PING_TARGETS, PING_TIMEOUT, USG_IP
+
+# DNS resolution target (well-known domain that should always resolve)
+DNS_CHECK_DOMAIN = "google.com"
+# TCP connect targets (IP:port pairs for TCP-level check)
+TCP_CHECK_TARGETS = [("8.8.8.8", 53), ("1.1.1.1", 443)]
 
 
 @dataclass(frozen=True)
@@ -29,6 +36,9 @@ class ConnectivityResult:
     gateway_rtt_ms: float | None = None
     internet_avg_rtt_ms: float | None = None
     internet_rtts: tuple[float | None, ...] = ()
+    dns_ok: bool = True
+    tcp_ok_count: int = 0
+    tcp_total: int = 0
 
 
 class LatencyTracker:
@@ -152,12 +162,57 @@ def check_internet() -> tuple[int, tuple[float | None, ...]]:
     return ok_count, tuple(rtts)
 
 
+def check_dns(domain: str = DNS_CHECK_DOMAIN, timeout: int = 3) -> bool:
+    """Check DNS resolution by resolving a well-known domain.
+
+    Returns True if resolution succeeds, False otherwise. Never raises.
+    """
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.getaddrinfo(domain, 80)
+        logging.debug("DNS resolution OK : %s", domain)
+        return True
+    except (socket.gaierror, socket.timeout, OSError):
+        logging.debug("DNS resolution echouee : %s", domain)
+        return False
+
+
+def check_tcp(targets: list[tuple[str, int]] | None = None, timeout: int = 3) -> tuple[int, int]:
+    """Check TCP connectivity by attempting connections to IP:port pairs.
+
+    Returns (ok_count, total). Never raises.
+    """
+    if targets is None:
+        targets = TCP_CHECK_TARGETS
+
+    ok_count = 0
+    for host, port in targets:
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                ok_count += 1
+                logging.debug("TCP connect OK : %s:%d", host, port)
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            logging.debug("TCP connect echoue : %s:%d", host, port)
+
+    return ok_count, len(targets)
+
+
 def check_connectivity() -> ConnectivityResult:
     """
-    Effectue un cycle complet de verification avec mesure de latence.
+    Effectue un cycle complet de verification :
+    1. Ping gateway (LAN)
+    2. Ping cibles internet (ICMP)
+    3. Resolution DNS
+    4. Connexion TCP
     """
     gw_result = ping_gateway()
     inet_count, inet_rtts = check_internet()
+
+    # DNS check
+    dns_ok = check_dns()
+
+    # TCP check
+    tcp_ok, tcp_total = check_tcp()
 
     # Calculate average internet RTT (only from successful pings)
     valid_rtts = [r for r in inet_rtts if r is not None]
@@ -170,4 +225,7 @@ def check_connectivity() -> ConnectivityResult:
         gateway_rtt_ms=gw_result.rtt_ms,
         internet_avg_rtt_ms=avg_rtt,
         internet_rtts=inet_rtts,
+        dns_ok=dns_ok,
+        tcp_ok_count=tcp_ok,
+        tcp_total=tcp_total,
     )
