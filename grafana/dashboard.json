@@ -1,0 +1,94 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Failure Score",
+      "type": "gauge",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "usg_watchdog_failure_score", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 15,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 10}
+            ]
+          }
+        }
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 0}
+    },
+    {
+      "title": "Gateway Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "usg_watchdog_gateway_up", "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]}},
+      "gridPos": {"h": 6, "w": 4, "x": 4, "y": 0}
+    },
+    {
+      "title": "Internet Targets UP",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "usg_watchdog_internet_targets_up", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 2}]}}},
+      "gridPos": {"h": 6, "w": 4, "x": 8, "y": 0}
+    },
+    {
+      "title": "Reboots Today",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "usg_watchdog_reboots_today", "refId": "A"}],
+      "gridPos": {"h": 6, "w": 4, "x": 12, "y": 0}
+    },
+    {
+      "title": "Uptime",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "usg_watchdog_uptime_seconds / 3600", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "h"}},
+      "gridPos": {"h": 6, "w": 4, "x": 16, "y": 0}
+    },
+    {
+      "title": "ISP Outage",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "usg_watchdog_isp_outage", "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "OK", "color": "green"}, "1": {"text": "OUTAGE", "color": "red"}}}]}},
+      "gridPos": {"h": 6, "w": 4, "x": 20, "y": 0}
+    },
+    {
+      "title": "Score History",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "usg_watchdog_failure_score", "refId": "A", "legendFormat": "Score"}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 15}},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+    },
+    {
+      "title": "Latency (ms)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {"expr": "usg_watchdog_gateway_rtt_ms", "refId": "A", "legendFormat": "Gateway"},
+        {"expr": "usg_watchdog_internet_avg_rtt_ms", "refId": "B", "legendFormat": "Internet"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["usg-watchdog", "network"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "USG Watchdog",
+  "uid": "usg-watchdog"
+}

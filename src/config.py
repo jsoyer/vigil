@@ -200,6 +200,28 @@ NTFY_TIMEOUT: int = _get_int_env("NTFY_TIMEOUT", default=5, minimum=2)
 NTFY_MIN_LEVEL: str = os.getenv("NTFY_MIN_LEVEL", "INFO")
 
 # ---------------------------------------------
+# NOTIFICATIONS EMAIL SMTP (optionnel)
+# ---------------------------------------------
+
+SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+SMTP_PORT: int = _get_int_env("SMTP_PORT", default=587, minimum=1)
+SMTP_FROM: str = os.getenv("SMTP_FROM", "")
+SMTP_TO: str = os.getenv("SMTP_TO", "")
+SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "")
+SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+SMTP_TIMEOUT: int = _get_int_env("SMTP_TIMEOUT", default=10, minimum=2)
+SMTP_MIN_LEVEL: str = os.getenv("SMTP_MIN_LEVEL", "WARNING")
+
+# ---------------------------------------------
+# NOTIFICATIONS PUSHOVER (optionnel)
+# ---------------------------------------------
+
+PUSHOVER_USER_KEY: str = os.getenv("PUSHOVER_USER_KEY", "")
+PUSHOVER_API_TOKEN: str = os.getenv("PUSHOVER_API_TOKEN", "")
+PUSHOVER_TIMEOUT: int = _get_int_env("PUSHOVER_TIMEOUT", default=5, minimum=2)
+PUSHOVER_MIN_LEVEL: str = os.getenv("PUSHOVER_MIN_LEVEL", "INFO")
+
+# ---------------------------------------------
 # MQTT / HOME ASSISTANT (optionnel)
 # ---------------------------------------------
 

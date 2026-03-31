@@ -11,6 +11,7 @@ from dashboard import DASHBOARD_HTML
 from report import generate_daily_report, calculate_monthly_sla
 from metrics import render_metrics
 from history import HistoryBuffer
+from pwa import MANIFEST_JSON, SERVICE_WORKER_JS
 
 import config as _config
 
@@ -27,6 +28,10 @@ def _make_handler_class(
             try:
                 if self.path == "/" or self.path == "/dashboard":
                     self._handle_dashboard()
+                elif self.path == "/manifest.json":
+                    self._respond_text("application/manifest+json", MANIFEST_JSON)
+                elif self.path == "/sw.js":
+                    self._respond_text("application/javascript", SERVICE_WORKER_JS)
                 elif self.path == "/health":
                     self._handle_health()
                 elif self.path == "/api/state":
@@ -320,6 +325,14 @@ def _make_handler_class(
                 peer_status=snapshot.peer_status if snapshot else "unknown",
             )
             self._respond_json(200, report)
+
+        def _respond_text(self, content_type: str, text: str) -> None:
+            body = text.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def _respond_json(self, status: int, data: object) -> None:
             body = json.dumps(data).encode("utf-8")

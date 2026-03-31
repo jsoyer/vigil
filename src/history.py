@@ -12,6 +12,7 @@ class DataPoint:
     score: int
     gateway_rtt: float | None
     internet_rtt: float | None
+    download_mbps: float | None = None
 
 
 class HistoryBuffer:
@@ -22,12 +23,19 @@ class HistoryBuffer:
         self._points: deque[DataPoint] = deque(maxlen=max_points)
         self._lock = threading.Lock()
 
-    def record(self, score: int, gateway_rtt: float | None, internet_rtt: float | None) -> None:
+    def record(
+        self,
+        score: int,
+        gateway_rtt: float | None,
+        internet_rtt: float | None,
+        download_mbps: float | None = None,
+    ) -> None:
         point = DataPoint(
             ts=time.time(),
             score=score,
             gateway_rtt=round(gateway_rtt, 1) if gateway_rtt is not None else None,
             internet_rtt=round(internet_rtt, 1) if internet_rtt is not None else None,
+            download_mbps=round(download_mbps, 2) if download_mbps is not None else None,
         )
         with self._lock:
             self._points.append(point)
@@ -40,6 +48,7 @@ class HistoryBuffer:
                     "score": p.score,
                     "gw_rtt": p.gateway_rtt,
                     "inet_rtt": p.internet_rtt,
+                    "dl_mbps": p.download_mbps,
                 }
                 for p in self._points
             ]
