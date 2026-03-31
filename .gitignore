@@ -29,6 +29,8 @@ env/
 .env
 .env.*
 config.local.py
+update-cloudflare-dns.conf
+update-cloudflare-dns.sh
 
 # Pytest
 .pytest_cache/

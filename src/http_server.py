@@ -52,6 +52,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                 elif self.path == "/api/reboot":
                     holder.send_command(CMD_REBOOT)
                     self._respond_json(200, {"ok": True, "command": "reboot"})
+                elif self.path == "/api/ddns/update":
+                    self._handle_ddns_update()
                 elif self.path == "/api/maintenance":
                     self._handle_post_maintenance()
                 else:
@@ -172,6 +174,18 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                 "isp_outage_detection_delay": _config.ISP_OUTAGE_DETECTION_DELAY,
             }
             self._respond_json(200, cfg)
+
+        def _handle_ddns_update(self) -> None:
+            """Force a DDNS update."""
+            from ddns_cloudflare import check_and_update, is_configured
+            if not is_configured():
+                self._respond_json(200, {"ok": False, "error": "DDNS not configured"})
+                return
+            result = check_and_update(force=True)
+            if result is None:
+                self._respond_json(200, {"ok": False, "error": "IP detection failed"})
+                return
+            self._respond_json(200, {"ok": True, **result.to_dict()})
 
         def _handle_get_maintenance(self) -> None:
             """Return current maintenance windows."""

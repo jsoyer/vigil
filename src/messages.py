@@ -337,3 +337,46 @@ def update_failed(
         Level.WARNING,
         None,
     )
+
+
+# ===================================================================
+# DDNS Cloudflare
+# ===================================================================
+
+
+def ddns_updated(
+    previous_ip: str,
+    current_ip: str,
+    records_updated: int,
+    record_names: str,
+) -> tuple[str, Level, NotificationContext | None]:
+    lines = [
+        f"Adresse IP publique mise a jour.",
+        "",
+        f"Ancienne IP : {previous_ip}",
+        f"Nouvelle IP : {current_ip}",
+        f"Records DNS mis a jour : {records_updated} ({record_names})",
+        "",
+        "Les services exposes (VPN, acces distant, etc.) utilisent la nouvelle IP.",
+    ]
+    return "\n".join(lines), Level.INFO, None
+
+
+def ddns_failed(
+    current_ip: str,
+    errors: list[str],
+) -> tuple[str, Level, NotificationContext | None]:
+    lines = [
+        f"Echec de la mise a jour DNS Cloudflare.",
+        "",
+        f"IP publique detectee : {current_ip}",
+        f"Erreurs :",
+    ]
+    for err in errors:
+        lines.append(f"  - {err}")
+    lines.extend([
+        "",
+        "Les records DNS pointent encore vers l'ancienne IP.",
+        "Verifier le token Cloudflare et les records dans le dashboard Cloudflare.",
+    ])
+    return "\n".join(lines), Level.WARNING, None

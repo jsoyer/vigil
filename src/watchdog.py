@@ -52,6 +52,7 @@ from peer import should_reboot as peer_should_reboot, get_peer_info, check_diver
 from report import generate_daily_report, format_report_notification, generate_weekly_report, format_weekly_report
 from diagnostics import run_traceroute
 from connectivity import gateway_latency, internet_latency
+from ddns_cloudflare import check_and_update as ddns_check, is_configured as ddns_configured
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
@@ -496,6 +497,28 @@ def main() -> None:
             consecutive_reboots = 0
             consecutive_ssh_failures = 0
 
+            # DDNS check on recovery (IP may have changed after reboot)
+            if ddns_configured():
+                ddns_result = ddns_check(force=True)
+                if ddns_result and ddns_result.changed:
+                    if ddns_result.records_failed == 0:
+                        text_d, level_d, ctx_d = msg.ddns_updated(
+                            ddns_result.previous_ip, ddns_result.current_ip,
+                            ddns_result.records_updated,
+                            ", ".join(r.strip() for r in __import__("config").CLOUDFLARE_RECORD_NAMES.split(",")),
+                        )
+                    else:
+                        text_d, level_d, ctx_d = msg.ddns_failed(
+                            ddns_result.current_ip, list(ddns_result.errors),
+                        )
+                    notify(text_d, level_d, ctx_d)
+                    event_log.record(
+                        "dns_updated" if ddns_result.records_failed == 0 else "dns_update_failed",
+                        old_ip=ddns_result.previous_ip,
+                        new_ip=ddns_result.current_ip,
+                        records=ddns_result.records_updated,
+                    )
+
         if failure_score > 0 and not was_degraded:
             was_degraded = True
             outage_start_time = now
@@ -684,6 +707,27 @@ def main() -> None:
                     "Reboot SSH echoue (%d echecs, retry dans %s)",
                     consecutive_ssh_failures,
                     _format_duration(ssh_delay) if ssh_delay > 0 else "30s",
+                )
+
+        # --- Periodic DDNS check (rate-limited internally) ---
+        if ddns_configured() and failure_score == 0:
+            ddns_result = ddns_check()
+            if ddns_result and ddns_result.changed:
+                if ddns_result.records_failed == 0:
+                    text_d, level_d, ctx_d = msg.ddns_updated(
+                        ddns_result.previous_ip, ddns_result.current_ip,
+                        ddns_result.records_updated,
+                        ", ".join(r.strip() for r in __import__("config").CLOUDFLARE_RECORD_NAMES.split(",")),
+                    )
+                else:
+                    text_d, level_d, ctx_d = msg.ddns_failed(
+                        ddns_result.current_ip, list(ddns_result.errors),
+                    )
+                notify(text_d, level_d, ctx_d)
+                event_log.record(
+                    "dns_updated" if ddns_result.records_failed == 0 else "dns_update_failed",
+                    old_ip=ddns_result.previous_ip, new_ip=ddns_result.current_ip,
+                    records=ddns_result.records_updated,
                 )
 
         # Publish state for HTTP server + peer queries
