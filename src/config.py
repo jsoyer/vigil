@@ -232,6 +232,9 @@ PEER_TAKEOVER_DELAY: int = _get_int_env("PEER_TAKEOVER_DELAY", default=180, mini
 # Mettre -1 pour desactiver
 DAILY_REPORT_HOUR: int = _get_int_env("DAILY_REPORT_HOUR", default=8, minimum=-1)
 
+# Jour d'envoi du rapport hebdomadaire (0=lundi, 6=dimanche, -1=desactive)
+WEEKLY_REPORT_DAY: int = _get_int_env("WEEKLY_REPORT_DAY", default=0, minimum=-1)
+
 # ---------------------------------------------
 # LOGGING
 # ---------------------------------------------

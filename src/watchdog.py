@@ -39,6 +39,7 @@ from config import (
     PEER_IP,
     HTTP_PORT,
     DAILY_REPORT_HOUR,
+    WEEKLY_REPORT_DAY,
     LOG_FILE,
     LOG_LEVEL,
 )
@@ -48,7 +49,7 @@ from notifier import notify, Level, NotificationContext
 from state import WatchdogState, StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from http_server import start_http_server
 from peer import should_reboot as peer_should_reboot, get_peer_info, check_divergence
-from report import generate_daily_report, format_report_notification
+from report import generate_daily_report, format_report_notification, generate_weekly_report, format_weekly_report
 from diagnostics import run_traceroute
 from connectivity import gateway_latency, internet_latency
 import messages as msg
@@ -201,6 +202,7 @@ def main() -> None:
     peer_info: dict[str, str | int] = {"status": "unknown", "score": 0, "gateway": "", "internet": ""}
     divergence_notified = False
     last_report_date = datetime.now().date()
+    last_weekly_report_week = datetime.now().isocalendar()[1]
 
     # Version (read from VERSION file)
     _version = "0.0.0"
@@ -281,6 +283,29 @@ def main() -> None:
                 event_log.record("daily_report")
             except Exception as e:
                 logging.warning("Erreur generation rapport quotidien : %s", e)
+
+        # --- Weekly report ---
+        current_week = datetime.now().isocalendar()[1]
+        if (
+            WEEKLY_REPORT_DAY >= 0
+            and current_week != last_weekly_report_week
+            and datetime.now().weekday() == WEEKLY_REPORT_DAY
+            and datetime.now().hour >= DAILY_REPORT_HOUR
+        ):
+            last_weekly_report_week = current_week
+            try:
+                wreport = generate_weekly_report(
+                    event_log,
+                    uptime_seconds=now - start_time,
+                    current_score=failure_score,
+                    peer_status=str(peer_info.get("status", "unknown")),
+                )
+                wreport_text = format_weekly_report(wreport)
+                logging.info("Rapport hebdomadaire envoye")
+                notify(wreport_text, Level.INFO)
+                event_log.record("weekly_report")
+            except Exception as e:
+                logging.warning("Erreur generation rapport hebdomadaire : %s", e)
 
         # --- Process pending commands from HTTP API ---
         cmd = state_holder.poll_command()

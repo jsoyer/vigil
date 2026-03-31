@@ -9,6 +9,7 @@ from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
 from dashboard import DASHBOARD_HTML
 from report import generate_daily_report
+from metrics import render_metrics
 
 import config as _config
 
@@ -29,6 +30,8 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                     self._handle_events()
                 elif self.path == "/api/config":
                     self._handle_config()
+                elif self.path == "/metrics":
+                    self._handle_metrics()
                 elif self.path == "/api/report":
                     self._handle_report()
                 else:
@@ -165,6 +168,15 @@ def _make_handler_class(holder: StateHolder, event_log: EventLog | None = None) 
                 "isp_outage_detection_delay": _config.ISP_OUTAGE_DETECTION_DELAY,
             }
             self._respond_json(200, cfg)
+
+        def _handle_metrics(self) -> None:
+            """Prometheus exposition format."""
+            body = render_metrics(holder.state).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def _handle_report(self) -> None:
             """Generate and return today's report."""

@@ -101,3 +101,82 @@ def format_report_notification(report: dict) -> str:
         lines.append(f"  Peer : {report['peer_status']}")
 
     return "\n".join(lines)
+
+
+def generate_weekly_report(
+    event_log: EventLog,
+    uptime_seconds: float = 0.0,
+    current_score: int = 0,
+    peer_status: str = "unknown",
+) -> dict:
+    """Generate a weekly summary from the last 7 days of events."""
+    from datetime import timedelta
+
+    today = datetime.now().date()
+    all_events = event_log.get_all()
+
+    week_start = today - timedelta(days=7)
+    prev_week_start = today - timedelta(days=14)
+
+    week_events = [
+        e for e in all_events
+        if e["ts"][:10] >= week_start.isoformat() and e["ts"][:10] < today.isoformat()
+    ]
+    prev_events = [
+        e for e in all_events
+        if e["ts"][:10] >= prev_week_start.isoformat() and e["ts"][:10] < week_start.isoformat()
+    ]
+
+    def count_type(events: list[dict], t: str) -> int:
+        return sum(1 for e in events if e["type"] == t)
+
+    reboot_count = count_type(week_events, REBOOT)
+    prev_reboot_count = count_type(prev_events, REBOOT)
+    outage_count = count_type(week_events, RECOVERY)
+    prev_outage_count = count_type(prev_events, RECOVERY)
+    isp_count = count_type(week_events, ISP_OUTAGE)
+
+    def trend(current: int, previous: int) -> str:
+        if previous == 0 and current == 0:
+            return "stable"
+        if previous == 0:
+            return f"+{current}"
+        delta = current - previous
+        if delta > 0:
+            return f"+{delta} vs semaine precedente"
+        if delta < 0:
+            return f"{delta} vs semaine precedente"
+        return "stable"
+
+    return {
+        "period": f"{week_start.isoformat()} -> {today.isoformat()}",
+        "outage_count": outage_count,
+        "outage_trend": trend(outage_count, prev_outage_count),
+        "reboot_count": reboot_count,
+        "reboot_trend": trend(reboot_count, prev_reboot_count),
+        "isp_outage_count": isp_count,
+        "event_count": len(week_events),
+        "current_score": current_score,
+        "peer_status": peer_status,
+    }
+
+
+def format_weekly_report(report: dict) -> str:
+    """Format a weekly report as notification text."""
+    lines = [
+        f"Rapport hebdomadaire USG Watchdog",
+        f"Periode : {report['period']}",
+        "",
+        f"  Coupures : {report['outage_count']} ({report['outage_trend']})",
+        f"  Reboots : {report['reboot_count']} ({report['reboot_trend']})",
+    ]
+
+    if report["isp_outage_count"] > 0:
+        lines.append(f"  Pannes ISP : {report['isp_outage_count']}")
+
+    lines.append(f"  Evenements totaux : {report['event_count']}")
+
+    if report["peer_status"] not in ("unknown", "standalone"):
+        lines.append(f"  Peer : {report['peer_status']}")
+
+    return "\n".join(lines)
