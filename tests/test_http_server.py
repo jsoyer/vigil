@@ -193,11 +193,31 @@ class TestHttpServerWithEvents:
         assert len(body) == 3
 
 
+_TEST_API_TOKEN = "test-secret-token"
+
+
+def _post_authed(url: str, token: str, timeout: int = 2) -> tuple[int, dict]:
+    """Helper: POST with Bearer token and return (status_code, json_body)."""
+    try:
+        req = urllib.request.Request(url, data=b"", method="POST")
+        req.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8"))
+
+
 class TestControlAPI:
     @pytest.fixture(autouse=True)
     def _start_server(self):
         from http.server import HTTPServer
         from src.http_server import _make_handler_class
+
+        # Patch API_TOKEN on the exact module object used by http_server
+        import src.http_server as _http_server_mod
+        _config = _http_server_mod._config  # same object the handler closes over
+        _original_token = _config.API_TOKEN
+        _config.API_TOKEN = _TEST_API_TOKEN
 
         self.holder = StateHolder()
         handler = _make_handler_class(self.holder)
@@ -210,35 +230,36 @@ class TestControlAPI:
         self.thread.start()
         yield
         self.server.shutdown()
+        _config.API_TOKEN = _original_token
 
     def test_pause_command(self):
-        status, body = _post(f"{self.base_url}/api/pause")
+        status, body = _post_authed(f"{self.base_url}/api/pause", _TEST_API_TOKEN)
         assert status == 200
         assert body["ok"] is True
         assert body["command"] == "pause"
         assert self.holder.poll_command() == "pause"
 
     def test_resume_command(self):
-        status, body = _post(f"{self.base_url}/api/resume")
+        status, body = _post_authed(f"{self.base_url}/api/resume", _TEST_API_TOKEN)
         assert status == 200
         assert body["command"] == "resume"
         assert self.holder.poll_command() == "resume"
 
     def test_reboot_command(self):
-        status, body = _post(f"{self.base_url}/api/reboot")
+        status, body = _post_authed(f"{self.base_url}/api/reboot", _TEST_API_TOKEN)
         assert status == 200
         assert body["command"] == "reboot"
         assert self.holder.poll_command() == "reboot"
 
     def test_multiple_commands_queued(self):
-        _post(f"{self.base_url}/api/pause")
-        _post(f"{self.base_url}/api/resume")
+        _post_authed(f"{self.base_url}/api/pause", _TEST_API_TOKEN)
+        _post_authed(f"{self.base_url}/api/resume", _TEST_API_TOKEN)
         assert self.holder.poll_command() == "pause"
         assert self.holder.poll_command() == "resume"
         assert self.holder.poll_command() is None
 
     def test_post_unknown_path(self):
-        status, body = _post(f"{self.base_url}/api/unknown")
+        status, body = _post_authed(f"{self.base_url}/api/unknown", _TEST_API_TOKEN)
         assert status == 404
 
     def test_config_endpoint(self):

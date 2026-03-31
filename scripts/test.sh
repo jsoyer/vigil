@@ -24,6 +24,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/logging.sh"
 # -----------------------------------------------------------------------------
 
+# Load .env if it exists (same as systemd EnvironmentFile)
+ENV_FILE="/opt/usg-watchdog/.env"
+if [[ -f "${ENV_FILE}" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${ENV_FILE}"
+    set +a
+fi
+
 # Validate arguments
 case "${1:-}" in
     ""|"--reboot") ;;

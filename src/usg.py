@@ -56,14 +56,14 @@ def _get_ssh_client() -> Optional["paramiko.SSHClient"]:
 
     try:
         client.load_host_keys(USG_KNOWN_HOSTS)
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
     except FileNotFoundError:
-        logging.error(
-            "Fichier known_hosts introuvable : %s -- lancer scripts/setup_ssh.sh",
+        logging.warning(
+            "Fichier known_hosts introuvable : %s -- "
+            "connexion autorisee mais verifier avec scripts/setup_ssh.sh",
             USG_KNOWN_HOSTS,
         )
-        return None
-
-    client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
     connect_kwargs: dict = {
         "hostname": USG_IP,

@@ -28,12 +28,19 @@ class TestGetSshClient:
 
     @mock.patch("src.usg.paramiko")
     @mock.patch("src.usg.USG_KNOWN_HOSTS", "/nonexistent/known_hosts")
-    def test_returns_none_when_known_hosts_missing(self, mock_paramiko):
+    def test_falls_back_to_warning_policy_when_known_hosts_missing(self, mock_paramiko):
         mock_client = mock.Mock()
         mock_paramiko.SSHClient.return_value = mock_client
+        mock_paramiko.WarningPolicy.return_value = mock.Mock()
+        mock_paramiko.RejectPolicy.return_value = mock.Mock()
         mock_client.load_host_keys.side_effect = FileNotFoundError
 
-        assert _get_ssh_client() is None
+        result = _get_ssh_client()
+        # Should still connect but with WarningPolicy instead of RejectPolicy
+        assert result is not None
+        mock_client.set_missing_host_key_policy.assert_called_once_with(
+            mock_paramiko.WarningPolicy.return_value
+        )
 
     @mock.patch("src.usg.paramiko")
     @mock.patch("src.usg.USG_SSH_KEY", "")

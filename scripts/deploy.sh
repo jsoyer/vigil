@@ -29,6 +29,53 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# --- Configuration interactive (.env) ----------------------------------------
+ENV_FILE="${INSTALL_DIR}/.env"
+mkdir -p "${INSTALL_DIR}"
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+    log_info "Premier deploiement -- configuration initiale"
+    echo ""
+
+    read -rp "  IP du USG (gateway) [192.168.1.1] : " INPUT_USG_IP || INPUT_USG_IP=""
+    INPUT_USG_IP="${INPUT_USG_IP:-192.168.1.1}"
+
+    read -rp "  Utilisateur SSH du USG [maintenance] : " INPUT_USG_USER || INPUT_USG_USER=""
+    INPUT_USG_USER="${INPUT_USG_USER:-maintenance}"
+
+    read -rp "  Token bot Telegram (vide = skip) : " INPUT_TG_TOKEN || INPUT_TG_TOKEN=""
+    INPUT_TG_CHAT=""
+    if [[ -n "${INPUT_TG_TOKEN}" ]]; then
+        read -rp "  Chat ID Telegram : " INPUT_TG_CHAT || INPUT_TG_CHAT=""
+    fi
+
+    GENERATED_API_TOKEN=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))")
+
+    cat > "${ENV_FILE}" <<ENVEOF
+USG_IP=${INPUT_USG_IP}
+USG_USER=${INPUT_USG_USER}
+TELEGRAM_BOT_TOKEN=${INPUT_TG_TOKEN}
+TELEGRAM_CHAT_ID=${INPUT_TG_CHAT}
+API_TOKEN=${GENERATED_API_TOKEN}
+ENVEOF
+
+    chmod 600 "${ENV_FILE}"
+    chown root:root "${ENV_FILE}"
+    log_success "Fichier .env cree : ${ENV_FILE}"
+    log_info "API_TOKEN genere automatiquement"
+    echo ""
+else
+    # Verifier que USG_IP est configure
+    if ! grep -q "^USG_IP=" "${ENV_FILE}" 2>/dev/null; then
+        echo ""
+        read -rp "  IP du USG (gateway) [192.168.1.1] : " INPUT_USG_IP || INPUT_USG_IP=""
+        INPUT_USG_IP="${INPUT_USG_IP:-192.168.1.1}"
+        echo "USG_IP=${INPUT_USG_IP}" >> "${ENV_FILE}"
+        log_success "USG_IP ajoute au .env"
+    fi
+    log_info "Fichier .env existant conserve : ${ENV_FILE}"
+fi
+
 # --- Python ------------------------------------------------------------------
 if ! command -v python3 &>/dev/null; then
     log_error "Python3 introuvable -- installer python3"

@@ -91,8 +91,9 @@ MQTT_BROKER=192.168.1.50
 INSTANCE_PRIORITY=2
 PEER_IP=192.168.1.10
 
-# API Token (recommandé pour sécuriser endpoints POST)
-API_TOKEN=votre_token_secret_aleatoire
+# API Token (protege les endpoints POST : reboot, pause, etc.)
+# Generer avec : openssl rand -hex 32
+API_TOKEN=coller_le_token_ici
 ```
 
 **Email SMTP** (optionnel) :

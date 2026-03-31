@@ -141,7 +141,18 @@ except ValueError:
 USG_USER: str = os.getenv("USG_USER", "maintenance")
 
 # Chemin vers la cle SSH privee dediee (generee par scripts/setup_ssh.sh)
-USG_SSH_KEY: str = os.getenv("USG_SSH_KEY", "/opt/usg-watchdog/.ssh/usg_ed25519")
+# Auto-detection : ed25519 en priorite, fallback sur rsa si absent
+def _detect_ssh_key() -> str:
+    explicit = os.getenv("USG_SSH_KEY", "")
+    if explicit:
+        return explicit
+    for name in ("usg_ed25519", "usg_rsa", "id_ed25519", "id_rsa"):
+        path = f"/opt/usg-watchdog/.ssh/{name}"
+        if os.path.isfile(path):
+            return path
+    return "/opt/usg-watchdog/.ssh/usg_ed25519"
+
+USG_SSH_KEY: str = _detect_ssh_key()
 
 # Fichier known_hosts pour verification de la cle hote du USG
 USG_KNOWN_HOSTS: str = os.getenv(
