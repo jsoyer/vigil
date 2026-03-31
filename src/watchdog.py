@@ -55,6 +55,9 @@ from diagnostics import run_traceroute
 from connectivity import gateway_latency, internet_latency
 from ddns_cloudflare import check_and_update as ddns_check, is_configured as ddns_configured
 from backup_unifi import run_backup as unifi_backup, is_configured as backup_configured
+from mqtt_publisher import MqttPublisher
+from snmp_monitor import read_usg_metrics, UsgMetrics
+from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
@@ -224,6 +227,13 @@ def main() -> None:
     _event_log = event_log
     state_holder = StateHolder()
     start_http_server(state_holder, HTTP_PORT, event_log)
+
+    # MQTT publisher (optional)
+    mqtt = MqttPublisher(state_holder)
+    mqtt.start()
+
+    # Cycle counters for periodic tasks
+    cycle_count = 0
 
     logging.info("=" * 60)
     logging.info("USG Watchdog demarre")
@@ -776,6 +786,41 @@ def main() -> None:
                     old_ip=ddns_result.previous_ip, new_ip=ddns_result.current_ip,
                     records=ddns_result.records_updated,
                 )
+
+        # --- Periodic SNMP check (every 10 cycles = ~5 min) ---
+        if cycle_count % 10 == 0:
+            try:
+                usg_metrics = read_usg_metrics()
+                if usg_metrics.reachable and usg_metrics.is_stressed():
+                    logging.warning(
+                        "USG sous stress : CPU=%s%% RAM=%s%%",
+                        usg_metrics.cpu_percent, usg_metrics.memory_percent,
+                    )
+                    event_log.record(
+                        "usg_stressed",
+                        cpu=usg_metrics.cpu_percent,
+                        ram=usg_metrics.memory_percent,
+                    )
+            except Exception:
+                pass
+
+        # --- Periodic speedtest (every SPEEDTEST_INTERVAL_CYCLES) ---
+        if cycle_count % SPEEDTEST_INTERVAL_CYCLES == 0 and failure_score == 0:
+            try:
+                speed_result = run_speedtest()
+                if speed_result.ok:
+                    logging.debug(
+                        "Speedtest: %.2f Mbps", speed_result.download_mbps or 0
+                    )
+                    event_log.record(
+                        "speedtest",
+                        mbps=round(speed_result.download_mbps or 0, 2),
+                        duration_ms=speed_result.duration_ms,
+                    )
+            except Exception:
+                pass
+
+        cycle_count += 1
 
         # Publish state for HTTP server + peer queries
         state_holder.state = WatchdogState(
