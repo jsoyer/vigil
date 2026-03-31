@@ -1,387 +1,319 @@
-# USG Watchdog — CLAUDE.md
+# USG Watchdog v1.7.0 — CLAUDE.md
 
-## Project Overview
+Guide architectural et procédures développement pour USG Watchdog.
 
-USG Watchdog is an automated network monitoring and recovery system for Ubiquiti UniFi Security Gateways (USG). It continuously monitors internet connectivity via multi-target ping checks (Google DNS, Cloudflare, Quad9), applies a scoring system to detect failures, and automatically reboots the USG via SSH when connectivity problems persist. Designed for fiber installations requiring high availability, it includes exponential backoff, ISP outage detection, dual-instance peer coordination, and multi-channel notifications (Telegram, Discord, Slack).
+## Vue d'ensemble du projet
+
+USG Watchdog est un système de surveillance de connexion internet et de redémarrage automatique du routeur Ubiquiti USG, fonctionnant sur Raspberry Pi ou Linux. Il combine :
+
+- **Système de scoring** : Pénalités pour défaillances, récupération si rétablissement
+- **Circuit breaker** : Backoff exponentiel, limite quotidienne, détection panne ISP
+- **7 canaux de notification** : Telegram, Discord, Slack, Ntfy, Email SMTP, Pushover, MQTT
+- **Haute disponibilité** : Coordination multi-instance avec failover basé sur priorité
+- **Fonctionnalités avancées** : DDNS Cloudflare, Tailscale sync, Backup UniFi, Speedtest, Prometheus metrics
+- **Telegram Bot** : Commandes interactives (/status, /pause, /resume, /reboot, /ddns, /backup, /help)
+- **API HTTP complète** : 15+ endpoints pour monitoring et contrôle
+- **Dashboard responsive PWA** : Interface web avec support offline
+- **Auto-updater** : Récupère versions depuis GitHub, valide, déploie, rollback auto
 
 ## Architecture
 
-**Core Components:**
+### Structure des fichiers
 
-- `src/watchdog.py` — Main event loop, scoring logic, reboot orchestration, circuit breaker
-- `src/config.py` — Environment-based configuration (all values via env vars, no hardcoding)
-- `src/state.py` — Immutable frozen dataclass (WatchdogState) for thread-safe atomic state swaps
-- `src/connectivity.py` — Ping gateway + multi-target internet checks
-- `src/usg.py` — SSH reboot execution via paramiko
-- `src/http_server.py` — Background HTTP server (port 9000) exposing /api/state, /api/health, /dashboard, plus command queue (pause/resume/reboot)
-- `src/peer.py` — Multi-instance coordination (primary/secondary with takeover delay)
-- `src/events.py` — Thread-safe event history with periodic JSON persistence
-- `src/notifier/` — Multi-channel dispatch (Telegram, Discord, Slack) with context-aware templating
-- `src/report.py` — Daily report generation
-- `src/dashboard.py` — HTML dashboard served at /
+```
+src/
+├── watchdog.py               # Boucle principale + scoring + circuit breaker
+├── config.py                 # Configuration (toutes les env vars + defaults)
+├── state.py                  # WatchdogState immutable + StateHolder + queue commandes
+├── connectivity.py           # check_connectivity() + ping gateway + internet
+├── usg.py                    # reboot_usg() via SSH paramiko
+├── events.py                 # EventLog ring buffer + persistence JSON
+├── http_server.py            # API HTTP + endpoints JSON + dashboard
+├── peer.py                   # Coordination multi-instance (failover logic)
+├── dashboard.py              # HTML dashboard intégré (zéro dépendances)
+├── pwa.py                    # PWA manifest.json + service worker (offline)
+├── report.py                 # Rapports quotidiens/hebdomadaires
+├── history.py                # Historique persisté (metriques + événements)
+├── diagnostics.py            # Traceroute + SNMP monitoring
+├── metrics.py                # Prometheus exposition format (/metrics)
+├── ddns_cloudflare.py        # DDNS Cloudflare (remplace script shell)
+├── tailscale_dns.py          # Tailscale DNS sync
+├── backup_unifi.py           # Backup UniFi via rclone
+├── multiwan.py               # Multi-WAN detection (failover)
+├── speedtest.py              # Speedtest intégré (100KB download)
+├── snmp_monitor.py           # Lecture métriques USG (CPU, mémoire)
+├── mqtt_publisher.py         # MQTT / Home Assistant auto-discovery
+├── alert_escalation.py       # Escalade d'alertes si pas ACK
+├── telegram_bot.py           # Bot Telegram interactif (long-polling)
+├── messages.py               # Templates messages (tous les canaux)
+├── notifier/
+│   ├── __init__.py           # Public API: notify(message, level, context)
+│   ├── _types.py             # Level enum + NotificationContext
+│   ├── _dispatch.py          # Dispatch multi-canaux en parallèle
+│   ├── _telegram.py          # Telegram webhook
+│   ├── _discord.py           # Discord webhook
+│   ├── _slack.py             # Slack webhook
+│   ├── _ntfy.py              # Ntfy (self-hosted possible)
+│   ├── _email.py             # Email SMTP (TLS)
+│   └── _pushover.py          # Pushover (mobile push)
+└── __init__.py
 
-**Thread Model:**
-- Main thread: watchdog loop (blocking, sleeps CHECK_INTERVAL between cycles)
-- HTTP server thread: daemon background thread handling state queries and API commands
+updater/
+├── update.py                 # Principal logic: download, validate, deploy, health check, rollback
+└── preflight.py              # Validation syntaxe + imports
 
-**State Management:**
-- StateHolder contains mutable reference to immutable WatchdogState
-- Main loop atomically swaps state reference each cycle (GIL guarantees atomic pointer assignment)
-- HTTP thread reads frozen snapshot, no locks needed for state access
-- Commands queued via thread-safe queue from HTTP endpoints → polled by main loop
+systemd/
+├── usg-watchdog.service      # Unit hardening: ProtectSystem, PrivateTmp, CAP_NET_RAW, etc.
+├── usg-watchdog-updater.service
+├── usg-watchdog-updater.timer
+└── usg-watchdog.logrotate
 
-## Key Conventions
+scripts/
+├── setup_ssh.sh              # Setup SSH (Ed25519, known_hosts, test)
+├── deploy.sh                 # Installation complète (user, venv, systemd)
+├── test.sh                   # Tests pré-déploiement
+├── uninstall.sh              # Suppression propre
+├── validate.sh               # Validation pré-commit
+└── release.sh                # Tagging + versioning
+```
+
+### Composants clés
+
+#### watchdog.py
+
+Boucle principale qui :
+1. Appelle `check_connectivity()` pour statut gateway + internet
+2. Calcule `compute_cycle_delta()` pour mise à jour score
+3. Gère les cooldowns (reboot, SSH)
+4. Détecte les pannes ISP (pattern gateway OK + internet KO prolongé)
+5. Consulte le peer si HA configuré
+6. Exécute reboot si seuil atteint + conditions OK
+7. Enregistre événements
+8. Envoie rapports quotidiens/hebdomadaires
+9. Lance les tâches périodiques (DDNS, Tailscale, Backup, Speedtest)
+10. Gère le Telegram bot + escalade d'alertes
+
+#### config.py
+
+Centralise TOUS les paramètres :
+- Env vars via `_get_env()` et `_get_int_env()`
+- Validation au startup (ex: IP addresses)
+- Pas de hardcoding
+- Defaults sensibles
+
+Catégories :
+- Connexion : ping targets, timeouts
+- Scoring : seuils, deltas, decays
+- Circuit breaker : cooldowns, grace, limites
+- SSH backoff : paliers exponentiel
+- ISP detection : durée pattern
+- Notifications (Telegram, Discord, Slack, Ntfy, SMTP, Pushover)
+- MQTT + Home Assistant
+- DDNS Cloudflare, Tailscale, Backup UniFi
+- Rapports (quotidien, hebdo)
+- Coordination peer (HA)
+- API + Logging
+
+#### state.py
+
+Immutabilité stricte :
+- `WatchdogState` : @dataclass(frozen=True)
+  - Snapshot complète chaque cycle (~50 champs)
+  - Inclut : score, statuts, timestamps, historique cooldowns, info peer, etc.
+- `StateHolder` : mutable reference à WatchdogState
+  - Atomically swapped par main loop
+  - Thread-safe (GIL)
+  - Accessible en lecture par HTTP thread
+- Command queue : pause, resume, reboot depuis endpoints POST
+
+#### connectivity.py
+
+Ping checks multi-threaded :
+- `check_connectivity()` → ConnectivityResult
+- Gateway ping + RTT
+- Internet check (3 targets en parallèle)
+- Latency tracking + dégradation detection
+
+#### usg.py
+
+SSH reboot via paramiko :
+- Ed25519 key auth preferred, fallback password
+- Known_hosts verification (MITM prevention)
+- Timeout handling
+- Never raises (failures logged)
+
+#### http_server.py
+
+API HTTP + dashboard :
+- 15+ endpoints (GET /health, /api/state, /api/events, /api/config, /api/report, /api/sla, /api/history, /metrics, /manifest.json, /sw.js, /dashboard, POST /api/pause, /resume, /reboot, /maintenance, /ddns/update, /backup/unifi)
+- Dashboard HTML responsive (zéro dépendances JS)
+- Auth token optionnel (Bearer)
+- Runs in daemon thread
+
+#### peer.py
+
+Coordination HA :
+- `query_peer()` → HTTP GET /api/state
+- `should_reboot()` → decision logic (primary vs secondary)
+- Failover logic : secondary attend PEER_TAKEOVER_DELAY avant prendre relais
+- Divergence detection : alerte si écart score > 6
+
+#### events.py
+
+Ring buffer thread-safe (~100 événements) :
+- Event : frozen dataclass (ts, type, data)
+- EventLog : thread-safe append + persistence JSON
+- Types : startup, shutdown, reboot, reboot_failed, recovery, isp_outage, isp_recovery, peer_standdown, ssh_backoff, max_reboots, divergence, etc.
+- Persisté à `/var/log/usg-watchdog-events.json`
+- Rechargé au startup
+
+#### notifier/
+
+7 canaux de notification :
+1. Telegram (bot + webhook)
+2. Discord (webhook)
+3. Slack (webhook)
+4. Ntfy (self-hosted ou cloud)
+5. Email SMTP (TLS)
+6. Pushover (mobile)
+7. MQTT (Home Assistant + auto-discovery)
+
+Chaque canal :
+- Never raises (failures logged)
+- Respects MIN_LEVEL filtering
+- Templated messages
+- Parallel dispatch
+
+#### dashboard.py
+
+Interface web :
+- HTML + CSS intégré (zéro dépendances)
+- Responsive (mobile, tablette, desktop)
+- Dark mode (GitHub style)
+- Auto-refresh (5s)
+- Charts (score, latency, uptime)
+
+#### Fonctionnalités avancées
+
+**ddns_cloudflare.py** : Sync IP publique → Cloudflare DNS
+- Détecte IP change
+- Update records A
+- Triggerd : reboot recovery + periodic check
+
+**tailscale_dns.py** : Sync Tailscale DNS public
+- Récupère machines du tailnet
+- Create DNS records
+- Periodic sync (10 min)
+
+**backup_unifi.py** : Backup UniFi via rclone
+- Monitor dossier autobackup
+- Upload à destination
+- Retention policy
+- Alerte si trop vieux
+
+**multiwan.py** : Détection failover dual-WAN
+- Query USG routing table via SSH
+- Identify active WAN interface
+
+**speedtest.py** : Test débit intégré
+- Download 100KB depuis CDN
+- Periodic (10 min)
+- Alerte si dégradation
+
+**snmp_monitor.py** : Lecture métriques USG
+- CPU, mémoire, interfaces
+- Via SNMP v2
+
+**metrics.py** : Prometheus exposition
+- Endpoint /metrics
+- 15+ gauges + counters
+- Grafana compatible
+
+**alert_escalation.py** : Escalade d'alertes
+- Si CRITICAL non supprimée après N min
+- Re-envoi via canaux prioritaires
+
+**telegram_bot.py** : Bot interactif
+- Long-polling getUpdates
+- Commandes : /status, /pause, /resume, /reboot, /ddns, /backup, /tailscale, /help
+- Affiche contexte riche
+
+#### messages.py
+
+Templates messages pour tous les canaux :
+1. Quoi : qu'est-ce qui s'est passé ?
+2. Pourquoi : quelle est la cause probable ?
+3. Quoi faire : quelle action est attendue ?
+
+Templates incluent contexte riche (score, latences, peer status, etc.)
+
+## Conventions clés
 
 ### Configuration
-- **All config via env vars** defined in `src/config.py`
-- Helper functions: `_get_env()`, `_get_int_env()`
-- Validation at startup (e.g., USG_IP, PEER_IP IP address validation)
-- No hardcoded values except defaults in config.py
 
-### Immutability
-- WatchdogState, ConnectivityResult, Event all use `@dataclass(frozen=True)`
-- State updates create new WatchdogState instances, never mutate
-- StateHolder.state reference is atomically swapped, never modified in-place
+- **TOUTES les config via env vars** dans config.py
+- Helper : `_get_env()`, `_get_int_env()`
+- Validation au startup
+- Pas de hardcoding
 
-### Logging & Output
-- **Log messages in French** (e.g., "Reboot USG en cours", "Connexion retablie")
-- No emojis in logs (they clutter log files)
-- Emojis OK in notification messages to users
-- All logging via `logging` module (never print)
-- Log levels: INFO for status, WARNING for issues, ERROR for failures, CRITICAL for severe conditions
+### Immutabilité
+
+- WatchdogState, ConnectivityResult, Event = @dataclass(frozen=True)
+- État updates créent nouveaux objets
+- StateHolder reference atomiquement swappée
+
+### Logging
+
+- **Messages en français**
+- Pas d'emojis dans logs (sauf messages utilisateurs)
+- Niveaux : DEBUG, INFO, WARNING, ERROR, CRITICAL
+- Via `logging` module (jamais print)
 
 ### Thread Safety
-- Main loop's atomic state swap relies on Python GIL
-- EventLog uses threading.Lock for ring buffer access
-- HTTP server thread only reads frozen state (no writes)
-- Commands from HTTP queued in thread-safe queue.Queue
+
+- Main loop atomic state swap via GIL
+- EventLog utilise threading.Lock
+- HTTP thread lit état gelé (readonly)
+- Commands queueés via thread-safe queue.Queue
 
 ### Notifications
-- `notify(message, level, context)` never raises — failures logged
-- Dispatch to all configured channels (Telegram, Discord, Slack) in parallel
-- NotificationContext provides structured data for template rendering
-- Return dict[str, bool] showing success per channel
 
-## How to Run Tests
+- `notify()` never raises
+- Dispatch en parallèle
+- Filtrage par MIN_LEVEL par canal
+- Templated messages
 
-```bash
-# All tests with coverage
-pytest --cov=src --cov-report=term-missing
-
-# Specific test file
-pytest tests/test_watchdog.py -v
-
-# Unit tests only
-pytest -m unit
-
-# Integration tests only
-pytest -m integration
-
-# Single test
-pytest tests/test_watchdog.py::test_compute_cycle_delta -v
-```
-
-Test categories via `@pytest.mark`:
-- `@pytest.mark.unit` — Fast, isolated unit tests
-- `@pytest.mark.integration` — Tests touching I/O (network, SSH, HTTP)
-- No integration tests for real SSH/reboot (stubbed via fixtures)
-
-Coverage target: 80%+ (currently well above).
-
-## How to Deploy
-
-**Development:**
-```bash
-# Install deps
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Run locally
-python3 -m src.watchdog
-```
-
-**Production:**
-```bash
-# Generate/deploy SSH key (one-time setup)
-sudo ./scripts/setup_ssh.sh
-
-# Quick connectivity + SSH test
-sudo ./scripts/test.sh
-
-# Full deploy (creates service user, installs virtualenv, enables systemd)
-sudo ./scripts/deploy.sh
-
-# Post-deploy
-sudo systemctl status usg-watchdog
-sudo journalctl -u usg-watchdog -f
-sudo tail -f /var/log/usg-watchdog.log
-```
-
-**Service Management:**
-- Service: `/etc/systemd/system/usg-watchdog.service`
-- Runs as: `usg-watchdog` system user
-- Install dir: `/opt/usg-watchdog` (src/, venv/, .ssh/)
-- Log rotation: `/etc/logrotate.d/usg-watchdog`
-
-## Key Files & Modules
-
-### src/watchdog.py
-**Main loop handles:**
-- Connectivity checks each cycle (gateway ping + internet multi-target)
-- Scoring delta computation (penalties for failures, decay for recovery)
-- Grace period post-reboot (ignore failures for POST_REBOOT_GRACE seconds)
-- ISP outage pattern detection (gateway OK + internet KO for ISP_OUTAGE_DETECTION_DELAY → skip reboot)
-- Exponential backoff cooldown (reboot N doubles cooldown, capped at MAX_REBOOT_COOLDOWN)
-- SSH failure backoff (too many SSH failures → gradual retry delays)
-- Max reboots/day circuit breaker (>MAX_REBOOTS_PER_DAY → surveillance_only mode)
-- Peer coordination via query_peer() (defer to higher-priority peer, wait PEER_TAKEOVER_DELAY if secondary)
-- Daily report generation (send at DAILY_REPORT_HOUR via notify)
-- Event recording (STARTUP, REBOOT, RECOVERY, ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, MAX_REBOOTS, etc.)
-
-**Key functions:**
-- `compute_cycle_delta(gateway_ok, internet_ok_count)` → int (score change per cycle)
-- `compute_effective_cooldown(consecutive_reboots)` → int (exponential backoff)
-- `compute_ssh_retry_delay(consecutive_ssh_failures)` → int (SSH backoff)
-
-### src/config.py
-All tuning params as module-level vars, read from env via `_get_env()` / `_get_int_env()`.
-
-**Key categories:**
-- Ping targets & timeouts (PING_TARGETS, PING_TIMEOUT)
-- Scoring thresholds (REBOOT_SCORE_THRESHOLD, MAX_SCORE)
-- Score deltas per issue type (SCORE_GATEWAY_DOWN, SCORE_INTERNET_ALL_DOWN, etc.)
-- Score decay (SCORE_DECAY_OK, SCORE_DECAY_PARTIAL)
-- Grace/cooldown (POST_REBOOT_GRACE, REBOOT_COOLDOWN, MAX_REBOOT_COOLDOWN)
-- Max reboots/day (MAX_REBOOTS_PER_DAY)
-- SSH backoff (SSH_FAILURE_BACKOFF_START, SSH_FAILURE_COOLDOWN, MAX_SSH_COOLDOWN)
-- ISP detection (ISP_OUTAGE_DETECTION_DELAY)
-- USG connection (USG_IP, USG_USER, USG_SSH_KEY, USG_KNOWN_HOSTS, USG_SSH_PASSWORD, SSH_TIMEOUT, USG_REBOOT_WAIT, USG_REBOOT_COMMAND)
-- Notification channels (TELEGRAM_BOT_TOKEN/CHAT_ID/TIMEOUT/MIN_LEVEL, DISCORD_WEBHOOK_URL, SLACK_WEBHOOK_URL, etc.)
-- Peer coordination (INSTANCE_PRIORITY, PEER_IP, PEER_PORT, HTTP_PORT, PEER_TAKEOVER_DELAY)
-- Daily report (DAILY_REPORT_HOUR)
-- Logging (LOG_LEVEL, LOG_FILE)
-
-### src/state.py
-- `WatchdogState` — Frozen dataclass capturing complete snapshot each cycle (failure_score, threshold, gateway/internet status, reboot state, peer info, etc.)
-- `StateHolder` — Container with mutable `state: WatchdogState | None` reference (swapped atomically by main loop)
-- Command queue for HTTP → main loop communication (pause, resume, reboot commands)
-
-### src/connectivity.py
-- `ConnectivityResult` — Frozen dataclass (gateway_ok, internet_ok_count, internet_total)
-- `ping_host(host, timeout)` → bool
-- `ping_gateway()` → bool (pings USG_IP)
-- `check_internet()` → int (count of responding PING_TARGETS)
-- `check_connectivity()` → ConnectivityResult
-
-### src/usg.py
-- `reboot_usg()` → bool (SSH to USG_IP, execute USG_REBOOT_COMMAND, return success/fail)
-- Uses paramiko for SSH (key auth preferred, falls back to password)
-- Respects SSH_TIMEOUT config
-- Returns bool — never raises (failures logged)
-
-### src/http_server.py
-- `start_http_server(StateHolder, port, EventLog)` — starts daemon thread, returns Thread or None
-- Handler endpoints:
-  - `GET /` or `/dashboard` — HTML dashboard
-  - `GET /health` — JSON health summary (status, score, gateway, internet, peer)
-  - `GET /api/state` — Full WatchdogState JSON
-  - `GET /api/events?count=50&type=reboot` — Event history (queryable)
-  - `GET /api/config` — Active tuning params (no secrets)
-  - `GET /api/report` — Daily report JSON
-  - `POST /api/pause` → sends CMD_PAUSE to main loop
-  - `POST /api/resume` → sends CMD_RESUME to main loop
-  - `POST /api/reboot` → sends CMD_REBOOT to main loop
-
-### src/peer.py
-- `query_peer(peer_ip, peer_port, retries, timeout)` → WatchdogState | None (HTTP GET /api/state)
-- `should_reboot(my_state, gateway_ok)` → (proceed: bool, reason: str)
-  - Returns proceed decision based on peer priority, peer state, takeover delay
-  - Defaults to proceed=True on errors (fail open)
-- `get_peer_info()` → dict (fast single-attempt query for display)
-- `check_divergence(my_score, my_gateway_ok, my_inet_count)` → str | None (divergence alert)
-
-### src/events.py
-- `Event` — Frozen dataclass (ts: ISO timestamp, type: str, data: dict)
-- `EventLog` — Thread-safe ring buffer with periodic JSON persistence
-  - `record(event_type, **data)` — append event (thread-safe)
-  - `get_recent(count)` → list[dict]
-  - `get_by_type(event_type)` → list[dict]
-  - `count_today(event_type)` → int
-  - Persists to /var/log/usg-watchdog-events.json every PERSIST_INTERVAL (3600s)
-
-### src/notifier/
-- `__init__.py` — public API: `notify(message, level, context)` → dict[str, bool]
-- `_types.py` — `Level` (INFO, WARNING, CRITICAL), `NotificationContext` (context data)
-- `_dispatch.py` — `dispatch()` → queries enabled channels, sends in parallel
-- `_telegram.py` — Telegram webhook send
-- `_discord.py` — Discord webhook send
-- `_slack.py` — Slack webhook send
-
-Each channel implementation never raises, returns bool success/fail.
-
-### src/report.py
-- `generate_daily_report(event_log, report_date, uptime_seconds, current_score, peer_status)` → dict
-- `format_report_notification(report)` → str (human-readable summary)
-
-Generates: event counts (reboots, failures, recoveries), uptime, peer status.
-
-## Common Tasks
-
-### Add a New Notification Channel
-
-1. Create `src/notifier/_channel_name.py`:
-   ```python
-   import logging
-   from notifier._types import Level, NotificationContext
-
-   def send_channel_name(...) -> bool:
-       """Send notification to channel. Never raise."""
-       try:
-           # Send logic
-           return True
-       except Exception as e:
-           logging.error("channel_name error: %s", e)
-           return False
-   ```
-
-2. Update `src/notifier/_dispatch.py` to call your function in `dispatch()`
-
-3. Add config vars to `src/config.py` (e.g., `CHANNEL_WEBHOOK_URL`, `CHANNEL_TIMEOUT`, `CHANNEL_MIN_LEVEL`)
-
-4. In `_dispatch.py`, check if channel is configured before calling (skip if URL is empty)
-
-5. Test: `pytest tests/test_notifier.py -v`
-
-### Add a New API Endpoint
-
-1. Open `src/http_server.py`, in `do_GET()` or `do_POST()`:
-   ```python
-   elif self.path == "/api/new_endpoint":
-       self._handle_new_endpoint()
-   ```
-
-2. Define handler:
-   ```python
-   def _handle_new_endpoint(self) -> None:
-       snapshot = holder.state
-       if snapshot is None:
-           self._respond_json(503, {"error": "not ready"})
-           return
-       # Build response from snapshot / event_log
-       self._respond_json(200, data)
-   ```
-
-3. Test: `pytest tests/test_http_server.py::test_get_new_endpoint -v`
-
-### Add a New Config Variable
-
-1. In `src/config.py`, define with `_get_env()` or `_get_int_env()`:
-   ```python
-   MY_PARAM: int = _get_int_env("MY_PARAM", default=100, minimum=10)
-   ```
-
-2. Import in `src/watchdog.py` if used in main loop logic
-
-3. Optionally expose in `/api/config` endpoint (in `_handle_config()` in http_server.py)
-
-4. Document in systemd service example or README
-
-### Modify Scoring Logic
-
-1. Adjust multipliers in `src/config.py`:
-   - SCORE_GATEWAY_DOWN, SCORE_INTERNET_ALL_DOWN, SCORE_INTERNET_PARTIAL
-   - SCORE_DECAY_OK, SCORE_DECAY_PARTIAL
-
-2. Update scoring function `compute_cycle_delta()` if logic changes
-
-3. Run `pytest tests/test_watchdog.py::test_compute_cycle_delta -v`
-
-4. Verify main loop integration test passes: `pytest tests/test_watchdog.py -v`
-
-### Deploy a Change
-
-Use the workflow below. Never commit directly without running validation.
-
----
-
-## Development Workflow
+## Workflow de développement
 
 ### Branching
 
-- `main` = production. L'auto-updater tire les tags `vX.Y.Z` depuis cette branche.
-- `dev` = integration des features. Les features atterrissent ici avant d'etre promues en prod.
-- Hotfixes (bugs, CVE) vont directement sur `main`, pas besoin de passer par `dev`.
+- `main` = production (auto-updater tire vX.Y.Z)
+- `dev` = integration des features
+- Hotfixes (bugs, CVE) → main direct
 
 ### Routing des changements
 
-| Type | Branche cible | Version bump | PR requise ? |
-|------|---------------|-------------|-------------|
-| Bug fix | `main` | patch | Non |
-| CVE/securite | `main` | patch | Non |
-| Feature | `dev` -> PR -> `main` | minor | Oui |
-| Breaking change | `dev` -> PR -> `main` | major | Oui |
-| Documentation | `main` | aucun | Non |
-
-### GitHub Issues -- Tracabilite obligatoire
-
-**Toujours creer une issue GitHub avant de commencer a travailler.** C'est le point de reference pour l'utilisateur.
-
-#### Quand creer une issue
-
-| Situation | Label | Action |
-|-----------|-------|--------|
-| Utilisateur signale un bug | `bug` | Creer issue, fixer, fermer avec le commit |
-| Audit detecte des problemes | `bug` ou `security` | 1 issue par probleme |
-| Nouvelle feature demandee | `feature` | Issue comme spec, PR liee |
-| CVE detectee | `security` | Issue, fix immediat, fermeture |
-| Probleme detecte mais pas urgent | `bug` | Issue ouverte, priorisee plus tard |
-| Amelioration identifiee (non demandee) | `feature` | Issue ouverte, proposee a l'utilisateur |
-
-#### Commandes
-
-```bash
-# Creer une issue
-gh issue create --title "fix: description" --label bug --body "Details..."
-
-# Lier un commit a une issue (fermeture automatique au push)
-git commit -m "fix: description du probleme (closes #42)"
-
-# Lier une PR a une issue
-gh pr create --title "feat: ..." --body "Closes #42"
-
-# Fermer manuellement avec commentaire
-gh issue close 42 --comment "Resolu dans v1.0.1"
-
-# Lister les issues ouvertes
-gh issue list
-```
-
-#### Regles
-
-- Le mot-cle `closes #N` dans un commit ou une PR ferme l'issue automatiquement au merge/push.
-- Pour les bugs : creer l'issue d'abord, meme si le fix est trivial. Ca laisse une trace.
-- Pour les features : l'issue sert de spec. La PR la reference.
-- Pour les audits : creer les issues en batch, traiter par priorite.
-- Ne jamais creer d'issue pour du travail interne (refactor pur, mise a jour docs) sauf si l'utilisateur l'a demande.
+| Type | Branche | Version | PR ? |
+|------|---------|---------|------|
+| Bug | main | patch | Non |
+| CVE | main | patch | Non |
+| Feature | dev → PR → main | minor | Oui |
+| Breaking | dev → PR → main | major | Oui |
+| Docs | main | aucun | Non |
 
 ### Avant chaque push
 
-Lancer `./scripts/validate.sh` ou les commandes equivalentes :
-
 ```bash
-pytest --cov=src --cov-fail-under=80 -q
-python3 -m py_compile src/*.py
-PYTHONPATH=src python3 -c "import watchdog; import config"
+./scripts/validate.sh   # Tests + coverage >= 80% + imports check
 ```
 
-### Procedure bug fix / CVE (main direct)
+### Procédure bug fix / CVE
 
 ```bash
 # 1. Fix + test
 # 2. Commit
 git add <files>
-git commit -m "fix: description du probleme"
+git commit -m "fix: description"
 # 3. Tag + push
 ./scripts/release.sh patch
 git push origin main
@@ -390,16 +322,16 @@ git push origin v<new_version>
 git checkout dev && git cherry-pick <sha> && git push origin dev && git checkout main
 ```
 
-### Procedure feature (dev -> PR -> main)
+### Procédure feature
 
 ```bash
-# 1. Developper sur dev
+# 1. Dev sur dev
 git checkout dev
 # ... commits ...
 git push origin dev
-# 2. Creer la PR
+# 2. Create PR
 gh pr create --base main --head dev --title "feat: ..." --label feature
-# 3. Apres approbation utilisateur
+# 3. Après approbation
 gh pr merge <number> --merge
 # 4. Tag + push
 git checkout main && git pull
@@ -409,40 +341,204 @@ git push origin main && git push origin v<new_version>
 git checkout dev && git merge main && git push origin dev
 ```
 
-### Apres hotfix sur main
-
-Toujours cherry-pick sur `dev` pour garder les branches synchronisees.
-
-### Apres merge feature dans main
-
-Toujours fast-forward `dev` sur `main` : `git checkout dev && git merge main && git push origin dev`
-
-### Tags dev (pre-release)
-
-Pour tester une feature sur un Pi avec `UPDATE_CHANNEL=dev` :
+### GitHub Issues (tracabilité obligatoire)
 
 ```bash
-git tag -s "v1.1.0-dev.1" -m "Dev build: description"
-git push origin "v1.1.0-dev.1"
+# Créer issue
+gh issue create --title "fix: description" --label bug --body "Details..."
+
+# Lier commit (ferme auto au push)
+git commit -m "fix: description (closes #42)"
+
+# Créer PR liée
+gh pr create --title "feat: ..." --body "Closes #42"
+
+# Lister issues
+gh issue list
 ```
 
-Les tags dev ne modifient pas le fichier VERSION.
+## Common Tasks
 
-### Messages de commit
+### Ajouter un canal de notification
 
-Convention : `<type>: <description>`
+1. Créer `src/notifier/_channel_name.py` :
 
-Types : `feat`, `fix`, `security`, `refactor`, `docs`, `test`, `chore`, `perf`
+```python
+import logging
+from notifier._types import Level, NotificationContext
 
-### Notifications enrichies
+def send_channel_name(message: str, level: Level, context: NotificationContext | None = None) -> bool:
+    """Send notification. Never raise."""
+    try:
+        # Send logic
+        return True
+    except Exception as e:
+        logging.error("channel_name error: %s", e)
+        return False
+```
 
-Tous les messages de notification passent par `src/messages.py`. Chaque message doit repondre a 3 questions :
-1. **Quoi** : qu'est-ce qui s'est passe ?
-2. **Pourquoi** : quelle est la cause probable ?
-3. **Quoi faire** : quelle action est attendue de l'utilisateur ?
+2. Update `src/notifier/_dispatch.py` pour appeler votre fonction
+3. Add config vars à `src/config.py` (ex: CHANNEL_WEBHOOK_URL, CHANNEL_MIN_LEVEL)
+4. Check configured in _dispatch avant d'appeler
+
+### Ajouter un endpoint API
+
+1. Dans `src/http_server.py`, handler class method :
+
+```python
+elif self.path == "/api/new_endpoint":
+    self._handle_new_endpoint()
+
+def _handle_new_endpoint(self) -> None:
+    snapshot = holder.state
+    if snapshot is None:
+        self._respond_json(503, {"error": "not ready"})
+        return
+    # Build response
+    self._respond_json(200, data)
+```
+
+2. Tests : `pytest tests/test_http_server.py::test_new_endpoint -v`
+
+### Ajouter une config var
+
+1. Dans `src/config.py` :
+
+```python
+MY_PARAM: int = _get_int_env("MY_PARAM", default=100, minimum=10)
+```
+
+2. Importer dans watchdog.py si utilisée
+3. Optionnel : exposer dans `/api/config`
+4. Documenter en README
+
+### Modifier scoring
+
+1. Ajuster multipliers dans `src/config.py`
+2. Update `compute_cycle_delta()` si logique change
+3. Run tests : `pytest tests/test_watchdog.py::test_compute_cycle_delta -v`
+
+## Running Tests
+
+```bash
+# Tous les tests avec coverage
+pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+# Fichier spécifique
+pytest tests/test_watchdog.py -v
+
+# Unit seulement
+pytest -m unit
+
+# Integration seulement
+pytest -m integration
+
+# Test unique
+pytest tests/test_watchdog.py::test_compute_cycle_delta -v
+```
+
+Marques disponibles :
+- `@pytest.mark.unit` : tests rapides, isolés
+- `@pytest.mark.integration` : tests I/O (network, SSH stubs)
+
+Target : 80%+ coverage
+
+## Déploiement
+
+### Développement
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python3 -m src.watchdog
+```
+
+### Production
+
+```bash
+# Setup SSH (one-time)
+sudo ./scripts/setup_ssh.sh
+
+# Test connectivity + SSH
+sudo ./scripts/test.sh
+
+# Full deploy
+sudo ./scripts/deploy.sh
+
+# Post-deploy
+sudo systemctl status usg-watchdog
+sudo journalctl -u usg-watchdog -f
+```
+
+Service : `/etc/systemd/system/usg-watchdog.service`
+User : `usg-watchdog` (non-root)
+Install : `/opt/usg-watchdog`
+Logs : `/var/log/usg-watchdog.log`
+Logrotate : `/etc/logrotate.d/usg-watchdog`
+
+## Versioning
+
+Format : `MAJOR.MINOR.PATCH`
+
+| Type | Bump |
+|------|------|
+| Bug fix | patch |
+| CVE | patch |
+| Feature | minor |
+| Breaking | major |
+
+Auto-updater récupère les tags depuis GitHub (v1.7.0, etc.)
+
+## Performance Notes
+
+- Main loop : ~100ms par cycle (30s CHECK_INTERVAL)
+- HTTP server : daemon thread, non-blocking
+- EventLog : ring buffer locked pendant append seulement
+- State : frozen dataclass, memcpy rapide
+- Notifications : dispatched in parallel threads
+
+## Security Checklist
+
+- [ ] SSH : Ed25519 keys, known_hosts verification, strict rejection
+- [ ] Permissions : user=usg-watchdog, files 600/700
+- [ ] Systemd : ProtectSystem, PrivateTmp, NoNewPrivileges, CAP_NET_RAW only
+- [ ] API Token : authentification Bearer si sensible
+- [ ] Secrets : JAMAIS hardcodés, env vars seulement, .env chmod 600
+- [ ] Logs : pas d'info sensible en clair
+- [ ] Input validation : toutes les env vars validées au startup
+
+## File Tree Example
+
+Après déploiement, structure `/opt/usg-watchdog/` :
+
+```
+/opt/usg-watchdog/
+├── src/                     # Source code
+├── venv/                    # Python virtualenv
+├── .ssh/
+│   ├── usg_ed25519         # Private key (600)
+│   ├── usg_ed25519.pub     # Public key
+│   └── known_hosts         # USG public key
+├── .env                    # Config (600) — NOT in git
+└── VERSION                 # Current version tag
+```
+
+## Related Files
+
+- README.md : Documentation utilisateur (v1.7.0)
+- DEPLOY.md : Installation + migration
+- WORKFLOW.md : Workflow pour non-devs
+- CLAUDE.md : Ce fichier (architecture + procédures dev)
 
 ---
 
-**Last Updated:** 2026-03-31
-**Python:** 3.11+
-**Key Dependencies:** paramiko (SSH), requests (HTTP), stdlib only (threading, queue, dataclass)
+**Last Updated** : 2026-03-31 (v1.7.0)
+
+**Python** : 3.11+
+
+**Key Dependencies** : paramiko (SSH), requests (HTTP), stdlib only (threading, queue, dataclass, logging)
+
+**Test Coverage Target** : 80%+
+
+**Code Style** : PEP 8 + black + isort + ruff
