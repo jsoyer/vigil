@@ -49,6 +49,8 @@ from state import WatchdogState, StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from http_server import start_http_server
 from peer import should_reboot as peer_should_reboot, get_peer_info, check_divergence
 from report import generate_daily_report, format_report_notification
+from diagnostics import run_traceroute
+from connectivity import gateway_latency, internet_latency
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
@@ -451,6 +453,18 @@ def main() -> None:
         # Track when threshold is first reached (for secondary takeover delay)
         if failure_score >= REBOOT_SCORE_THRESHOLD and threshold_reached_time == 0.0:
             threshold_reached_time = now
+            # Run traceroute on first threshold hit to diagnose the break
+            logging.info("Lancement du traceroute diagnostique...")
+            traceroute_result = run_traceroute()
+            if traceroute_result:
+                logging.info("Traceroute: %s", traceroute_result.summary())
+                event_log.record(
+                    "traceroute",
+                    target=traceroute_result.target,
+                    break_point=traceroute_result.break_point,
+                    last_hop=traceroute_result.last_responsive_hop,
+                    reached=traceroute_result.reached_target,
+                )
         elif failure_score < REBOOT_SCORE_THRESHOLD:
             threshold_reached_time = 0.0
 
@@ -529,6 +543,9 @@ def main() -> None:
                 gateway_ok=result.gateway_ok,
                 internet_ok_count=result.internet_ok_count,
                 internet_total=result.internet_total,
+                gateway_rtt_ms=result.gateway_rtt_ms,
+                internet_avg_rtt_ms=result.internet_avg_rtt_ms,
+                latency_degraded=internet_latency.is_degraded(),
                 version=_version,
                 timestamp=datetime.now().isoformat(),
                 uptime_seconds=now - start_time,
@@ -644,6 +661,9 @@ def main() -> None:
             peer_score=int(peer_info.get("score", 0)),
             peer_gateway=str(peer_info.get("gateway", "")),
             peer_internet=str(peer_info.get("internet", "")),
+            gateway_rtt_ms=result.gateway_rtt_ms,
+            internet_avg_rtt_ms=result.internet_avg_rtt_ms,
+            latency_degraded=internet_latency.is_degraded(),
             version=_version,
             timestamp=datetime.now().isoformat(),
             uptime_seconds=time.time() - start_time,
