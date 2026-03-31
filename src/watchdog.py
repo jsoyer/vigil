@@ -40,6 +40,7 @@ from config import (
     HTTP_PORT,
     DAILY_REPORT_HOUR,
     WEEKLY_REPORT_DAY,
+    UNIFI_BACKUP_SCHEDULE_HOUR,
     LOG_FILE,
     LOG_LEVEL,
 )
@@ -53,6 +54,7 @@ from report import generate_daily_report, format_report_notification, generate_w
 from diagnostics import run_traceroute
 from connectivity import gateway_latency, internet_latency
 from ddns_cloudflare import check_and_update as ddns_check, is_configured as ddns_configured
+from backup_unifi import run_backup as unifi_backup, is_configured as backup_configured
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, SSH_BACKOFF, MAX_REBOOTS
@@ -205,6 +207,7 @@ def main() -> None:
     last_report_date = datetime.now().date()
     last_weekly_report_week = datetime.now().isocalendar()[1]
     maintenance_until = 0.0
+    last_backup_date = datetime.now().date()
 
     # Version (read from VERSION file)
     _version = "0.0.0"
@@ -308,6 +311,38 @@ def main() -> None:
                 event_log.record("weekly_report")
             except Exception as e:
                 logging.warning("Erreur generation rapport hebdomadaire : %s", e)
+
+        # --- Scheduled UniFi backup ---
+        if (
+            backup_configured()
+            and UNIFI_BACKUP_SCHEDULE_HOUR >= 0
+            and current_date != last_backup_date
+            and datetime.now().hour >= UNIFI_BACKUP_SCHEDULE_HOUR
+        ):
+            last_backup_date = current_date
+            try:
+                bresult = unifi_backup(source="scheduled")
+                if bresult.ok:
+                    text_b, level_b, ctx_b = msg.backup_ok(
+                        bresult.filename, bresult.to_dict()["size_mb"],
+                        bresult.destination, "quotidien",
+                    )
+                else:
+                    text_b, level_b, ctx_b = msg.backup_failed(bresult.error, bresult.filename)
+                notify(text_b, level_b, ctx_b)
+                event_log.record(
+                    "backup_ok" if bresult.ok else "backup_failed",
+                    filename=bresult.filename, size=bresult.size_bytes,
+                )
+                if bresult.stale:
+                    text_s, level_s, ctx_s = msg.backup_stale(
+                        bresult.filename, bresult.stale_hours,
+                        __import__("config").UNIFI_BACKUP_MAX_AGE_HOURS,
+                    )
+                    notify(text_s, level_s, ctx_s)
+                    event_log.record("backup_stale", age_hours=bresult.stale_hours)
+            except Exception as e:
+                logging.warning("Erreur backup UniFi : %s", e)
 
         # --- Process pending commands from HTTP API ---
         cmd = state_holder.poll_command()
@@ -631,6 +666,18 @@ def main() -> None:
                 event_log.record(PEER_STANDDOWN, reason=reason)
                 time.sleep(CHECK_INTERVAL)
                 continue
+
+            # --- Pre-reboot backup ---
+            if backup_configured():
+                try:
+                    logging.info("Backup pre-reboot...")
+                    bresult = unifi_backup(source="pre_reboot")
+                    if bresult.ok:
+                        event_log.record("backup_pre_reboot", filename=bresult.filename)
+                    else:
+                        logging.warning("Backup pre-reboot echoue : %s", bresult.error)
+                except Exception as e:
+                    logging.warning("Erreur backup pre-reboot : %s", e)
 
             # --- Execute reboot ---
             logging.warning(

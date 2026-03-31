@@ -232,6 +232,21 @@ CLOUDFLARE_TTL: int = _get_int_env("CLOUDFLARE_TTL", default=120, minimum=1)
 DDNS_CHECK_INTERVAL: int = _get_int_env("DDNS_CHECK_INTERVAL", default=1800, minimum=60)
 
 # ---------------------------------------------
+# BACKUP UNIFI (optionnel)
+# ---------------------------------------------
+
+# Repertoire des backups auto UniFi (vide = desactive)
+UNIFI_BACKUP_DIR: str = os.getenv("UNIFI_BACKUP_DIR", "")
+# Destination rclone (ex: drive:Unifi, s3:bucket/prefix)
+UNIFI_BACKUP_RCLONE_DEST: str = os.getenv("UNIFI_BACKUP_RCLONE_DEST", "drive:Unifi")
+# Retention en jours
+UNIFI_BACKUP_RETENTION_DAYS: int = _get_int_env("UNIFI_BACKUP_RETENTION_DAYS", default=30, minimum=1)
+# Heure du backup quotidien (0-23, -1=off)
+UNIFI_BACKUP_SCHEDULE_HOUR: int = _get_int_env("UNIFI_BACKUP_SCHEDULE_HOUR", default=4, minimum=-1)
+# Alerte si le dernier backup a plus de N heures
+UNIFI_BACKUP_MAX_AGE_HOURS: int = _get_int_env("UNIFI_BACKUP_MAX_AGE_HOURS", default=48, minimum=1)
+
+# ---------------------------------------------
 # COORDINATION PEER (optionnel)
 # ---------------------------------------------
 
