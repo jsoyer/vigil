@@ -5,6 +5,7 @@ import json
 import pytest
 
 from src.state import WatchdogState, StateHolder
+from src.history import HistoryBuffer, DataPoint
 
 
 class TestWatchdogState:
@@ -85,3 +86,62 @@ class TestStateHolder:
         holder.state = state1
         holder.state = state2
         assert holder.state.failure_score == 2
+
+
+class TestHistoryBuffer:
+    def test_get_all_empty(self):
+        buf = HistoryBuffer()
+        assert buf.get_all() == []
+
+    def test_record_and_get_all_basic(self):
+        buf = HistoryBuffer()
+        buf.record(score=5, gateway_rtt=12.3, internet_rtt=45.6)
+        points = buf.get_all()
+        assert len(points) == 1
+        assert points[0]["score"] == 5
+        assert points[0]["gw_rtt"] == 12.3
+        assert points[0]["inet_rtt"] == 45.6
+
+    def test_get_all_includes_dl_mbps_when_provided(self):
+        buf = HistoryBuffer()
+        buf.record(score=3, gateway_rtt=10.0, internet_rtt=20.0, download_mbps=42.5)
+        points = buf.get_all()
+        assert len(points) == 1
+        assert points[0]["dl_mbps"] == 42.5
+
+    def test_get_all_dl_mbps_is_none_when_not_provided(self):
+        buf = HistoryBuffer()
+        buf.record(score=3, gateway_rtt=10.0, internet_rtt=20.0)
+        points = buf.get_all()
+        assert points[0]["dl_mbps"] is None
+
+    def test_get_all_dl_mbps_rounded_to_two_decimals(self):
+        buf = HistoryBuffer()
+        buf.record(score=1, gateway_rtt=1.0, internet_rtt=1.0, download_mbps=99.99999)
+        points = buf.get_all()
+        assert points[0]["dl_mbps"] == round(99.99999, 2)
+
+    def test_ring_buffer_evicts_oldest_when_full(self):
+        buf = HistoryBuffer(max_points=3)
+        for i in range(5):
+            buf.record(score=i, gateway_rtt=None, internet_rtt=None)
+        points = buf.get_all()
+        assert len(points) == 3
+        scores = [p["score"] for p in points]
+        assert scores == [2, 3, 4]
+
+    def test_multiple_records_in_order(self):
+        buf = HistoryBuffer()
+        buf.record(score=1, gateway_rtt=1.0, internet_rtt=1.0, download_mbps=10.0)
+        buf.record(score=2, gateway_rtt=2.0, internet_rtt=2.0, download_mbps=20.0)
+        points = buf.get_all()
+        assert points[0]["score"] == 1
+        assert points[1]["score"] == 2
+        assert points[1]["dl_mbps"] == 20.0
+
+    def test_none_rtts_stored_as_none(self):
+        buf = HistoryBuffer()
+        buf.record(score=0, gateway_rtt=None, internet_rtt=None)
+        points = buf.get_all()
+        assert points[0]["gw_rtt"] is None
+        assert points[0]["inet_rtt"] is None
