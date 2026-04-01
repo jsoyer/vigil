@@ -9,6 +9,9 @@ User=root
 WorkingDirectory=/opt/usg-watchdog
 ExecStart=/opt/usg-watchdog/venv/bin/python /opt/usg-watchdog/updater/update.py
 
+# Secrets (GITHUB_TOKEN pour repos prives)
+EnvironmentFile=-/opt/usg-watchdog/.env
+
 # Logging
 StandardOutput=journal
 StandardError=journal

@@ -117,6 +117,7 @@ fi
 STAGE_DIR="${INSTALL_DIR}/src.new.$$"
 cp -r "${REPO_DIR}/src/." "${STAGE_DIR}/"
 cp "${REPO_DIR}/requirements.txt" "${INSTALL_DIR}/"
+cp "${REPO_DIR}/VERSION" "${INSTALL_DIR}/" 2>/dev/null || true
 if [[ -d "${INSTALL_DIR}/src" ]]; then
     mv "${INSTALL_DIR}/src" "${INSTALL_DIR}/src.old.$$"
 fi
@@ -156,9 +157,26 @@ log_success "Logrotate configure"
 log_info "Installation du service systemd..."
 install -m 644 -o root -g root \
     "${REPO_DIR}/systemd/usg-watchdog.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+
+# --- Auto-updater timer ------------------------------------------------------
+if [[ -f "${REPO_DIR}/systemd/usg-watchdog-updater.service" ]]; then
+    log_info "Installation de l'auto-updater..."
+    install -m 644 -o root -g root \
+        "${REPO_DIR}/systemd/usg-watchdog-updater.service" /etc/systemd/system/
+    install -m 644 -o root -g root \
+        "${REPO_DIR}/systemd/usg-watchdog-updater.timer" /etc/systemd/system/
+    # Copier le script updater
+    install -d -m 750 "${INSTALL_DIR}/updater"
+    cp "${REPO_DIR}/updater/"*.py "${INSTALL_DIR}/updater/"
+    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}/updater"
+    log_success "Auto-updater installe"
+fi
+
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
-log_success "Service systemd active au demarrage"
+systemctl enable usg-watchdog-updater.timer 2>/dev/null || true
+systemctl start usg-watchdog-updater.timer 2>/dev/null || true
+log_success "Service systemd + auto-updater actives au demarrage"
 
 # --- Start -------------------------------------------------------------------
 log_info "Demarrage du service..."
