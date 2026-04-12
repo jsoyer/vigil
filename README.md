@@ -97,7 +97,7 @@ Configuration minimale :
 ```bash
 # USG
 USG_IP=192.168.1.1
-USG_USER=maintenance
+USG_USER=ubnt
 
 # Telegram (optionnel mais recommandé)
 TELEGRAM_BOT_TOKEN=123456789:ABCDefGHIjklmnoPQRstuvWXYz
@@ -158,7 +158,7 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `USG_IP` | `192.168.1.1` | IP du routeur USG (gateway LAN) |
-| `USG_USER` | `maintenance` | User SSH du USG |
+| `USG_USER` | `ubnt` | User SSH du USG |
 | `USG_SSH_KEY` | `/opt/usg-watchdog/.ssh/usg_ed25519` | Chemin clé SSH privée |
 | `USG_KNOWN_HOSTS` | `/opt/usg-watchdog/.ssh/known_hosts` | Fichier known_hosts |
 | `PING_TIMEOUT` | `3` | Timeout ping en secondes |

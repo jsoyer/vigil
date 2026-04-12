@@ -31,9 +31,12 @@ CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=tmpfs
 ReadOnlyPaths=/opt/usg-watchdog
 ReadWritePaths=/var/log/usg-watchdog.log
+# Backup UniFi : acces lecture au repertoire autobackup (UNIFI_BACKUP_DIR)
+# Prefixe '-' : ignore si le repertoire n'existe pas (instance backup sans UniFi)
+BindReadOnlyPaths=-/home/pi/docker/prod/unifi-network-server/data/data/backup/autobackup
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectKernelLogs=yes

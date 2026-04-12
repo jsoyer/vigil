@@ -15,7 +15,7 @@ import time
 import logging
 import logging.handlers
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import (
     CHECK_INTERVAL,
@@ -229,7 +229,7 @@ def main() -> None:
     last_report_date = datetime.now().date()
     last_weekly_report_week = datetime.now().isocalendar()[1]
     maintenance_until = 0.0
-    last_backup_date = datetime.now().date()
+    last_backup_date = datetime.now().date() - timedelta(days=1)
 
     # Version (read from VERSION file)
     _version = "0.0.0"

@@ -119,9 +119,9 @@ class EventLog:
 
     def _load_from_disk(self) -> None:
         """Load events from JSON file if it exists."""
-        if not self._persist_path.exists():
-            return
         try:
+            if not self._persist_path.exists():
+                return
             raw = json.loads(self._persist_path.read_text(encoding="utf-8"))
             if not isinstance(raw, list):
                 return
