@@ -357,6 +357,19 @@ LOG_FILE: str = os.getenv("LOG_FILE", "/var/log/usg-watchdog.log")
 
 
 # ---------------------------------------------
+# ISP STATUS PAGE (optionnel)
+# ---------------------------------------------
+
+# Activer la verification des pages statut FAI (true/false)
+ISP_STATUS_ENABLED: bool = os.getenv("ISP_STATUS_ENABLED", "false").lower() in ("true", "1", "yes")
+# Intervalle de verification en cycles (defaut 20 cycles = ~10 min a 30s/cycle)
+ISP_STATUS_INTERVAL_CYCLES: int = _get_int_env("ISP_STATUS_INTERVAL_CYCLES", default=20, minimum=5)
+# Surcharge des URLs FAI en JSON (ex: {"Free": "https://...", "Orange": "https://..."})
+ISP_STATUS_URLS: str = os.getenv("ISP_STATUS_URLS", "")
+# Timeout HTTP pour chaque page (secondes)
+ISP_STATUS_TIMEOUT: int = _get_int_env("ISP_STATUS_TIMEOUT", default=10, minimum=3)
+
+# ---------------------------------------------
 # VALIDATION CROISEE
 # ---------------------------------------------
 

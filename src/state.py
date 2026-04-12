@@ -54,6 +54,11 @@ class WatchdogState:
     internet_avg_rtt_ms: float | None = None
     latency_degraded: bool = False
 
+    # ISP status page
+    isp_status_checked: bool = False
+    isp_status_any_incident: bool = False
+    isp_status_summary: str = ""
+
     # Version
     version: str = "0.0.0"
 

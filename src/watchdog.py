@@ -44,6 +44,7 @@ from config import (
     UNIFI_BACKUP_MAX_AGE_HOURS,
     CLOUDFLARE_RECORD_NAMES,
     ALERT_ESCALATION_DELAY,
+    ISP_STATUS_INTERVAL_CYCLES,
     LOG_FILE,
     LOG_LEVEL,
 )
@@ -62,6 +63,7 @@ from tailscale_dns import sync_tailscale_dns, is_configured as tailscale_configu
 from mqtt_publisher import MqttPublisher
 from snmp_monitor import read_usg_metrics
 from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
+from isp_status import check_isp_status, is_configured as isp_status_configured
 from history import HistoryBuffer
 from telegram_bot import TelegramBot
 from alert_escalation import EscalationTracker
@@ -215,6 +217,11 @@ def main() -> None:
     # ISP outage detection
     isp_pattern_start = 0.0  # timestamp when "gw OK + inet KO" pattern started
     isp_outage_detected = False
+
+    # ISP status page check
+    isp_status_checked = False
+    isp_status_any_incident = False
+    isp_status_summary = ""
 
     # Outage tracking for summary
     outage_start_time = 0.0
@@ -691,6 +698,9 @@ def main() -> None:
                 peer_score=int(peer_info.get("score", 0)),
                 peer_gateway=str(peer_info.get("gateway", "")),
                 peer_internet=str(peer_info.get("internet", "")),
+                isp_status_checked=isp_status_checked,
+                isp_status_any_incident=isp_status_any_incident,
+                isp_status_summary=isp_status_summary,
                 version=_version,
                 timestamp=datetime.now().isoformat(),
                 uptime_seconds=now - start_time,
@@ -869,6 +879,23 @@ def main() -> None:
             except Exception as e:
                 logging.debug("Speedtest error: %s", e)
 
+        # --- Periodic ISP status check ---
+        if isp_status_configured() and cycle_count % ISP_STATUS_INTERVAL_CYCLES == 0:
+            try:
+                isp_result = check_isp_status()
+                isp_status_checked = True
+                isp_status_any_incident = isp_result.any_incident
+                isp_status_summary = isp_result.summary
+                if isp_result.any_incident:
+                    logging.info("ISP incident detecte: %s", isp_result.summary)
+                    text, level, ctx = msg.isp_status_incident(isp_result.summary)
+                    notify(text, level, ctx)
+                    event_log.record("isp_status_incident", summary=isp_result.summary)
+                else:
+                    logging.debug("ISP status: aucun incident detecte")
+            except Exception as e:
+                logging.debug("ISP status check error: %s", e)
+
         # --- Periodic Tailscale DNS sync (rate-limited internally) ---
         if tailscale_configured() and failure_score == 0:
             try:
@@ -913,6 +940,9 @@ def main() -> None:
             peer_score=int(peer_info.get("score", 0)),
             peer_gateway=str(peer_info.get("gateway", "")),
             peer_internet=str(peer_info.get("internet", "")),
+            isp_status_checked=isp_status_checked,
+            isp_status_any_incident=isp_status_any_incident,
+            isp_status_summary=isp_status_summary,
             version=_version,
             timestamp=datetime.now().isoformat(),
             uptime_seconds=time.time() - start_time,
