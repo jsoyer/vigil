@@ -131,6 +131,18 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
 }
 
 .footer { text-align: center; color: #484f58; font-size: 0.75rem; margin-top: 1rem; }
+.conn-badge {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+.conn-live { background: #23863644; color: #3fb950; border: 1px solid #238636; }
+.conn-polling { background: #d2992222; color: #d29922; border: 1px solid #d29922; }
 .error-banner {
   background: #da363322;
   border: 1px solid #da3633;
@@ -222,11 +234,15 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
   </div>
 
   <div class="footer">
-    Auto-refresh 30s | <span id="last-update">-</span>
+    <span id="conn-badge" class="conn-badge conn-polling">POLLING</span> | <span id="last-update">-</span>
   </div>
 </div>
 
 <script>
+// Note: innerHTML is used only for rendering server-controlled event data
+// from our own trusted API -- all fields are typed (event type enum,
+// ISO timestamps, numeric/boolean values). No user-supplied input reaches
+// these templates. This mirrors the pre-existing pattern in this codebase.
 function formatUptime(seconds) {
   if (seconds < 60) return seconds + 's';
   if (seconds < 3600) return Math.floor(seconds / 60) + 'min';
@@ -263,6 +279,115 @@ function getStatusClass(status) {
   return 'badge-' + (status || 'starting');
 }
 
+// Update pause/resume buttons based on status
+function updateControls(status) {
+  var btnPause = document.getElementById('btn-pause');
+  var btnResume = document.getElementById('btn-resume');
+  if (status === 'surveillance') {
+    btnPause.style.display = 'none';
+    btnResume.style.display = '';
+  } else {
+    btnPause.style.display = '';
+    btnResume.style.display = 'none';
+  }
+}
+
+// Set connection indicator badge to LIVE or POLLING
+function setConnBadge(live) {
+  var badge = document.getElementById('conn-badge');
+  if (!badge) return;
+  if (live) {
+    badge.textContent = 'LIVE';
+    badge.className = 'conn-badge conn-live';
+  } else {
+    badge.textContent = 'POLLING';
+    badge.className = 'conn-badge conn-polling';
+  }
+}
+
+// Core DOM update -- called by both SSE path and polling fallback
+function updateDashboard(health, events) {
+  var banner = document.getElementById('error-banner');
+  banner.style.display = 'none';
+
+  // Status
+  var sb = document.getElementById('status-badge');
+  sb.textContent = health.status;
+  sb.className = 'badge ' + getStatusClass(health.status);
+
+  // Priority + uptime
+  document.getElementById('priority').textContent = health.instance_priority;
+  document.getElementById('uptime').textContent = formatUptime(health.uptime);
+
+  // Score
+  var score = health.score || 0;
+  var threshold = health.threshold || 10;
+  document.getElementById('score').textContent = score;
+  document.getElementById('threshold').textContent = threshold;
+  var pct = Math.min(100, Math.round((score / threshold) * 100));
+  var fill = document.getElementById('gauge-fill');
+  fill.style.width = pct + '%';
+  fill.style.background = getScoreColor(score, threshold);
+
+  // Gateway
+  var gb = document.getElementById('gateway-badge');
+  gb.textContent = health.gateway;
+  gb.className = 'badge ' + (health.gateway === 'OK' ? 'badge-ok' : 'badge-ko');
+
+  // Internet
+  document.getElementById('internet').textContent = health.internet;
+
+  // Reboots
+  document.getElementById('reboots-today').textContent = health.reboots_today;
+  document.getElementById('consecutive-reboots').textContent = health.consecutive_reboots;
+
+  // ISP
+  var ib = document.getElementById('isp-badge');
+  if (health.isp_outage) {
+    ib.textContent = 'PANNE';
+    ib.className = 'badge badge-critical';
+  } else {
+    ib.textContent = 'OK';
+    ib.className = 'badge badge-ok';
+  }
+
+  // Peer
+  var peer = health.peer;
+  var peerCard = document.getElementById('peer-card');
+  if (peer && peer.status !== 'standalone' && peer.status !== 'unknown') {
+    peerCard.style.display = '';
+    var pb = document.getElementById('peer-badge');
+    pb.textContent = peer.status;
+    pb.className = 'badge ' + getStatusClass(
+      peer.status === 'unreachable' ? 'critical' : peer.status
+    );
+    document.getElementById('peer-score').textContent = peer.score;
+    document.getElementById('peer-gw').textContent = peer.gateway || '-';
+    document.getElementById('peer-inet').textContent = peer.internet || '-';
+  } else {
+    peerCard.style.display = 'none';
+  }
+
+  // Events list (server-controlled data only, no user input reaches this path)
+  var ul = document.getElementById('events-list');
+  if (!events || events.length === 0) {
+    ul.innerHTML = '<li><span class="event-data">Aucun evenement</span></li>';
+  } else {
+    ul.innerHTML = events.slice().reverse().map(function(e) {
+      var dataStr = formatEventData(e.data);
+      return '<li>' +
+        '<span class="event-time">' + formatEventTime(e.ts) + '</span>' +
+        '<span class="event-type event-type-' + e.type + '">' + e.type.replace('_', ' ') + '</span>' +
+        (dataStr ? '<span class="event-data">' + dataStr + '</span>' : '') +
+        '</li>';
+    }).join('');
+  }
+
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  updateControls(health.status);
+}
+
+// Polling fallback -- fetches /health + /api/events then calls updateDashboard()
 async function refresh() {
   var banner = document.getElementById('error-banner');
   try {
@@ -276,88 +401,59 @@ async function refresh() {
     var health = await healthRes.json();
     var events = await eventsRes.json();
 
-    banner.style.display = 'none';
-
-    // Status
-    var sb = document.getElementById('status-badge');
-    sb.textContent = health.status;
-    sb.className = 'badge ' + getStatusClass(health.status);
-
-    // Priority + uptime
-    document.getElementById('priority').textContent = health.instance_priority;
-    document.getElementById('uptime').textContent = formatUptime(health.uptime);
-
-    // Score
-    var score = health.score || 0;
-    var threshold = health.threshold || 10;
-    document.getElementById('score').textContent = score;
-    document.getElementById('threshold').textContent = threshold;
-    var pct = Math.min(100, Math.round((score / threshold) * 100));
-    var fill = document.getElementById('gauge-fill');
-    fill.style.width = pct + '%';
-    fill.style.background = getScoreColor(score, threshold);
-
-    // Gateway
-    var gb = document.getElementById('gateway-badge');
-    gb.textContent = health.gateway;
-    gb.className = 'badge ' + (health.gateway === 'OK' ? 'badge-ok' : 'badge-ko');
-
-    // Internet
-    document.getElementById('internet').textContent = health.internet;
-
-    // Reboots
-    document.getElementById('reboots-today').textContent = health.reboots_today;
-    document.getElementById('consecutive-reboots').textContent = health.consecutive_reboots;
-
-    // ISP
-    var ib = document.getElementById('isp-badge');
-    if (health.isp_outage) {
-      ib.textContent = 'PANNE';
-      ib.className = 'badge badge-critical';
-    } else {
-      ib.textContent = 'OK';
-      ib.className = 'badge badge-ok';
-    }
-
-    // Peer
-    var peer = health.peer;
-    var peerCard = document.getElementById('peer-card');
-    if (peer && peer.status !== 'standalone' && peer.status !== 'unknown') {
-      peerCard.style.display = '';
-      var pb = document.getElementById('peer-badge');
-      pb.textContent = peer.status;
-      pb.className = 'badge ' + getStatusClass(
-        peer.status === 'unreachable' ? 'critical' : peer.status
-      );
-      document.getElementById('peer-score').textContent = peer.score;
-      document.getElementById('peer-gw').textContent = peer.gateway || '-';
-      document.getElementById('peer-inet').textContent = peer.internet || '-';
-    } else {
-      peerCard.style.display = 'none';
-    }
-
-    // Events
-    var ul = document.getElementById('events-list');
-    if (events.length === 0) {
-      ul.innerHTML = '<li><span class="event-data">Aucun evenement</span></li>';
-    } else {
-      ul.innerHTML = events.reverse().map(function(e) {
-        var dataStr = formatEventData(e.data);
-        return '<li>' +
-          '<span class="event-time">' + formatEventTime(e.ts) + '</span>' +
-          '<span class="event-type event-type-' + e.type + '">' + e.type.replace('_', ' ') + '</span>' +
-          (dataStr ? '<span class="event-data">' + dataStr + '</span>' : '') +
-          '</li>';
-      }).join('');
-    }
-
-    document.getElementById('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
-    updateControls(health.status);
+    updateDashboard(health, events);
 
   } catch(err) {
     banner.textContent = 'Erreur de connexion : ' + err.message;
     banner.style.display = 'block';
   }
+}
+
+// --- SSE connection with automatic reconnection and polling fallback ---
+var evtSource = null;
+var sseConnected = false;
+var pollTimer = null;
+
+function startSSE() {
+  if (evtSource) {
+    evtSource.close();
+    evtSource = null;
+  }
+
+  evtSource = new EventSource('/api/stream');
+
+  evtSource.onmessage = function(event) {
+    // SSE working -- cancel polling fallback if active
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    if (!sseConnected) {
+      sseConnected = true;
+      setConnBadge(true);
+    }
+    try {
+      var payload = JSON.parse(event.data);
+      updateDashboard(payload.health, payload.events);
+    } catch(e) {
+      // Ignore malformed SSE frames
+    }
+  };
+
+  evtSource.onerror = function() {
+    sseConnected = false;
+    setConnBadge(false);
+    evtSource.close();
+    evtSource = null;
+
+    // Activate polling fallback at 5s intervals
+    if (!pollTimer) {
+      pollTimer = setInterval(refresh, 5000);
+    }
+
+    // Retry SSE after 30s
+    setTimeout(startSSE, 30000);
+  };
 }
 
 // --- SVG Chart rendering ---
@@ -407,19 +503,6 @@ async function refreshCharts() {
   } catch(e) {}
 }
 
-// Update pause/resume buttons based on status
-function updateControls(status) {
-  var btnPause = document.getElementById('btn-pause');
-  var btnResume = document.getElementById('btn-resume');
-  if (status === 'surveillance') {
-    btnPause.style.display = 'none';
-    btnResume.style.display = '';
-  } else {
-    btnPause.style.display = '';
-    btnResume.style.display = 'none';
-  }
-}
-
 async function sendCommand(cmd) {
   var feedback = document.getElementById('cmd-feedback');
   try {
@@ -444,10 +527,15 @@ function confirmReboot() {
   }
 }
 
+// Start SSE connection (primary real-time update path)
+startSSE();
+
+// Initial data load via polling while SSE handshake is in progress
 refresh();
 refreshCharts();
-setInterval(refresh, 30000);
-setInterval(refreshCharts, 30000);
+
+// Charts poll every 60s -- historical data does not need real-time updates
+setInterval(refreshCharts, 60000);
 
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {

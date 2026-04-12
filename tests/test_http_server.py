@@ -143,12 +143,11 @@ class TestHttpServer:
     def test_start_http_server_returns_none_on_port_conflict(self):
         """When the port is already in use, start_http_server returns None without raising."""
         import unittest.mock as mock
-        from http.server import HTTPServer
 
         holder = StateHolder()
-        # Bind a real server first to occupy the port, then try to bind again.
+        # Patch ThreadingHTTPServer (used by start_http_server since SSE feature)
         with mock.patch(
-            "src.http_server.HTTPServer",
+            "src.http_server.ThreadingHTTPServer",
             side_effect=OSError("address already in use"),
         ):
             result = start_http_server(holder, 9999)

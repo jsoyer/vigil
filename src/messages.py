@@ -407,6 +407,18 @@ def backup_stale(
 # ===================================================================
 
 
+def isp_status_incident(summary: str) -> tuple[str, Level, NotificationContext | None]:
+    lines = [
+        "Incident FAI detecte sur les pages de statut.",
+        "",
+        summary,
+        "",
+        "Si votre connexion est affectee, un reboot USG ne resoudra pas le probleme.",
+        f"Dashboard : {_dashboard_link()}",
+    ]
+    return "\n".join(lines), Level.WARNING, None
+
+
 def ddns_updated(
     previous_ip: str,
     current_ip: str,

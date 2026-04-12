@@ -3,7 +3,8 @@
 import json
 import logging
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
@@ -61,6 +62,8 @@ def _make_handler_class(
                     self._respond_text("application/javascript", _get_service_worker_js())
                 elif self.path == "/health":
                     self._handle_health()
+                elif self.path == "/api/stream":
+                    self._handle_sse_stream()
                 elif self.path == "/api/state":
                     self._handle_state()
                 elif self.path == "/api/events" or self.path.startswith("/api/events?"):
@@ -78,6 +81,8 @@ def _make_handler_class(
                         self._respond_json(200, calculate_monthly_sla(event_log))
                     else:
                         self._respond_json(200, {})
+                elif self.path == "/api/isp":
+                    self._handle_isp_status()
                 elif self.path == "/api/backup/config":
                     self._handle_export_config()
                 elif self.path == "/metrics":
@@ -136,13 +141,8 @@ def _make_handler_class(
             self.end_headers()
             self.wfile.write(body)
 
-        def _handle_health(self) -> None:
-            snapshot = holder.state
-            if snapshot is None:
-                self._respond_json(503, {"status": "starting"})
-                return
-
-            # Determine overall status
+        def _build_health_dict(self, snapshot: object) -> dict:
+            """Build the health response dict from a WatchdogState snapshot."""
             if snapshot.surveillance_only:
                 status = "surveillance"
             elif snapshot.failure_score >= snapshot.threshold:
@@ -152,7 +152,7 @@ def _make_handler_class(
             else:
                 status = "healthy"
 
-            health = {
+            return {
                 "status": status,
                 "score": snapshot.failure_score,
                 "threshold": snapshot.threshold,
@@ -176,7 +176,77 @@ def _make_handler_class(
                     "internet": snapshot.peer_internet,
                 },
             }
-            self._respond_json(200, health)
+
+        def _handle_health(self) -> None:
+            snapshot = holder.state
+            if snapshot is None:
+                self._respond_json(503, {"status": "starting"})
+                return
+            self._respond_json(200, self._build_health_dict(snapshot))
+
+        def _handle_sse_stream(self) -> None:
+            """SSE endpoint: streams health + events updates to connected clients.
+
+            Each SSE message contains a JSON payload with health and events data.
+            A keepalive comment is sent every 15 seconds when state is unchanged.
+            The loop exits cleanly on client disconnect (BrokenPipeError /
+            ConnectionResetError).
+            """
+            SSE_POLL_INTERVAL = 5       # seconds between state checks
+            SSE_KEEPALIVE_INTERVAL = 15 # seconds between keepalive comments
+
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
+            last_sent_score: float | None = None
+            last_sent_uptime: int | None = None
+            last_keepalive = time.monotonic()
+
+            while True:
+                try:
+                    snapshot = holder.state
+
+                    if snapshot is not None:
+                        current_score = snapshot.failure_score
+                        current_uptime = int(snapshot.uptime_seconds)
+
+                        state_changed = (
+                            current_score != last_sent_score
+                            or current_uptime != last_sent_uptime
+                        )
+
+                        if state_changed:
+                            health = self._build_health_dict(snapshot)
+                            events = event_log.get_recent(30) if event_log else []
+                            payload = json.dumps({"health": health, "events": events})
+                            self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                            self.wfile.flush()
+                            last_sent_score = current_score
+                            last_sent_uptime = current_uptime
+                            last_keepalive = time.monotonic()
+
+                    # Send keepalive comment if no data was sent recently
+                    now = time.monotonic()
+                    if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                        last_keepalive = now
+
+                    time.sleep(SSE_POLL_INTERVAL)
+
+                except (BrokenPipeError, ConnectionResetError):
+                    # Client disconnected cleanly
+                    break
+                except Exception as exc:
+                    logging.debug("SSE stream: fermeture inattendue -- %s", exc)
+                    break
 
         def _handle_state(self) -> None:
             snapshot = holder.state
@@ -241,6 +311,18 @@ def _make_handler_class(
                 "isp_outage_detection_delay": _config.ISP_OUTAGE_DETECTION_DELAY,
             }
             self._respond_json(200, cfg)
+
+        def _handle_isp_status(self) -> None:
+            """Return latest ISP status check results."""
+            snapshot = holder.state
+            if snapshot is None:
+                self._respond_json(503, {"error": "not ready"})
+                return
+            self._respond_json(200, {
+                "checked": snapshot.isp_status_checked,
+                "any_incident": snapshot.isp_status_any_incident,
+                "summary": snapshot.isp_status_summary,
+            })
 
         def _handle_get_backup_unifi(self) -> None:
             """Return last backup info."""
@@ -440,7 +522,7 @@ def start_http_server(
     """
     try:
         handler_class = _make_handler_class(holder, event_log, history)
-        server = HTTPServer(("0.0.0.0", port), handler_class)
+        server = ThreadingHTTPServer(("0.0.0.0", port), handler_class)
         server.timeout = 10
     except OSError as e:
         logging.error(
@@ -455,5 +537,5 @@ def start_http_server(
         daemon=True,
     )
     thread.start()
-    logging.info("HTTP state server demarre sur le port %d", port)
+    logging.info("HTTP state server (threading) demarre sur le port %d", port)
     return thread
