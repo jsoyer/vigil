@@ -25,29 +25,41 @@ migration.
 
 - **Date** : 2026-08-21
 - **Version** : 1.8.1
-- **Phase atteinte** : commit + tag locaux OK — **push BLOQUÉ (authentification)**
+- **Phase atteinte** : **LIVRÉ** — `main`, `dev` et le tag `v1.8.1` poussés
 
 | Étape | État |
 |---|---|
 | Gate local (`validate.sh`) | OK — 831 tests, coverage 92 % |
-| Commits sur `main` | OK — `f561246`, `472aabd`, `0acefe1` |
-| Tag `v1.8.1` (annoté) | OK — local uniquement |
-| `dev` resynchronisé | OK — fast-forward vers `0acefe1`, local uniquement |
-| `git push origin main` | **ÉCHEC** — `Invalid username or token` |
-| Déploiement production | **NON EFFECTUÉ** — l'updater ne voit rien tant que le tag n'est pas poussé |
+| Commits sur `main` | OK — `f561246`, `472aabd`, `0acefe1`, `18e0b12` |
+| Tag `v1.8.1` (annoté) | OK — objet `6297504` → commit `0acefe1` |
+| `dev` resynchronisé | OK — fast-forward vers `0acefe1` |
+| `git push origin main` | OK — `54a4dcc..18e0b12` |
+| `git push origin v1.8.1` | OK — nouveau tag |
+| `git push origin dev` | OK — `82b0b4f..0acefe1` |
+| Visible par l'updater | OK — l'API GitHub `/tags` liste `v1.8.1` en tête |
+| Déploiement production | **EN COURS** — les 4 Pi tirent la version à leur prochain cycle d'updater |
 
-### Blocage
+### `ENV` — Authentification GitHub cassée (bloquant, résolu)
 
-Le token `gh` est invalide (HTTP 401) et **aucun credential helper git n'est
-configuré** (`git config credential.helper` vide). Le remote est en HTTPS :
-GitHub refuse l'authentification par mot de passe. Rien ne peut être poussé
-tant que l'authentification n'est pas rétablie.
+Le push a d'abord échoué : token `gh` expiré (HTTP 401) **et** aucun credential
+helper git configuré. Les deux à la fois — d'où le diagnostic trompeur : même
+après `gh auth login`, `git push` échouait encore, parce que git n'avait aucun
+moyen de demander le token à `gh`.
 
-Reprise :
+**Résolution** : `gh auth login --web` **puis `gh auth setup-git`**. Le second est
+indispensable et facile à oublier : il écrit
+`credential.https://github.com.helper=!/usr/bin/gh auth git-credential`.
+
+**Leçon** : « `gh` est authentifié » ne veut pas dire « git peut pousser ».
+Vérifier les deux séparément :
 ```bash
-gh auth refresh -h github.com -s repo     # ou passer le remote en SSH
-git push origin main && git push origin v1.8.1 && git push origin dev
+gh auth status
+git config --get-all credential.https://github.com.helper
 ```
+Piège annexe : `git config --get-all <clé>` sort en **code 1** quand la clé
+n'existe pas — dans un `&&`/pipeline ça se lit comme un échec de la commande
+précédente. C'est ce qui a fait croire à tort que `gh auth setup-git` avait
+échoué.
 
 ### `CONFIG` — `scripts/release.sh` inutilisable en l'état
 
