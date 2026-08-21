@@ -21,6 +21,48 @@ migration.
 
 ---
 
+## Ship Pipeline State
+
+- **Date** : 2026-08-21
+- **Version** : 1.8.1
+- **Phase atteinte** : commit + tag locaux OK — **push BLOQUÉ (authentification)**
+
+| Étape | État |
+|---|---|
+| Gate local (`validate.sh`) | OK — 831 tests, coverage 92 % |
+| Commits sur `main` | OK — `f561246`, `472aabd`, `0acefe1` |
+| Tag `v1.8.1` (annoté) | OK — local uniquement |
+| `dev` resynchronisé | OK — fast-forward vers `0acefe1`, local uniquement |
+| `git push origin main` | **ÉCHEC** — `Invalid username or token` |
+| Déploiement production | **NON EFFECTUÉ** — l'updater ne voit rien tant que le tag n'est pas poussé |
+
+### Blocage
+
+Le token `gh` est invalide (HTTP 401) et **aucun credential helper git n'est
+configuré** (`git config credential.helper` vide). Le remote est en HTTPS :
+GitHub refuse l'authentification par mot de passe. Rien ne peut être poussé
+tant que l'authentification n'est pas rétablie.
+
+Reprise :
+```bash
+gh auth refresh -h github.com -s repo     # ou passer le remote en SSH
+git push origin main && git push origin v1.8.1 && git push origin dev
+```
+
+### `CONFIG` — `scripts/release.sh` inutilisable en l'état
+
+Deux pièges relevés, non corrigés (hors périmètre du patch) :
+
+1. **Double bump** : `release.sh` écrit et committe `VERSION` lui-même
+   (`:72-75`). Si `VERSION` a déjà été bumpé à la main, `release.sh patch`
+   produit `1.8.2`. Passer la version explicite ne sauve pas : le `git commit`
+   n'aurait rien à committer et le script sort en erreur (`set -e`).
+   → Laisser `release.sh` faire le bump, ne jamais toucher `VERSION` avant.
+2. **`git tag -s` sans clé GPG** : aucune clé secrète n'existe sur cette
+   machine, le script échouerait *après* avoir committé le bump. Les tags
+   existants sont d'ailleurs hétérogènes (`v1.7.6` annoté, `v1.8.0` léger).
+   → Tag créé ici manuellement en annoté (`git tag -a`), cohérent avec `v1.7.6`.
+
 ## Contexte projet utile
 
 - `src/` est sur `sys.path` : les modules s'importent à plat
