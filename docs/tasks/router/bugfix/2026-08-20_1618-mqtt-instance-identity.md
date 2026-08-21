@@ -165,14 +165,17 @@ pas « pour voir ».
 - [x] Note de migration rédigée dans les notes de version
 - [x] `MQTT_CLIENT_ID` dérivé de l'identifiant d'instance ; deux instances
       simulées se connectent **simultanément** sans s'évincer
-- [ ] `VERSION` = 1.8.1, taggée, `dev` resynchronisé
+- [x] `VERSION` = 1.8.1, taggée, `dev` resynchronisé
 
 ## Issues
 
-- Le dernier critère est un critère composite (VERSION bump + tag git +
-  resync `dev`). La partie `VERSION` est faite (`VERSION` = `1.8.1`). Le tag
-  git et la resynchronisation de `dev` sont des étapes de livraison
-  (`git tag`, `push`, `checkout dev && merge`) explicitement hors périmètre
-  de cette session (consigne : "Do NOT commit, tag, push, or touch git
-  branches. This is local-only work."). Laissé non coché volontairement --
-  à faire au moment du ship.
+- **Résolu (2026-08-21)** — livré : `VERSION` = 1.8.1, tag annoté `v1.8.1`
+  (`0acefe1`), `main` et `dev` poussés. Tous les critères sont satisfaits.
+- Le tag a été créé **manuellement** et non via `./scripts/release.sh` :
+  le script committe `VERSION` lui-même (double bump si le fichier est déjà
+  à jour) et utilise `git tag -s` alors qu'aucune clé GPG n'existe sur la
+  machine — il aurait échoué *après* avoir committé le bump. Tag annoté,
+  cohérent avec `v1.7.6`. À corriger séparément.
+- `dev` a été **mergé** (fast-forward) plutôt que cherry-pické : `dev` était
+  en retard du commit de docs, le cherry-pick conflictait sur ce fichier de
+  tâche inexistant sur `dev`.
