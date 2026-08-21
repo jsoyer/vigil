@@ -24,8 +24,17 @@ echo "---------------------------------------------------"
 echo ""
 
 ERRORS=0
-PYTHON="${REPO_DIR}/.venv/bin/python"
-if [[ ! -f "${PYTHON}" ]]; then
+# Le venv du projet est cree par deploy.sh sous "venv/" ; ".venv/" est tolere
+# pour les postes de dev qui suivent l'autre convention. Fallback : python3
+# systeme (qui n'a pas forcement pytest -- la section tests le signalera).
+PYTHON=""
+for candidate in "${REPO_DIR}/venv/bin/python" "${REPO_DIR}/.venv/bin/python"; do
+    if [[ -f "${candidate}" ]]; then
+        PYTHON="${candidate}"
+        break
+    fi
+done
+if [[ -z "${PYTHON}" ]]; then
     PYTHON="python3"
 fi
 
