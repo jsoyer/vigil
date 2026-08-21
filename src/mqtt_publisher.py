@@ -7,6 +7,7 @@ import time
 
 try:
     import paho.mqtt.client as paho_mqtt
+
     PAHO_AVAILABLE = True
 except ImportError:
     paho_mqtt = None  # type: ignore[assignment]
@@ -20,15 +21,28 @@ from config import (
     MQTT_PASSWORD,
     MQTT_HA_DISCOVERY,
     CHECK_INTERVAL,
+    INSTANCE_ID,
 )
 from state import StateHolder
 
+# Prefixe de discovery Home Assistant (constante -- pas de variable d'env pour
+# le moment, cf. note de scope du patch mqtt-instance-identity)
+HA_DISCOVERY_PREFIX: str = "homeassistant"
 
-def _ha_discovery_configs(prefix: str) -> list[dict]:
+
+def is_configured() -> bool:
+    """Check if MQTT publishing is configured."""
+    return bool(MQTT_BROKER)
+
+
+def _ha_discovery_configs(prefix: str, instance_id: str | None = None) -> list[dict]:
     """Generate Home Assistant MQTT auto-discovery payloads."""
+    if instance_id is None:
+        instance_id = INSTANCE_ID
+
     device = {
-        "identifiers": ["usg_watchdog"],
-        "name": "USG Watchdog",
+        "identifiers": [f"usg_watchdog_{instance_id}"],
+        "name": f"USG Watchdog {instance_id}",
         "model": "USG Watchdog",
         "manufacturer": "jsoyer",
     }
@@ -37,10 +51,28 @@ def _ha_discovery_configs(prefix: str) -> list[dict]:
         ("score", "Failure Score", "mdi:gauge", None, f"{prefix}/score"),
         ("gateway", "Gateway", "mdi:router-wireless", None, f"{prefix}/gateway"),
         ("internet", "Internet", "mdi:web", None, f"{prefix}/internet"),
-        ("reboots_today", "Reboots Today", "mdi:restart", None, f"{prefix}/reboots_today"),
+        (
+            "reboots_today",
+            "Reboots Today",
+            "mdi:restart",
+            None,
+            f"{prefix}/reboots_today",
+        ),
         ("status", "Status", "mdi:shield-check", None, f"{prefix}/status"),
-        ("gateway_rtt", "Gateway Latency", "mdi:timer-outline", "ms", f"{prefix}/gateway_rtt"),
-        ("internet_rtt", "Internet Latency", "mdi:timer-outline", "ms", f"{prefix}/internet_rtt"),
+        (
+            "gateway_rtt",
+            "Gateway Latency",
+            "mdi:timer-outline",
+            "ms",
+            f"{prefix}/gateway_rtt",
+        ),
+        (
+            "internet_rtt",
+            "Internet Latency",
+            "mdi:timer-outline",
+            "ms",
+            f"{prefix}/internet_rtt",
+        ),
         ("uptime", "Uptime", "mdi:clock-outline", "s", f"{prefix}/uptime"),
     ]
 
@@ -48,17 +80,19 @@ def _ha_discovery_configs(prefix: str) -> list[dict]:
     for sensor_id, name, icon, unit, state_topic in sensors:
         payload: dict = {
             "name": name,
-            "unique_id": f"usg_watchdog_{sensor_id}",
+            "unique_id": f"usg_watchdog_{instance_id}_{sensor_id}",
             "state_topic": state_topic,
             "icon": icon,
             "device": device,
         }
         if unit:
             payload["unit_of_measurement"] = unit
-        configs.append({
-            "topic": f"homeassistant/sensor/usg_watchdog/{sensor_id}/config",
-            "payload": payload,
-        })
+        configs.append(
+            {
+                "topic": f"{HA_DISCOVERY_PREFIX}/sensor/usg_watchdog_{instance_id}/{sensor_id}/config",
+                "payload": payload,
+            }
+        )
 
     return configs
 
@@ -81,11 +115,15 @@ class MqttPublisher:
             return False
 
         if not PAHO_AVAILABLE:
-            logging.warning("Module 'paho-mqtt' non installe -- MQTT desactive (pip install paho-mqtt)")
+            logging.warning(
+                "Module 'paho-mqtt' non installe -- MQTT desactive (pip install paho-mqtt)"
+            )
             return False
 
         try:
-            self._client = paho_mqtt.Client(client_id="usg-watchdog", protocol=paho_mqtt.MQTTv311)
+            self._client = paho_mqtt.Client(
+                client_id=f"usg-watchdog-{INSTANCE_ID}", protocol=paho_mqtt.MQTTv311
+            )
             if MQTT_USERNAME:
                 self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
             self._client.on_connect = self._on_connect
@@ -106,7 +144,9 @@ class MqttPublisher:
             logging.warning("MQTT: erreur connexion -- %s", e)
             return False
 
-    def _on_connect(self, client: object, userdata: object, flags: object, rc: int) -> None:
+    def _on_connect(
+        self, client: object, userdata: object, flags: object, rc: int
+    ) -> None:
         self._connected = True
         logging.info("MQTT connecte (rc=%d)", rc)
         if MQTT_HA_DISCOVERY and not self._discovery_sent:
@@ -147,15 +187,24 @@ class MqttPublisher:
         try:
             # Individual topic per metric (for HA sensors)
             self._client.publish(f"{prefix}/score", state.failure_score)
-            self._client.publish(f"{prefix}/gateway", "OK" if state.gateway_ok else "KO")
-            self._client.publish(f"{prefix}/internet", f"{state.internet_ok_count}/{state.internet_total}")
+            self._client.publish(
+                f"{prefix}/gateway", "OK" if state.gateway_ok else "KO"
+            )
+            self._client.publish(
+                f"{prefix}/internet",
+                f"{state.internet_ok_count}/{state.internet_total}",
+            )
             self._client.publish(f"{prefix}/reboots_today", state.reboots_today)
             self._client.publish(f"{prefix}/uptime", int(state.uptime_seconds))
 
             if state.gateway_rtt_ms is not None:
-                self._client.publish(f"{prefix}/gateway_rtt", round(state.gateway_rtt_ms, 1))
+                self._client.publish(
+                    f"{prefix}/gateway_rtt", round(state.gateway_rtt_ms, 1)
+                )
             if state.internet_avg_rtt_ms is not None:
-                self._client.publish(f"{prefix}/internet_rtt", round(state.internet_avg_rtt_ms, 1))
+                self._client.publish(
+                    f"{prefix}/internet_rtt", round(state.internet_avg_rtt_ms, 1)
+                )
 
             # Status
             if state.surveillance_only:

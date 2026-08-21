@@ -6,6 +6,7 @@ Toutes les valeurs peuvent etre surchargees via variables d'environnement.
 import ipaddress
 import logging
 import os
+import socket
 
 
 def _get_env(*names: str, default: str) -> str:
@@ -24,13 +25,19 @@ def _get_int_env(*names: str, default: int, minimum: int = 1) -> int:
         value = int(raw)
     except ValueError:
         logging.warning(
-            "Valeur invalide '%s' pour %s, utilisation du defaut %d", raw, names, default
+            "Valeur invalide '%s' pour %s, utilisation du defaut %d",
+            raw,
+            names,
+            default,
         )
         return default
     if value < minimum:
         logging.warning(
             "Valeur %d inferieure au minimum %d pour %s, utilisation de %d",
-            value, minimum, names, minimum,
+            value,
+            minimum,
+            names,
+            minimum,
         )
         return minimum
     return value
@@ -70,8 +77,12 @@ MAX_SCORE: int = _get_int_env("MAX_SCORE", default=15, minimum=5)
 
 # Points par type de probleme
 SCORE_GATEWAY_DOWN: int = _get_int_env("SCORE_GATEWAY_DOWN", default=4, minimum=1)
-SCORE_INTERNET_ALL_DOWN: int = _get_int_env("SCORE_INTERNET_ALL_DOWN", default=3, minimum=1)
-SCORE_INTERNET_PARTIAL: int = _get_int_env("SCORE_INTERNET_PARTIAL", default=1, minimum=0)
+SCORE_INTERNET_ALL_DOWN: int = _get_int_env(
+    "SCORE_INTERNET_ALL_DOWN", default=3, minimum=1
+)
+SCORE_INTERNET_PARTIAL: int = _get_int_env(
+    "SCORE_INTERNET_PARTIAL", default=1, minimum=0
+)
 
 # Points de recuperation (valeurs positives, appliquees en negatif)
 SCORE_DECAY_OK: int = _get_int_env("SCORE_DECAY_OK", default=2, minimum=1)
@@ -107,11 +118,15 @@ MAX_REBOOTS_PER_DAY: int = _get_int_env("MAX_REBOOTS_PER_DAY", default=10, minim
 # ---------------------------------------------
 
 # Nombre d'echecs SSH avant d'activer le backoff
-SSH_FAILURE_BACKOFF_START: int = _get_int_env("SSH_FAILURE_BACKOFF_START", default=3, minimum=1)
+SSH_FAILURE_BACKOFF_START: int = _get_int_env(
+    "SSH_FAILURE_BACKOFF_START", default=3, minimum=1
+)
 
 # Cooldown SSH apres backoff (secondes)
 # Multiplie par 2 a chaque palier (3 echecs: 300s, 6: 600s, 10: 1200s, cap 3600s)
-SSH_FAILURE_COOLDOWN: int = _get_int_env("SSH_FAILURE_COOLDOWN", default=300, minimum=60)
+SSH_FAILURE_COOLDOWN: int = _get_int_env(
+    "SSH_FAILURE_COOLDOWN", default=300, minimum=60
+)
 
 # Cooldown SSH maximum (secondes) -- 3600s = 1 heure
 MAX_SSH_COOLDOWN: int = _get_int_env("MAX_SSH_COOLDOWN", default=3600, minimum=300)
@@ -140,6 +155,7 @@ except ValueError:
 # Username SSH du USG
 USG_USER: str = os.getenv("USG_USER", "maintenance")
 
+
 # Chemin vers la cle SSH privee dediee (generee par scripts/setup_ssh.sh)
 # Auto-detection : ed25519 en priorite, fallback sur rsa si absent
 def _detect_ssh_key() -> str:
@@ -151,6 +167,7 @@ def _detect_ssh_key() -> str:
         if os.path.isfile(path):
             return path
     return "/opt/usg-watchdog/.ssh/usg_ed25519"
+
 
 USG_SSH_KEY: str = _detect_ssh_key()
 
@@ -237,9 +254,13 @@ PUSHOVER_MIN_LEVEL: str = os.getenv("PUSHOVER_MIN_LEVEL", "INFO")
 # ---------------------------------------------
 
 # Activer l'escalade (true/false)
-ALERT_ESCALATION_ENABLED: bool = os.getenv("ALERT_ESCALATION_ENABLED", "false").lower() in ("true", "1", "yes")
+ALERT_ESCALATION_ENABLED: bool = os.getenv(
+    "ALERT_ESCALATION_ENABLED", "false"
+).lower() in ("true", "1", "yes")
 # Delai avant escalade (minutes)
-ALERT_ESCALATION_DELAY: int = _get_int_env("ALERT_ESCALATION_DELAY", default=15, minimum=5)
+ALERT_ESCALATION_DELAY: int = _get_int_env(
+    "ALERT_ESCALATION_DELAY", default=15, minimum=5
+)
 
 # ---------------------------------------------
 # API AUTHENTICATION (optionnel mais recommande)
@@ -248,6 +269,46 @@ ALERT_ESCALATION_DELAY: int = _get_int_env("ALERT_ESCALATION_DELAY", default=15,
 # Token d'authentification pour les endpoints POST
 # Si vide, les endpoints POST sont ouverts (LAN only)
 API_TOKEN: str = os.getenv("API_TOKEN", "")
+
+# ---------------------------------------------
+# IDENTITE DE L'INSTANCE
+# ---------------------------------------------
+
+
+def _normalize_instance_id(raw: str) -> str:
+    """Normalise un identifiant d'instance pour usage MQTT / Home Assistant.
+
+    Minuscules, tout caractere non alphanumerique ASCII devient '_' (les
+    lettres accentuees, CJK, etc. sont donc aussi remplacees -- ce fichier
+    est volontairement ASCII-only, et les unique_id / topics MQTT ne
+    doivent contenir que des caracteres ASCII), les '_' consecutifs sont
+    collapses puis retires en debut/fin. Si le resultat est vide, retombe
+    sur 'usg_watchdog' pour garantir un identifiant toujours non vide.
+
+    Limite connue et acceptee : deux hostnames qui ne different que par
+    leur separateur (ex: "pi-dijon" et "pi_dijon", ou "site.master" et
+    "site_master") normalisent vers le meme INSTANCE_ID. Ce n'est pas
+    corrige ici -- ca demanderait un schema d'encodage reversible, pour un
+    risque nul en pratique : les 4 hostnames de production (dijon/nice x
+    master/slave) sont lexicalement distincts independamment du separateur.
+    """
+    chars = [c if c.isascii() and c.isalnum() else "_" for c in raw.lower()]
+    normalized = "".join(chars)
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+    normalized = normalized.strip("_")
+    return normalized or "usg_watchdog"
+
+
+# Identifiant unique de cette instance (site + role), utilise pour distinguer
+# plusieurs deploiements sur le meme broker MQTT / la meme instance Home
+# Assistant (ex: Dijon master, Dijon slave, Nice master, Nice slave).
+# Defaut : derive du hostname, pour qu'une instance non configuree obtienne
+# malgre tout une identite distincte des autres -- corriger le bug de
+# collision ne doit pas exiger d'action manuelle sur chaque instance.
+INSTANCE_ID: str = _normalize_instance_id(
+    _get_env("INSTANCE_ID", default=socket.gethostname())
+)
 
 # ---------------------------------------------
 # MQTT / HOME ASSISTANT (optionnel)
@@ -260,7 +321,11 @@ MQTT_TOPIC_PREFIX: str = os.getenv("MQTT_TOPIC_PREFIX", "usg-watchdog")
 MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "")
 # Envoyer les configs auto-discovery Home Assistant
-MQTT_HA_DISCOVERY: bool = os.getenv("MQTT_HA_DISCOVERY", "true").lower() in ("true", "1", "yes")
+MQTT_HA_DISCOVERY: bool = os.getenv("MQTT_HA_DISCOVERY", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # ---------------------------------------------
 # DDNS CLOUDFLARE (optionnel)
@@ -273,7 +338,11 @@ CLOUDFLARE_ZONE_ID: str = os.getenv("CLOUDFLARE_ZONE_ID", "")
 # Records A a mettre a jour (separes par des virgules)
 CLOUDFLARE_RECORD_NAMES: str = os.getenv("CLOUDFLARE_RECORD_NAMES", "")
 # Utiliser le proxy Cloudflare (true/false)
-CLOUDFLARE_PROXIED: bool = os.getenv("CLOUDFLARE_PROXIED", "false").lower() in ("true", "1", "yes")
+CLOUDFLARE_PROXIED: bool = os.getenv("CLOUDFLARE_PROXIED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 # TTL en secondes (120-7200, ou 1 pour auto)
 CLOUDFLARE_TTL: int = _get_int_env("CLOUDFLARE_TTL", default=120, minimum=1)
 # Intervalle de check periodique DDNS (secondes, defaut 1800s = 30 min)
@@ -295,7 +364,9 @@ TAILSCALE_DNS_SUBDOMAIN: str = os.getenv("TAILSCALE_DNS_SUBDOMAIN", "")
 TAILSCALE_DNS_PREFIX: str = os.getenv("TAILSCALE_DNS_PREFIX", "")
 TAILSCALE_DNS_POSTFIX: str = os.getenv("TAILSCALE_DNS_POSTFIX", "")
 # Intervalle de sync (secondes, defaut 600s = 10 min)
-TAILSCALE_SYNC_INTERVAL: int = _get_int_env("TAILSCALE_SYNC_INTERVAL", default=600, minimum=60)
+TAILSCALE_SYNC_INTERVAL: int = _get_int_env(
+    "TAILSCALE_SYNC_INTERVAL", default=600, minimum=60
+)
 
 # ---------------------------------------------
 # BACKUP UNIFI (optionnel)
@@ -306,11 +377,17 @@ UNIFI_BACKUP_DIR: str = os.getenv("UNIFI_BACKUP_DIR", "")
 # Destination rclone (ex: drive:Unifi, s3:bucket/prefix)
 UNIFI_BACKUP_RCLONE_DEST: str = os.getenv("UNIFI_BACKUP_RCLONE_DEST", "drive:Unifi")
 # Retention en jours
-UNIFI_BACKUP_RETENTION_DAYS: int = _get_int_env("UNIFI_BACKUP_RETENTION_DAYS", default=30, minimum=1)
+UNIFI_BACKUP_RETENTION_DAYS: int = _get_int_env(
+    "UNIFI_BACKUP_RETENTION_DAYS", default=30, minimum=1
+)
 # Heure du backup quotidien (0-23, -1=off)
-UNIFI_BACKUP_SCHEDULE_HOUR: int = _get_int_env("UNIFI_BACKUP_SCHEDULE_HOUR", default=4, minimum=-1)
+UNIFI_BACKUP_SCHEDULE_HOUR: int = _get_int_env(
+    "UNIFI_BACKUP_SCHEDULE_HOUR", default=4, minimum=-1
+)
 # Alerte si le dernier backup a plus de N heures
-UNIFI_BACKUP_MAX_AGE_HOURS: int = _get_int_env("UNIFI_BACKUP_MAX_AGE_HOURS", default=48, minimum=1)
+UNIFI_BACKUP_MAX_AGE_HOURS: int = _get_int_env(
+    "UNIFI_BACKUP_MAX_AGE_HOURS", default=48, minimum=1
+)
 
 # ---------------------------------------------
 # COORDINATION PEER (optionnel)
@@ -361,9 +438,15 @@ LOG_FILE: str = os.getenv("LOG_FILE", "/var/log/usg-watchdog.log")
 # ---------------------------------------------
 
 # Activer la verification des pages statut FAI (true/false)
-ISP_STATUS_ENABLED: bool = os.getenv("ISP_STATUS_ENABLED", "false").lower() in ("true", "1", "yes")
+ISP_STATUS_ENABLED: bool = os.getenv("ISP_STATUS_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 # Intervalle de verification en cycles (defaut 20 cycles = ~10 min a 30s/cycle)
-ISP_STATUS_INTERVAL_CYCLES: int = _get_int_env("ISP_STATUS_INTERVAL_CYCLES", default=20, minimum=5)
+ISP_STATUS_INTERVAL_CYCLES: int = _get_int_env(
+    "ISP_STATUS_INTERVAL_CYCLES", default=20, minimum=5
+)
 # Surcharge des URLs FAI en JSON (ex: {"Free": "https://...", "Orange": "https://..."})
 ISP_STATUS_URLS: str = os.getenv("ISP_STATUS_URLS", "")
 # Timeout HTTP pour chaque page (secondes)
@@ -373,13 +456,18 @@ ISP_STATUS_TIMEOUT: int = _get_int_env("ISP_STATUS_TIMEOUT", default=10, minimum
 # VALIDATION CROISEE
 # ---------------------------------------------
 
+
 def validate() -> list[str]:
     """Valide la coherence entre les parametres. Appele au demarrage."""
     errors: list[str] = []
     if MAX_SCORE < REBOOT_SCORE_THRESHOLD:
-        errors.append(f"MAX_SCORE ({MAX_SCORE}) < REBOOT_SCORE_THRESHOLD ({REBOOT_SCORE_THRESHOLD})")
+        errors.append(
+            f"MAX_SCORE ({MAX_SCORE}) < REBOOT_SCORE_THRESHOLD ({REBOOT_SCORE_THRESHOLD})"
+        )
     if MAX_REBOOT_COOLDOWN < REBOOT_COOLDOWN:
-        errors.append(f"MAX_REBOOT_COOLDOWN ({MAX_REBOOT_COOLDOWN}) < REBOOT_COOLDOWN ({REBOOT_COOLDOWN})")
+        errors.append(
+            f"MAX_REBOOT_COOLDOWN ({MAX_REBOOT_COOLDOWN}) < REBOOT_COOLDOWN ({REBOOT_COOLDOWN})"
+        )
     if DAILY_REPORT_HOUR > 23:
         errors.append(f"DAILY_REPORT_HOUR ({DAILY_REPORT_HOUR}) > 23")
     if WEEKLY_REPORT_DAY > 6:

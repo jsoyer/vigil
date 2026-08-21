@@ -100,6 +100,29 @@ pas des bugs, et un patch ne doit pas les embarquer :
 *(`MQTT_CLIENT_ID` figurait ici comme « à vérifier » ; il est **entré dans le
 périmètre** — voir le point 3 ci-dessus.)*
 
+### ⚠️ Prérequis de déploiement relevé pendant l'implémentation (2026-08-21)
+
+`MQTT_TOPIC_PREFIX` reste une **valeur unique partagée** (`config.py:320`,
+défaut `usg-watchdog`). Les *state topics* (`{prefix}/score`, `{prefix}/gateway`,
+…) ne sont donc **pas** couverts par ce patch : ils sont dérivés du préfixe, pas
+de l'`INSTANCE_ID`.
+
+Conséquence concrète : après ce patch, les 4 instances ont bien des devices, des
+`unique_id`, des topics de discovery et des `client_id` **disjoints** — plus
+d'écrasement d'entités, plus d'éviction sur le broker. Mais si les 4 gardent le
+préfixe par défaut, leurs 8 entités pointent toutes vers **les mêmes** state
+topics : Home Assistant affichera 4 devices distincts affichant des valeurs
+**identiques** (dernier publieur gagnant).
+
+**Il faut donc définir `MQTT_TOPIC_PREFIX` par instance au déploiement**
+(ex : `usg-watchdog/dijon-master`), sinon le correctif est incomplet en pratique.
+
+Non traité ici volontairement : changer le défaut de `MQTT_TOPIC_PREFIX` (par
+exemple le dériver d'`INSTANCE_ID`) déplacerait les topics de tous les
+déploiements existants, y compris mono-instance, et casserait les automatisations
+et dashboards HA qui les référencent. C'est une décision de rupture, pas un
+patch — à trancher séparément.
+
 ## Tests
 
 `tests/test_mqtt_publisher.py` (la suite existante est déjà exhaustive) :
@@ -134,12 +157,22 @@ pas « pour voir ».
 
 ## Critères d'acceptation
 
-- [ ] Deux instances publient des identités MQTT disjointes (test)
-- [ ] Sans configuration, l'identifiant est dérivé du hostname et normalisé
-- [ ] `mqtt_publisher.is_configured()` existe, aligné sur les autres modules
-- [ ] Suite `tests/test_mqtt_publisher.py` verte, coverage ≥ 80 %
-- [ ] `./scripts/validate.sh` vert
-- [ ] Note de migration rédigée dans les notes de version
-- [ ] `MQTT_CLIENT_ID` dérivé de l'identifiant d'instance ; deux instances
+- [x] Deux instances publient des identités MQTT disjointes (test)
+- [x] Sans configuration, l'identifiant est dérivé du hostname et normalisé
+- [x] `mqtt_publisher.is_configured()` existe, aligné sur les autres modules
+- [x] Suite `tests/test_mqtt_publisher.py` verte, coverage ≥ 80 %
+- [x] `./scripts/validate.sh` vert
+- [x] Note de migration rédigée dans les notes de version
+- [x] `MQTT_CLIENT_ID` dérivé de l'identifiant d'instance ; deux instances
       simulées se connectent **simultanément** sans s'évincer
 - [ ] `VERSION` = 1.8.1, taggée, `dev` resynchronisé
+
+## Issues
+
+- Le dernier critère est un critère composite (VERSION bump + tag git +
+  resync `dev`). La partie `VERSION` est faite (`VERSION` = `1.8.1`). Le tag
+  git et la resynchronisation de `dev` sont des étapes de livraison
+  (`git tag`, `push`, `checkout dev && merge`) explicitement hors périmètre
+  de cette session (consigne : "Do NOT commit, tag, push, or touch git
+  branches. This is local-only work."). Laissé non coché volontairement --
+  à faire au moment du ship.
