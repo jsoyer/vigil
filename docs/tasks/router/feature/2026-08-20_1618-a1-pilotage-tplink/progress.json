@@ -1,0 +1,173 @@
+{
+  "prd": "docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/spec.md",
+  "name": "a1-pilotage-tplink",
+  "created": "2026-08-20",
+  "target_version": "1.9.0",
+  "branch": "dev",
+  "status": "planned",
+  "supersedes": "docs/tasks/router/feature/2026-08-12_1451-tplink-backup-lines/",
+  "adr": "docs/adr/0001-multi-vendor-router-monitoring.md",
+  "invariants": "docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/INVARIANTS.md",
+  "prerequisite": {
+    "bugfix": "docs/tasks/router/bugfix/2026-08-20_1618-mqtt-instance-identity.md",
+    "version": "1.8.1",
+    "blocking_for": "A2",
+    "note": "Bug existant, independant des TP-Link. Recommande avant A1, bloquant avant A2."
+  },
+  "follow_up": {
+    "a2": "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/spec.md",
+    "prd_b": "Moteur multi-cible, UsgDriver, roles dans le scoring, C5 complete. Voir spec.md section 9.1."
+  },
+  "gates": [
+    {
+      "id": "network-path",
+      "in_sprint": 1,
+      "blocking": true,
+      "description": "Le MR110 doit etre joignable depuis un hote watchdog avant de lancer le spike. Sans chemin, ne pas enchainer a blanc."
+    },
+    {
+      "id": "spike-verdict",
+      "after_sprint": 1,
+      "blocking": true,
+      "description": "Verdict de compatibilite TL-MR110 indoor (FULL / DEGRADED / UNSUPPORTED). Aucun repli materiel possible : c'est bien du MR110, pas un MR100. Si UNSUPPORTED, re-cadrer les sprints 2 a 4 sur le plan B."
+    },
+    {
+      "id": "hop-variant",
+      "in_sprint": 1,
+      "blocking": false,
+      "description": "Relever la disposition physique par site (Pi Zero en PoE, position figee ; MR110 place selon la 4G) et trancher la nature du saut : WiFi actuel ou Ethernet. Le Pi Zero est conserve dans tous les cas."
+    },
+    {
+      "id": "hardware-revision",
+      "in_sprint": 1,
+      "blocking": false,
+      "description": "Relever revision materielle et firmware exacts par site. La lib distingue les revisions pour d'autres modeles de la serie MR."
+    }
+  ],
+  "sprints": [
+    {
+      "id": 1,
+      "title": "Chemin reseau Pi Zero + spike MR110 + contrat RouterDriver",
+      "spec": "sprints/01-chemin-reseau-spike-contrat.md",
+      "status": "pending",
+      "depends_on": [],
+      "risk": "gate",
+      "isolation": "worktree",
+      "files_to_create": [
+        "src/drivers/__init__.py",
+        "src/drivers/_base.py",
+        "scripts/spike_tplink.py",
+        "docs/spikes/2026-08-XX-mr110-compat.md",
+        "docs/runbooks/pi-zero-mr110-access.md",
+        "tests/test_drivers_base.py"
+      ],
+      "files_to_modify": [],
+      "files_read_only": [
+        "src/usg.py",
+        "src/connectivity.py"
+      ],
+      "notes": "Comporte du travail d'infrastructure hors depot (config reseau Pi Zero et hotes watchdog), documente dans le runbook."
+    },
+    {
+      "id": 2,
+      "title": "TplinkDriver + sonde etagee (attribution de panne)",
+      "spec": "sprints/02-tplink-driver.md",
+      "status": "pending",
+      "depends_on": [
+        1
+      ],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [
+        "src/drivers/tplink.py",
+        "tests/test_drivers_tplink.py"
+      ],
+      "files_to_modify": [
+        "requirements.txt",
+        "src/config.py"
+      ],
+      "files_read_only": [
+        "src/drivers/_base.py",
+        "docs/spikes/",
+        "docs/runbooks/"
+      ],
+      "forbidden": [
+        "src/watchdog.py",
+        "src/state.py",
+        "src/peer.py",
+        "src/connectivity.py",
+        "src/usg.py"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Commandes de management (API + Telegram) + masquage des secrets",
+      "spec": "sprints/03-commandes-management.md",
+      "status": "pending",
+      "depends_on": [
+        1,
+        2
+      ],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [
+        "src/managed_devices.py",
+        "tests/test_managed_devices.py"
+      ],
+      "files_to_modify": [
+        "src/http_server.py",
+        "src/telegram_bot.py",
+        "src/config.py",
+        "src/events.py",
+        "src/messages.py"
+      ],
+      "files_read_only": [
+        "src/drivers/",
+        "docs/spikes/"
+      ],
+      "forbidden": [
+        "src/watchdog.py",
+        "src/state.py",
+        "src/peer.py",
+        "src/connectivity.py",
+        "src/dashboard.py",
+        "src/metrics.py",
+        "src/mqtt_publisher.py"
+      ],
+      "notes": "Livrable prioritaire. Contient 2 prerequis non anticipes : parsing d'arguments Telegram (P1) et confirmation serveur (P2), tous deux inexistants dans le projet.",
+      "shared_contracts": [
+        "3 whitelists de config divergentes (http_server.py:290-311, :356-366, :384-391)"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Auto-updater (C2), docs, release 1.9.0",
+      "spec": "sprints/04-updater-docs-release.md",
+      "status": "pending",
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [],
+      "files_to_modify": [
+        "updater/update.py",
+        "updater/preflight.py",
+        "scripts/validate.sh",
+        "README.md",
+        "DEPLOY.md",
+        "CLAUDE.md",
+        "VERSION",
+        "docs/runbooks/pi-zero-mr110-access.md"
+      ],
+      "files_read_only": [
+        "src/"
+      ],
+      "shared_contracts": [
+        "processus d'auto-update : touche les 4 instances de production sans intervention humaine"
+      ]
+    }
+  ]
+}

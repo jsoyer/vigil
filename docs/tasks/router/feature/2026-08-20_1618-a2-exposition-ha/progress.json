@@ -1,0 +1,156 @@
+{
+  "prd": "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/spec.md",
+  "name": "a2-exposition-ha",
+  "created": "2026-08-20",
+  "target_version": "1.10.0",
+  "branch": "dev",
+  "status": "planned",
+  "depends_on_prd": "docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/spec.md",
+  "adr": "docs/adr/0001-multi-vendor-router-monitoring.md",
+  "invariants": "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/INVARIANTS.md",
+  "prerequisite": {
+    "bugfix": "docs/tasks/router/bugfix/2026-08-20_1618-mqtt-instance-identity.md",
+    "version": "1.8.1",
+    "blocking": true,
+    "note": "BLOQUANT. Ajouter des entites par equipement sur une identite MQTT deja en collision entre les 4 instances rendrait le resultat intestable."
+  },
+  "follow_up": {
+    "prd_b": "Moteur multi-cible, UsgDriver, roles dans le scoring, alerting automatique sur la readiness. NB : l'exclusivite de polling (C5) est remontee dans A2.",
+    "mqtt_backlog": "Ameliorations restantes : availability_topic/LWT, exposition du topic {prefix}/state. Le device_class/state_class/retain des 8 capteurs existants est traite dans A2 sprint 3 (C14)."
+  },
+  "gates": [
+    {
+      "id": "mqtt-identity-fixed",
+      "before_sprint": 3,
+      "blocking": true,
+      "description": "Le bugfix 1.8.1 doit etre livre et verifie (deux instances = identites disjointes) avant d'ajouter des entites par equipement."
+    }
+  ],
+  "sprints": [
+    {
+      "id": 1,
+      "title": "Quota, detection d'usage, election du poller (C12)",
+      "spec": "sprints/01-quota-et-usage.md",
+      "status": "pending",
+      "depends_on": [],
+      "risk": "high",
+      "isolation": "worktree",
+      "files_to_create": [
+        "tests/test_tplink_quota.py",
+        "tests/test_tplink_usage.py"
+      ],
+      "files_to_modify": [
+        "src/managed_devices.py",
+        "src/history.py",
+        "src/config.py",
+        "src/events.py",
+        "src/messages.py",
+        "src/peer.py"
+      ],
+      "files_read_only": [
+        "src/drivers/"
+      ],
+      "forbidden": [
+        "src/watchdog.py",
+        "src/state.py",
+        "src/multiwan.py",
+        "src/dashboard.py",
+        "src/metrics.py",
+        "src/mqtt_publisher.py"
+      ],
+      "notes": "Le polling periodique introduit ici rend la contention de session admin certaine : C5 complete (exclusivite de polling) est remontee de PRD B vers A2. L'election prefere l'instance en mode bridged (chemin plus court), critere distinct de la priorite HA de peer.py."
+    },
+    {
+      "id": 2,
+      "title": "Dashboard + Prometheus",
+      "spec": "sprints/02-dashboard-prometheus.md",
+      "status": "pending",
+      "depends_on": [
+        1
+      ],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [],
+      "files_to_modify": [
+        "src/dashboard.py",
+        "src/metrics.py"
+      ],
+      "files_read_only": [
+        "src/managed_devices.py",
+        "src/drivers/",
+        "src/http_server.py"
+      ],
+      "forbidden": [
+        "src/watchdog.py",
+        "src/state.py",
+        "src/peer.py",
+        "src/mqtt_publisher.py"
+      ],
+      "shared_contracts": [
+        "noms de metriques Prometheus (consommes par Grafana)"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Home Assistant : capteurs par equipement + bouton arme",
+      "spec": "sprints/03-home-assistant.md",
+      "status": "pending",
+      "depends_on": [
+        1,
+        2
+      ],
+      "risk": "high",
+      "isolation": "worktree",
+      "files_to_create": [
+        "tests/test_mqtt_commands.py"
+      ],
+      "files_to_modify": [
+        "src/mqtt_publisher.py",
+        "src/config.py",
+        "src/managed_devices.py",
+        "src/events.py",
+        "tests/test_mqtt_publisher.py"
+      ],
+      "files_read_only": [
+        "src/drivers/",
+        "src/http_server.py",
+        "src/telegram_bot.py"
+      ],
+      "forbidden": [
+        "src/watchdog.py",
+        "src/state.py",
+        "src/peer.py",
+        "src/dashboard.py",
+        "src/metrics.py"
+      ],
+      "notes": "Ouvre le premier chemin de commande ENTRANT du projet (subscribe MQTT). Surface d'attaque nouvelle : broker authentifie exige, entite arm obligatoire. Device HA indexe sur site + equipement (C12), publie par le seul poller elu. Liste d'entites figee d'apres le spike (C13). Inclut la mise a niveau additive des 8 capteurs USG existants (device_class / state_class / retain, unique_id et type inchanges - C14). Inclut C15 : un seul device USG par site (capteurs de ligne sur un device par site publie par l'instance elue, capteurs du watchdog par instance) + binary_sensor divergence en compensation. Inclut C17 : metriques de l'hote (temperature, disque, memoire, charge) en stdlib seule.",
+      "shared_contracts": [
+        "topics MQTT et unique_id consommes par Home Assistant"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Docs + release 1.10.0",
+      "spec": "sprints/04-docs-release.md",
+      "status": "pending",
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "risk": "low",
+      "isolation": "worktree",
+      "files_to_create": [],
+      "files_to_modify": [
+        "README.md",
+        "DEPLOY.md",
+        "CLAUDE.md",
+        "VERSION",
+        "docs/adr/0001-multi-vendor-router-monitoring.md"
+      ],
+      "files_read_only": [
+        "src/"
+      ]
+    }
+  ]
+}
