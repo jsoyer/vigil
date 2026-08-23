@@ -38,6 +38,20 @@ MAX_REBOOTS = "max_reboots"
 # (api|ntfy) et device_id portes dans `data`, jamais le mot de passe.
 TPLINK_REBOOT = "tplink_reboot"
 TPLINK_REBOOT_FAILED = "tplink_reboot_failed"
+# A2 -- suivi quota, usage, sonde et election TP-Link (voir
+# src/managed_devices.py et src/peer.py). device_id/label et valeurs
+# numeriques portes dans `data`, jamais le mot de passe.
+TPLINK_IN_USE = "tplink_in_use"
+TPLINK_SATURATED = "tplink_saturated"
+TPLINK_IDLE = "tplink_idle"
+TPLINK_LINK_DOWN = "tplink_link_down"
+TPLINK_LINK_UP = "tplink_link_up"
+TPLINK_HOP_FAILED = "tplink_hop_failed"
+TPLINK_PROBE_LEAK = "tplink_probe_leak"
+TPLINK_SPLIT_BRAIN = "tplink_split_brain"
+DATA_QUOTA_WARNING = "data_quota_warning"
+BACKUP_DEGRADED = "backup_degraded"
+BACKUP_READY = "backup_ready"
 
 
 class EventLog:

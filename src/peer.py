@@ -5,6 +5,7 @@ import logging
 import time
 import urllib.request
 import urllib.error
+from datetime import datetime
 
 from config import (
     PEER_IP,
@@ -232,3 +233,111 @@ def check_divergence(
         f"inet={peer.internet_ok_count}/{peer.internet_total}\n"
         f"Probleme probable sur le peer, pas sur le reseau"
     )
+
+
+def elect_poller(
+    my_priority: int,
+    my_mode: str,
+    my_reachable: bool,
+    peer_reachable: bool,
+    peer_priority: int | None,
+    peer_mode: str | None,
+    threshold_reached_time: float,
+    now: float | None = None,
+) -> tuple[bool, str]:
+    """Decide si CETTE instance doit interroger un equipement TP-Link
+    donne (C12, Sprint 1 A2). Fonction PURE -- aucun appel reseau ici,
+    tous les signaux (joignabilite, mode, priorite) sont fournis par
+    l'appelant (managed_devices.py), qui les obtient via `query_peer()`
+    et une lecture HTTP du statut TP-Link distant -- reutilisation de la
+    logique de priorite existante, pas une deuxieme implementation du
+    failover.
+
+    `my_mode`/`peer_mode` distinguent "bridged"/"remote" (voir
+    config.py TplinkDeviceConfig.mode) -- critere distinct de la
+    priorite HA de `should_reboot`, qui decide qui redemarre l'USG. Par
+    convention (tranchee en A1 Sprint 1), au plus une instance par site
+    est "bridged" pour un equipement donne."""
+    if now is None:
+        now = time.time()
+
+    if my_mode == "bridged":
+        if my_reachable:
+            return True, "bridged et joignable -- chemin prioritaire"
+        return False, "bridged mais injoignable -- pas de repli local"
+
+    if peer_mode == "bridged":
+        if peer_reachable:
+            return False, "peer bridged joignable -- lui laisse la main"
+        if not my_reachable:
+            return False, "peer bridged injoignable et moi sans chemin configure"
+        if threshold_reached_time <= 0:
+            return False, "peer bridged injoignable -- attente confirmation du delai"
+        elapsed = now - threshold_reached_time
+        if elapsed < PEER_TAKEOVER_DELAY:
+            return False, (
+                f"peer bridged injoignable -- takeover dans "
+                f"{int(PEER_TAKEOVER_DELAY - elapsed)}s"
+            )
+        return True, (
+            f"peer bridged injoignable depuis {int(elapsed)}s -- takeover "
+            f"apres {PEER_TAKEOVER_DELAY}s"
+        )
+
+    # Ni moi ni le peer ne sommes bridged (ou mode peer inconnu) -- repli
+    # sur la priorite HA habituelle (meme structure que should_reboot).
+    if not my_reachable:
+        return False, "pas de chemin configure vers l'equipement"
+
+    if not peer_reachable:
+        if threshold_reached_time <= 0:
+            return False, "peer injoignable -- attente confirmation du delai"
+        elapsed = now - threshold_reached_time
+        if elapsed < PEER_TAKEOVER_DELAY:
+            return (
+                False,
+                f"peer injoignable -- takeover dans {int(PEER_TAKEOVER_DELAY - elapsed)}s",
+            )
+        return True, (
+            f"peer injoignable depuis {int(elapsed)}s -- takeover apres "
+            f"{PEER_TAKEOVER_DELAY}s"
+        )
+
+    if peer_priority is not None and my_priority <= peer_priority:
+        return True, f"priorite {my_priority} (peer={peer_priority})"
+
+    return False, f"peer a priorite (peer={peer_priority}, moi={my_priority})"
+
+
+def _parse_iso_timestamp(ts: str) -> float | None:
+    try:
+        return datetime.fromisoformat(ts).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def detect_split_brain(
+    peer_state: WatchdogState,
+    took_over: bool,
+    now: float | None = None,
+    freshness_window: float | None = None,
+) -> bool:
+    """Signature d'un split-brain (C12) : je viens de prendre le relais
+    du sondage TP-Link en croyant le peer indisponible, mais celui-ci,
+    desormais joignable, presente un etat recent -- il n'a jamais
+    vraiment ete en panne, seule la communication entre les deux
+    instances a ete coupee (partition reseau). Meme famille que la
+    divergence deja geree par `check_divergence` : on detecte et on
+    alerte, on ne resout jamais en silence."""
+    if not took_over or peer_state is None:
+        return False
+    if now is None:
+        now = time.time()
+    if freshness_window is None:
+        freshness_window = CHECK_INTERVAL * 3
+    if not peer_state.timestamp:
+        return False
+    peer_ts = _parse_iso_timestamp(peer_state.timestamp)
+    if peer_ts is None:
+        return False
+    return (now - peer_ts) < freshness_window

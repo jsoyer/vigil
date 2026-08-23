@@ -492,6 +492,11 @@ class TplinkDeviceConfig:
     rsrp_min: int
     rsrq_min: int
     snr_min: int
+    quota_volume_mb: int | None = None
+    quota_alert_pct: int = 80
+    quota_reset_day: int = 1
+    probe_enabled: bool = False
+    probe_interval: int = 3600
 
 
 def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
@@ -536,6 +541,40 @@ def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
         # src/drivers/tplink.py (readiness()) pour la justification complete.
         snr_min = _get_int_env(f"TPLINK_{index}_SNR_MIN", default=-100, minimum=-200)
 
+        quota_volume_raw = os.getenv(f"TPLINK_{index}_QUOTA_VOLUME_MB", "")
+        quota_volume_mb: int | None = None
+        if quota_volume_raw:
+            try:
+                parsed = int(quota_volume_raw)
+                if parsed > 0:
+                    quota_volume_mb = parsed
+                else:
+                    logging.warning(
+                        "TPLINK_%d_QUOTA_VOLUME_MB invalide (%s), quota desactive",
+                        index,
+                        quota_volume_raw,
+                    )
+            except ValueError:
+                logging.warning(
+                    "TPLINK_%d_QUOTA_VOLUME_MB invalide (%s), quota desactive",
+                    index,
+                    quota_volume_raw,
+                )
+
+        quota_alert_pct = _get_int_env(
+            f"TPLINK_{index}_QUOTA_ALERT_PCT", default=80, minimum=1
+        )
+        quota_reset_day = _get_int_env(
+            f"TPLINK_{index}_QUOTA_RESET_DAY", default=1, minimum=1
+        )
+
+        probe_enabled = _get_env(
+            f"TPLINK_{index}_PROBE_ENABLED", default="false"
+        ).strip().lower() in ("1", "true", "yes", "on")
+        probe_interval = _get_int_env(
+            f"TPLINK_{index}_PROBE_INTERVAL", default=3600, minimum=60
+        )
+
         devices.append(
             TplinkDeviceConfig(
                 index=index,
@@ -547,6 +586,11 @@ def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
                 rsrp_min=rsrp_min,
                 rsrq_min=rsrq_min,
                 snr_min=snr_min,
+                quota_volume_mb=quota_volume_mb,
+                quota_alert_pct=quota_alert_pct,
+                quota_reset_day=quota_reset_day,
+                probe_enabled=probe_enabled,
+                probe_interval=probe_interval,
             )
         )
         index += 1

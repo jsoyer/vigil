@@ -50,6 +50,14 @@ if [[ -d "${OLD_INSTALL_DIR}" && ! -d "${INSTALL_DIR}" ]]; then
         log_success ".ssh migre : ${INSTALL_DIR}/.ssh (cles USG conservees telles quelles, non renommees)"
     fi
 
+    # Config utilisateur (rclone, etc.) : oubliee lors de la migration 2.0.0,
+    # cause de l'echec silencieux des backups UniFi (rclone.conf introuvable
+    # pour le nouvel utilisateur). Copie, pas deplacement (rollback).
+    if [[ -d "${OLD_INSTALL_DIR}/.config" && ! -d "${INSTALL_DIR}/.config" ]]; then
+        cp -a "${OLD_INSTALL_DIR}/.config" "${INSTALL_DIR}/.config"
+        log_success ".config migre : ${INSTALL_DIR}/.config (rclone, etc.)"
+    fi
+
     log_info "Venv non repris -- ${OLD_INSTALL_DIR}/venv laisse en place (rollback), un venv neuf sera cree dans ${INSTALL_DIR}/venv"
 fi
 

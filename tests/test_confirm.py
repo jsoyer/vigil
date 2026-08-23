@@ -456,4 +456,3 @@ class TestIdempotencyWindow:
 
         assert check_recent_replay("", "tplink_reboot") == (False, False)
         assert check_recent_replay("tok", "") == (False, False)
-
