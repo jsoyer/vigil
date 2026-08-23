@@ -562,6 +562,7 @@ class TplinkDeviceConfig:
     quota_reset_day: int = 1
     probe_enabled: bool = False
     probe_interval: int = 3600
+    usage_traffic_floor_bps: int | None = None
 
 
 def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
@@ -640,6 +641,33 @@ def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
             f"TPLINK_{index}_PROBE_INTERVAL", default=3600, minimum=60
         )
 
+        # Plancher de trafic "in_use" (bugfix production 2.3.0) -- surcharge
+        # optionnelle en kb/s du plancher module (USAGE_TRAFFIC_FLOOR_BPS,
+        # managed_devices.py). Absent => defaut module. Invalide => defaut
+        # module, jamais un plancher a 0 qui reintroduirait le bug (`in_use`
+        # sur le bruit de gestion).
+        usage_floor_raw = os.getenv(f"TPLINK_{index}_USAGE_FLOOR_KBPS", "")
+        usage_traffic_floor_bps: int | None = None
+        if usage_floor_raw:
+            try:
+                parsed_floor = int(usage_floor_raw)
+                if parsed_floor > 0:
+                    usage_traffic_floor_bps = parsed_floor * 1_000
+                else:
+                    logging.warning(
+                        "TPLINK_%d_USAGE_FLOOR_KBPS invalide (%s), "
+                        "plancher par defaut conserve",
+                        index,
+                        usage_floor_raw,
+                    )
+            except ValueError:
+                logging.warning(
+                    "TPLINK_%d_USAGE_FLOOR_KBPS invalide (%s), "
+                    "plancher par defaut conserve",
+                    index,
+                    usage_floor_raw,
+                )
+
         devices.append(
             TplinkDeviceConfig(
                 index=index,
@@ -656,6 +684,7 @@ def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
                 quota_reset_day=quota_reset_day,
                 probe_enabled=probe_enabled,
                 probe_interval=probe_interval,
+                usage_traffic_floor_bps=usage_traffic_floor_bps,
             )
         )
         index += 1

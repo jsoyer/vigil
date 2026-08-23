@@ -58,6 +58,15 @@ CAT4_DOWNLINK_BPS = 150_000_000  # theorique descendant (~150 Mb/s)
 CAT4_UPLINK_BPS = 50_000_000  # theorique montant (~50 Mb/s)
 SATURATION_RATIO = 0.8  # "proche du plafond" -- 80% du theorique
 MAX_CLIENTS = 32  # plafond materiel MR110
+# Plancher de trafic significatif pour `in_use` (bugfix production 2.3.0) --
+# le guardian lui-meme est client WiFi permanent du MR110 (trafic de gestion
+# de quelques dizaines de bps, quelques clients associes en permanence) : le
+# nombre de clients et le moindre octet ne doivent jamais suffire a declarer
+# `in_use`, sous peine de notification CRITICAL C18 permanente qui ne se
+# retablit jamais. 100 kb/s = tres largement au-dessus du bruit de gestion
+# observe (39/144 bps), tres largement en dessous du moindre vrai usage
+# (bascule effective de la ligne).
+USAGE_TRAFFIC_FLOOR_BPS = 100_000
 USAGE_DEBOUNCE_CYCLES = 2  # anti-rebond -- pic isole ignore
 
 USAGE_IDLE = "idle"
@@ -154,10 +163,20 @@ def _traffic_warning(status: dict) -> tuple[bool, str | None]:
 
 
 def _classify_usage(
-    rx_speed_bps: object, tx_speed_bps: object, clients_total: object
+    rx_speed_bps: object,
+    tx_speed_bps: object,
+    clients_total: object,
+    traffic_floor_bps: float = USAGE_TRAFFIC_FLOOR_BPS,
 ) -> str:
     """Classifie l'usage instantane depuis les metriques MR110. Champs
-    absents (`None`) => `unknown`, jamais un etat invente."""
+    absents (`None`) => `unknown`, jamais un etat invente.
+
+    `in_use` exige du VRAI trafic de bascule (>= `traffic_floor_bps` en
+    reception OU en emission) -- jamais le seul nombre de clients associes,
+    qui inclut en permanence le guardian lui-meme (client WiFi de gestion du
+    MR110). Sous le plancher : `idle`, meme avec des clients connectes et un
+    trafic residuel de gestion. Le nombre de clients ne sert plus qu'au
+    critere `saturated` (plafond materiel), inchange."""
     rx = rx_speed_bps if isinstance(rx_speed_bps, (int, float)) else None
     tx = tx_speed_bps if isinstance(tx_speed_bps, (int, float)) else None
     clients = clients_total if isinstance(clients_total, int) else None
@@ -176,7 +195,7 @@ def _classify_usage(
     )
     if saturated:
         return USAGE_SATURATED
-    if rx > 0 or tx > 0 or clients > 0:
+    if rx >= traffic_floor_bps or tx >= traffic_floor_bps:
         return USAGE_IN_USE
     return USAGE_IDLE
 
@@ -197,10 +216,14 @@ class UsageTracker:
         rx_speed_bps: object,
         tx_speed_bps: object,
         clients_total: object,
+        traffic_floor_bps: float = USAGE_TRAFFIC_FLOOR_BPS,
     ) -> tuple[str, bool]:
         """Retourne (etat_confirme, changed). `changed` est True seulement
-        au moment ou l'etat confirme bascule reellement."""
-        raw = _classify_usage(rx_speed_bps, tx_speed_bps, clients_total)
+        au moment ou l'etat confirme bascule reellement. `traffic_floor_bps`
+        surchargeable par equipement (voir `TplinkDeviceConfig.usage_traffic_floor_bps`)."""
+        raw = _classify_usage(
+            rx_speed_bps, tx_speed_bps, clients_total, traffic_floor_bps
+        )
         confirmed = self._confirmed.get(device_id, USAGE_IDLE)
 
         if raw == USAGE_UNKNOWN:
@@ -636,6 +659,9 @@ class ManagedDeviceRegistry:
             status.get("rx_speed_bps"),
             status.get("tx_speed_bps"),
             status.get("clients_total"),
+            cfg.usage_traffic_floor_bps
+            if cfg.usage_traffic_floor_bps is not None
+            else USAGE_TRAFFIC_FLOOR_BPS,
         )
         if changed:
             if confirmed == USAGE_IN_USE:

@@ -128,10 +128,67 @@ class TestUsageThreeStates:
 
         assert _classify_usage(0, 0, 0) == USAGE_IDLE
 
+    def test_idle_with_permanent_management_traffic_and_clients(self):
+        """Bugfix production 2.3.0 -- le guardian est lui-meme client WiFi
+        permanent du MR110 (clients_total=3 constate a Dijon, trafic de
+        management 39/144 bps) : ce bruit ne doit jamais declencher `in_use`,
+        sinon la notification CRITICAL C18 "ligne de secours en service"
+        part au premier cycle et ne se retablit jamais (constate sur les
+        deux sites, au repos total). Ancien comportement (avant ce fix) :
+        `in_use` des le premier bps ou le premier client -- documente ici
+        comme le bug corrige."""
+        from managed_devices import _classify_usage, USAGE_IDLE
+
+        assert _classify_usage(39, 144, 3) == USAGE_IDLE
+
+    def test_idle_when_only_clients_connected_no_real_traffic(self):
+        """Ancien comportement : `in_use` des 1 client, meme sans trafic.
+        Les clients (management inclus) ne declenchent plus `in_use` --
+        seul un vrai trafic de bascule le fait (voir plancher)."""
+        from managed_devices import _classify_usage, USAGE_IDLE
+
+        assert _classify_usage(0, 0, 1) == USAGE_IDLE
+
+    def test_idle_just_below_traffic_floor(self):
+        from managed_devices import (
+            _classify_usage,
+            USAGE_IDLE,
+            USAGE_TRAFFIC_FLOOR_BPS,
+        )
+
+        assert _classify_usage(USAGE_TRAFFIC_FLOOR_BPS - 1, 0, 3) == USAGE_IDLE
+
     def test_in_use_when_traffic_flows(self):
         from managed_devices import _classify_usage, USAGE_IN_USE
 
         assert _classify_usage(5_000_000, 1_000_000, 3) == USAGE_IN_USE
+
+    def test_in_use_at_traffic_floor_rx(self):
+        from managed_devices import (
+            _classify_usage,
+            USAGE_IN_USE,
+            USAGE_TRAFFIC_FLOOR_BPS,
+        )
+
+        assert _classify_usage(USAGE_TRAFFIC_FLOOR_BPS, 0, 0) == USAGE_IN_USE
+
+    def test_in_use_at_traffic_floor_tx(self):
+        from managed_devices import (
+            _classify_usage,
+            USAGE_IN_USE,
+            USAGE_TRAFFIC_FLOOR_BPS,
+        )
+
+        assert _classify_usage(0, USAGE_TRAFFIC_FLOOR_BPS, 0) == USAGE_IN_USE
+
+    def test_in_use_respects_custom_traffic_floor(self):
+        """Plancher surchargeable (TPLINK_<n>_USAGE_FLOOR_KBPS) -- un
+        plancher plus bas que le defaut classe `in_use` un trafic qui
+        resterait `idle` avec le plancher module."""
+        from managed_devices import _classify_usage, USAGE_IDLE, USAGE_IN_USE
+
+        assert _classify_usage(5_000, 0, 0, traffic_floor_bps=1_000) == USAGE_IN_USE
+        assert _classify_usage(5_000, 0, 0) == USAGE_IDLE
 
     def test_saturated_near_cat4_ceiling(self):
         from managed_devices import _classify_usage, USAGE_SATURATED, CAT4_DOWNLINK_BPS
@@ -139,6 +196,8 @@ class TestUsageThreeStates:
         assert _classify_usage(CAT4_DOWNLINK_BPS * 0.9, 0, 1) == USAGE_SATURATED
 
     def test_saturated_at_max_clients(self):
+        """Saturation par nombre de clients inchangee -- seul critere ou le
+        nombre de clients declenche encore un etat autre que `idle`."""
         from managed_devices import _classify_usage, USAGE_SATURATED, MAX_CLIENTS
 
         assert _classify_usage(0, 0, MAX_CLIENTS) == USAGE_SATURATED

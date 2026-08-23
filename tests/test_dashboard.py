@@ -298,6 +298,13 @@ class TestDashboardTplinkDeviceCard:
         assert "'saturated'" in DASHBOARD_HTML
         assert "'in_use'" in DASHBOARD_HTML
 
+    def test_usage_state_traffic_floor_matches_backend(self):
+        """Bugfix 2.3.1 -- tplinkUsageState() doit exiger le plancher de
+        trafic (USAGE_TRAFFIC_FLOOR_BPS = 100000 dans managed_devices.py)
+        pour in_use, jamais le seul nombre de clients associes."""
+        assert "100000" in DASHBOARD_HTML
+        assert "rx > 0 || tx > 0 || clients > 0" not in DASHBOARD_HTML
+
     def test_quota_block_identifiers_present(self):
         assert "tplink-quota-bar" in DASHBOARD_HTML
         assert "tplink-quota-bar-fill" in DASHBOARD_HTML

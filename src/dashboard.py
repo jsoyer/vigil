@@ -762,7 +762,9 @@ function tplinkUsageState(d) {
   rx = rx || 0; tx = tx || 0; clients = clients || 0;
   var saturated = rx >= 150000000 * 0.8 || tx >= 50000000 * 0.8 || clients >= 32;
   if (saturated) return 'saturated';
-  if (rx > 0 || tx > 0 || clients > 0) return 'in_use';
+  // 100000 bps = USAGE_TRAFFIC_FLOOR_BPS in src/managed_devices.py
+  // (bugfix 2.3.1) -- clients no longer counts toward in_use.
+  if (rx >= 100000 || tx >= 100000) return 'in_use';
   return 'idle';
 }
 

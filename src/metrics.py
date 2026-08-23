@@ -39,7 +39,22 @@ def _classify_tplink_usage(rx_speed_bps, tx_speed_bps, clients_total) -> str:
     """Classifie l'usage instantane d'un equipement TP-Link depuis ses
     metriques MR110. Duplique volontairement managed_devices._classify_usage
     (lecture seule pour ce sprint) -- champs absents => "unknown", jamais un
-    etat invente."""
+    etat invente.
+
+    Bugfix 2.3.1 -- synchronise avec `USAGE_TRAFFIC_FLOOR_BPS` de
+    managed_devices.py : `in_use` exige du VRAI trafic de bascule (>= le
+    plancher, en reception OU en emission), jamais le seul nombre de
+    clients associes (le guardian lui-meme est client WiFi permanent du
+    MR110). Utilise toujours le plancher par defaut du module
+    (`managed_devices.USAGE_TRAFFIC_FLOOR_BPS`), jamais la surcharge
+    par-equipement `TplinkDeviceConfig.usage_traffic_floor_bps` -- cette
+    jauge Prometheus n'a acces qu'au dict retourne par
+    `registry.list_devices()` (pas de `TplinkDeviceConfig` en scope ici) ;
+    contrairement a la vraie decision operationnelle `in_use`/`idle` de
+    managed_devices.py, c'est une simplification deliberee et acceptable
+    pour cette metrique de lecture seule."""
+    import managed_devices
+
     rx = rx_speed_bps if isinstance(rx_speed_bps, (int, float)) else None
     tx = tx_speed_bps if isinstance(tx_speed_bps, (int, float)) else None
     clients = clients_total if isinstance(clients_total, int) else None
@@ -58,7 +73,8 @@ def _classify_tplink_usage(rx_speed_bps, tx_speed_bps, clients_total) -> str:
     )
     if saturated:
         return "saturated"
-    if rx > 0 or tx > 0 or clients > 0:
+    floor = managed_devices.USAGE_TRAFFIC_FLOOR_BPS
+    if rx >= floor or tx >= floor:
         return "in_use"
     return "idle"
 

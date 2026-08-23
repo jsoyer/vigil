@@ -608,8 +608,10 @@ class TestTplinkMetricsLabeled:
         assert 'vigil_tplink_usage_state{device="tp1",label="A"} 0' in result
 
     def test_usage_state_in_use(self, monkeypatch):
+        # rx_speed_bps must clear USAGE_TRAFFIC_FLOOR_BPS (100_000, bugfix
+        # 2.3.1) to be real in_use traffic, not just management noise.
         d = _fake_tplink_device(
-            id="tp1", label="A", rx_speed_bps=1000, tx_speed_bps=0, clients_total=0
+            id="tp1", label="A", rx_speed_bps=150_000, tx_speed_bps=0, clients_total=0
         )
         self._mock_devices(monkeypatch, [d])
         result = render_metrics(_default_state())
@@ -634,6 +636,19 @@ class TestTplinkMetricsLabeled:
         self._mock_devices(monkeypatch, [d])
         result = render_metrics(_default_state())
         assert "vigil_tplink_usage_state" not in result
+
+    def test_usage_state_idle_below_traffic_floor_with_clients(self, monkeypatch):
+        """Bugfix 2.3.1 -- le guardian est lui-meme client WiFi permanent du
+        MR110 (trafic de gestion residuel, quelques clients associes en
+        permanence). Sous USAGE_TRAFFIC_FLOOR_BPS, meme avec des clients
+        connectes, l'etat doit rester idle (jamais in_use a cause du seul
+        bruit de gestion)."""
+        d = _fake_tplink_device(
+            id="tp1", label="A", rx_speed_bps=39, tx_speed_bps=144, clients_total=3
+        )
+        self._mock_devices(monkeypatch, [d])
+        result = render_metrics(_default_state())
+        assert 'vigil_tplink_usage_state{device="tp1",label="A"} 0' in result
 
     def test_failed_hop_only_for_unreachable_device(self, monkeypatch):
         d1 = _fake_tplink_device(id="tp1", label="A", reachable=True, failed_hop=None)
