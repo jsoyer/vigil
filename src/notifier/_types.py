@@ -41,6 +41,11 @@ class NotificationContext:
     reboots_today: int | None = None
     max_reboots_per_day: int | None = None
     duration: str | None = None
+    # Catégorie de routage ntfy : "alert" (défaut, alertes de ligne ->
+    # NTFY_TOPIC) ou "ops" (cycle de vie, mises a jour, rapports ->
+    # NTFY_TOPIC_OPS). Champ additionnel avec valeur par defaut : ne casse
+    # aucun appelant existant de notify() ni la signature de notify().
+    category: str = "alert"
     extra: dict[str, str] = field(default_factory=dict)
 
 

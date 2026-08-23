@@ -247,10 +247,18 @@ SLACK_MIN_LEVEL: str = os.getenv("SLACK_MIN_LEVEL", "INFO")
 
 # URL du serveur Ntfy (cloud: https://ntfy.sh, self-hosted: http://pi:8080)
 NTFY_URL: str = os.getenv("NTFY_URL", "")
-# Topic Ntfy (ex: vigil)
+# Topic Ntfy de site (ex: vigil-dijon, vigil-nice) -- alertes de ligne
 NTFY_TOPIC: str = os.getenv("NTFY_TOPIC", "")
 NTFY_TIMEOUT: int = _get_int_env("NTFY_TIMEOUT", default=5, minimum=2)
 NTFY_MIN_LEVEL: str = os.getenv("NTFY_MIN_LEVEL", "INFO")
+# Jeton d'authentification Ntfy (Authorization: Bearer). Vide = publication
+# anonyme (comportement inchange par rapport a 2.1.0 si le serveur cible
+# l'autorise). Ne jamais journaliser cette valeur.
+NTFY_TOKEN: str = os.getenv("NTFY_TOKEN", "")
+# Topic Ntfy pour les evenements de cycle de vie (demarrage, arret,
+# sauvegardes, maintenance, rapports) -- distinct du topic de site pour
+# permettre de couper le bruit operationnel sans perdre les alertes de ligne.
+NTFY_TOPIC_OPS: str = os.getenv("NTFY_TOPIC_OPS", "vigil-ops")
 
 # ---------------------------------------------
 # NOTIFICATIONS EMAIL SMTP (optionnel)

@@ -81,8 +81,19 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
 
 # Ntfy (optionnel, alertes self-hosted)
+# NTFY_URL doit pointer vers une adresse interne (loopback ou Tailscale) du
+# serveur Ntfy -- jamais vers son URL publique/Cloudflare, meme si celle-ci
+# sert par ailleurs l'abonnement des telephones. Publier via le tunnel
+# public exposerait NTFY_TOKEN et le contenu des alertes en dehors du LAN.
 NTFY_URL=https://ntfy.sh
 NTFY_TOPIC=vigil
+# Topic distinct pour le cycle de vie (demarrage, sauvegardes, rapports) --
+# permet de couper le bruit operationnel sans perdre les alertes de ligne.
+NTFY_TOPIC_OPS=vigil-ops
+# Jeton d'authentification Ntfy (Authorization: Bearer). Vide = publication
+# anonyme. Ne jamais commiter cette valeur -- elle vit uniquement dans le
+# .env local (chmod 600), jamais dans le depot.
+NTFY_TOKEN=
 
 # MQTT / Home Assistant (optionnel)
 MQTT_BROKER=192.168.1.50

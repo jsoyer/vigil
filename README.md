@@ -230,9 +230,11 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `NTFY_URL` | _(vide)_ | URL serveur Ntfy (https://ntfy.sh ou self-hosted) |
-| `NTFY_TOPIC` | _(vide)_ | Topic Ntfy |
+| `NTFY_TOPIC` | _(vide)_ | Topic Ntfy de site (alertes de ligne, ex: vigil-dijon) |
+| `NTFY_TOPIC_OPS` | `vigil-ops` | Topic Ntfy pour le cycle de vie (demarrage, sauvegardes, rapports) |
 | `NTFY_TIMEOUT` | `5` | Timeout requête (secondes) |
 | `NTFY_MIN_LEVEL` | `INFO` | Niveau min : INFO, WARNING, CRITICAL |
+| `NTFY_TOKEN` | _(vide)_ | Jeton d'authentification (`Authorization: Bearer`). Vide = publication anonyme |
 
 ### Email SMTP (optionnel)
 
@@ -454,6 +456,16 @@ Requiert : `NTFY_URL`, `NTFY_TOPIC`
 NTFY_URL=https://ntfy.sh
 NTFY_TOPIC=vigil
 NTFY_MIN_LEVEL=INFO
+```
+
+Sur un serveur Ntfy protégé par authentification, ajouter `NTFY_TOKEN` (jeton
+`Authorization: Bearer`, jamais journalisé) et éventuellement `NTFY_TOPIC_OPS`
+pour séparer les alertes de ligne des événements de cycle de vie
+(démarrage, sauvegardes, rapports) :
+
+```bash
+NTFY_TOKEN=tk_xxxxxxxxxxxxxxxxx
+NTFY_TOPIC_OPS=vigil-ops
 ```
 
 ### 5. Email SMTP

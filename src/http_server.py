@@ -6,11 +6,33 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import config as _config
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
 from report import generate_daily_report, calculate_monthly_sla
 from metrics import render_metrics
 from history import HistoryBuffer
+
+
+def _configured_notification_channels() -> list[str]:
+    """Liste des canaux de notification effectivement configures.
+
+    Duplique volontairement notifier._dispatch (read-only pour ce sprint) --
+    petite fonction pure sans dependance vers watchdog.py pour eviter un
+    import circulaire (watchdog importe start_http_server).
+    """
+    from notifier import _ntfy, _email
+    import mqtt_publisher
+
+    channels: list[str] = []
+    if _ntfy.is_configured():
+        channels.append("ntfy")
+    if _email.is_configured():
+        channels.append("email")
+    if mqtt_publisher.is_configured():
+        channels.append("mqtt")
+    return channels
+
 
 # Lazy-loaded at first HTTP request to avoid paying the parse cost at startup.
 _dashboard_html: str | None = None
@@ -43,9 +65,6 @@ def _get_service_worker_js() -> str:
 
         _service_worker_js = SERVICE_WORKER_JS
     return _service_worker_js
-
-
-import config as _config
 
 
 def _make_handler_class(
@@ -193,6 +212,7 @@ def _make_handler_class(
                     "gateway": snapshot.peer_gateway,
                     "internet": snapshot.peer_internet,
                 },
+                "notification_channels": _configured_notification_channels(),
             }
 
         def _handle_health(self) -> None:
@@ -271,7 +291,9 @@ def _make_handler_class(
             if snapshot is None:
                 self._respond_json(503, {"error": "not ready"})
                 return
-            self._respond_json(200, snapshot.to_dict())
+            data = snapshot.to_dict()
+            data["notification_channels"] = _configured_notification_channels()
+            self._respond_json(200, data)
 
         def _handle_events(self) -> None:
             if event_log is None:
