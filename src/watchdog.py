@@ -8,9 +8,10 @@ Systeme de scoring avec circuit breaker :
 - Max reboots/jour : passe en mode surveillance apres le cap
 - Backoff SSH : ralentit les tentatives SSH en cas d'echec repete
 - Detection ISP : identifie "gateway OK + internet KO" prolonge comme panne ISP
-- Synthese au retablissement : resume de la coupure envoyee par Telegram
+- Synthese au retablissement : resume de la coupure envoyee (Ntfy/Email)
 """
 
+import dataclasses
 import time
 import logging
 import logging.handlers
@@ -50,7 +51,7 @@ from config import (
 )
 from connectivity import check_connectivity
 from usg import reboot_usg
-from notifier import notify, Level
+from notifier import notify, Level, NotificationContext
 from state import WatchdogState, StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from http_server import start_http_server
 from peer import should_reboot as peer_should_reboot, get_peer_info, check_divergence
@@ -73,12 +74,40 @@ from snmp_monitor import read_usg_metrics
 from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
 from isp_status import check_isp_status, is_configured as isp_status_configured
 from history import HistoryBuffer
-from telegram_bot import TelegramBot
 from alert_escalation import EscalationTracker
 from multiwan import check_wan_status
 import messages as msg
 from events import EventLog, STARTUP, SHUTDOWN, REBOOT, REBOOT_FAILED, RECOVERY
 from events import ISP_OUTAGE, ISP_RECOVERY, PEER_STANDDOWN, MAX_REBOOTS
+
+
+def _ops_context(ctx: NotificationContext | None) -> NotificationContext:
+    """Marque un contexte de notification comme "ops" (cycle de vie,
+    mises a jour, rapports) pour le routage Ntfy vers NTFY_TOPIC_OPS
+    plutot que le topic de site (decision Q2 du PRD Ntfy-first).
+    """
+    if ctx is None:
+        return NotificationContext(category="ops")
+    return dataclasses.replace(ctx, category="ops")
+
+
+def _configured_notification_channels() -> list[str]:
+    """Liste des canaux de notification effectivement configures.
+
+    Utilise au demarrage pour le garde-fou "aucun canal configure" (PRD
+    Ntfy-first S6.4) et expose via /health, /api/state et /metrics.
+    """
+    from notifier import _ntfy, _email
+    import mqtt_publisher
+
+    channels: list[str] = []
+    if _ntfy.is_configured():
+        channels.append("ntfy")
+    if _email.is_configured():
+        channels.append("email")
+    if mqtt_publisher.is_configured():
+        channels.append("mqtt")
+    return channels
 
 
 def setup_logging() -> None:
@@ -274,10 +303,6 @@ def main() -> None:
     mqtt = MqttPublisher(state_holder)
     mqtt.start()
 
-    # Telegram bot (optional, uses same token as notifications)
-    telegram_bot = TelegramBot(state_holder)
-    tg_started = telegram_bot.start()
-
     # Alert escalation + cycle counters
     escalation = EscalationTracker()
     cycle_count = 0
@@ -307,8 +332,19 @@ def main() -> None:
 
     peer_info_str = f"peer={PEER_IP}" if PEER_IP else "standalone"
     text, level, ctx = msg.startup()
-    notify(text, level, ctx)
+    notify(text, level, _ops_context(ctx))
     event_log.record(STARTUP, priority=INSTANCE_PRIORITY, peer=peer_info_str)
+
+    # Garde-fou "aucun canal configure" (PRD Ntfy-first S6.4) : un Vigil qui
+    # ne peut alerter personne doit le crier, pas se taire silencieusement.
+    # Ne bloque jamais le demarrage -- la surveillance continue quand meme.
+    configured_channels = _configured_notification_channels()
+    if not configured_channels:
+        logging.critical(
+            "Aucun canal de notification configure (ntfy/email/mqtt tous "
+            "vides) -- Vigil surveille mais ne peut alerter personne"
+        )
+        event_log.record("no_notification_channel")
 
     while True:
         now = time.time()
@@ -350,7 +386,7 @@ def main() -> None:
                 )
                 report_text = format_report_notification(report)
                 logging.info("Rapport quotidien envoye")
-                notify(report_text, Level.INFO)
+                notify(report_text, Level.INFO, NotificationContext(category="ops"))
                 event_log.record("daily_report")
             except Exception as e:
                 logging.warning("Erreur generation rapport quotidien : %s", e)
@@ -373,7 +409,7 @@ def main() -> None:
                 )
                 wreport_text = format_weekly_report(wreport)
                 logging.info("Rapport hebdomadaire envoye")
-                notify(wreport_text, Level.INFO)
+                notify(wreport_text, Level.INFO, NotificationContext(category="ops"))
                 event_log.record("weekly_report")
             except Exception as e:
                 logging.warning("Erreur generation rapport hebdomadaire : %s", e)
@@ -399,7 +435,7 @@ def main() -> None:
                     text_b, level_b, ctx_b = msg.backup_failed(
                         bresult.error, bresult.filename
                     )
-                notify(text_b, level_b, ctx_b)
+                notify(text_b, level_b, _ops_context(ctx_b))
                 event_log.record(
                     "backup_ok" if bresult.ok else "backup_failed",
                     filename=bresult.filename,
@@ -411,7 +447,7 @@ def main() -> None:
                         bresult.stale_hours,
                         UNIFI_BACKUP_MAX_AGE_HOURS,
                     )
-                    notify(text_s, level_s, ctx_s)
+                    notify(text_s, level_s, _ops_context(ctx_s))
                     event_log.record("backup_stale", age_hours=bresult.stale_hours)
             except Exception as e:
                 logging.warning("Erreur backup UniFi : %s", e)
@@ -423,19 +459,19 @@ def main() -> None:
                 surveillance_only = True
                 logging.info("Mode surveillance active via API")
                 text, level, ctx = msg.api_pause()
-                notify(text, level, ctx)
+                notify(text, level, _ops_context(ctx))
                 event_log.record("api_pause")
         elif cmd == CMD_RESUME:
             if surveillance_only:
                 surveillance_only = False
                 logging.info("Mode surveillance desactive via API")
                 text, level, ctx = msg.api_resume()
-                notify(text, level, ctx)
+                notify(text, level, _ops_context(ctx))
                 event_log.record("api_resume")
         elif cmd == CMD_REBOOT:
             logging.warning("Reboot manuel demande via API")
             text, level, ctx = msg.api_reboot()
-            notify(text, level, ctx)
+            notify(text, level, _ops_context(ctx))
             event_log.record("api_reboot")
             success = reboot_usg()
             if success:
@@ -466,6 +502,7 @@ def main() -> None:
                     f"Mode maintenance active pour {duration_min} minutes.\n"
                     f"Le watchdog ne redemarrera pas le routeur pendant cette periode.",
                     Level.WARNING,
+                    NotificationContext(category="ops"),
                 )
                 event_log.record("maintenance_start", duration_min=duration_min)
             except (ValueError, IndexError):
@@ -476,7 +513,11 @@ def main() -> None:
             surveillance_only = False
             maintenance_until = 0.0
             logging.info("Mode maintenance termine")
-            notify("Mode maintenance termine. Surveillance normale reprise.")
+            notify(
+                "Mode maintenance termine. Surveillance normale reprise.",
+                Level.INFO,
+                NotificationContext(category="ops"),
+            )
             event_log.record("maintenance_end")
 
         # Grace post-reboot : on ignore les echecs
@@ -640,7 +681,7 @@ def main() -> None:
                             ddns_result.current_ip,
                             list(ddns_result.errors),
                         )
-                    notify(text_d, level_d, ctx_d)
+                    notify(text_d, level_d, _ops_context(ctx_d))
                     event_log.record(
                         "dns_updated"
                         if ddns_result.records_failed == 0
@@ -881,7 +922,7 @@ def main() -> None:
                         ddns_result.current_ip,
                         list(ddns_result.errors),
                     )
-                notify(text_d, level_d, ctx_d)
+                notify(text_d, level_d, _ops_context(ctx_d))
                 event_log.record(
                     "dns_updated"
                     if ddns_result.records_failed == 0
@@ -922,12 +963,10 @@ def main() -> None:
         # --- Alert escalation check ---
         if escalation.should_escalate():
             logging.warning("Escalade d'alerte -- re-notification sur tous les canaux")
-            notify(
-                "ESCALADE : alerte critique non resolue depuis "
-                f"{ALERT_ESCALATION_DELAY} minutes.\n"
-                f"Score actuel : {failure_score}/{REBOOT_SCORE_THRESHOLD}",
-                Level.CRITICAL,
+            text, level, ctx = msg.alert_escalation(
+                ALERT_ESCALATION_DELAY, failure_score, REBOOT_SCORE_THRESHOLD
             )
+            notify(text, level, ctx)
             event_log.record("alert_escalated", score=failure_score)
 
         # --- Periodic speedtest (every SPEEDTEST_INTERVAL_CYCLES) ---
@@ -1038,7 +1077,7 @@ if __name__ == "__main__":
             _event_log.record(SHUTDOWN, reason="manual")
             _event_log.persist_now()
         text, level, ctx = msg.shutdown("arret manuel")
-        notify(text, level, ctx)
+        notify(text, level, _ops_context(ctx))
         sys.exit(0)
     except Exception:
         logging.critical("Erreur fatale", exc_info=True)
@@ -1046,5 +1085,5 @@ if __name__ == "__main__":
             _event_log.record(SHUTDOWN, reason="crash")
             _event_log.persist_now()
         text, level, ctx = msg.shutdown("crash")
-        notify(text, level, ctx)
+        notify(text, level, _ops_context(ctx))
         sys.exit(1)

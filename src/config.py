@@ -214,43 +214,23 @@ USG_REBOOT_WAIT: int = _get_int_env("USG_REBOOT_WAIT", default=60, minimum=10)
 USG_REBOOT_COMMAND: str = os.getenv("USG_REBOOT_COMMAND", "sudo reboot")
 
 # ---------------------------------------------
-# NOTIFICATIONS TELEGRAM (optionnel)
-# ---------------------------------------------
-
-TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
-TELEGRAM_TIMEOUT: int = _get_int_env("TELEGRAM_TIMEOUT", default=5, minimum=2)
-# Niveau minimum : INFO, WARNING, CRITICAL
-TELEGRAM_MIN_LEVEL: str = os.getenv("TELEGRAM_MIN_LEVEL", "INFO")
-
-# ---------------------------------------------
-# NOTIFICATIONS DISCORD (optionnel)
-# ---------------------------------------------
-
-# URL du webhook Discord (Settings > Integrations > Webhooks)
-DISCORD_WEBHOOK_URL: str = os.getenv("DISCORD_WEBHOOK_URL", "")
-DISCORD_TIMEOUT: int = _get_int_env("DISCORD_TIMEOUT", default=5, minimum=2)
-DISCORD_MIN_LEVEL: str = os.getenv("DISCORD_MIN_LEVEL", "INFO")
-
-# ---------------------------------------------
-# NOTIFICATIONS SLACK (optionnel)
-# ---------------------------------------------
-
-# URL du webhook Slack (api.slack.com > Incoming Webhooks)
-SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
-SLACK_TIMEOUT: int = _get_int_env("SLACK_TIMEOUT", default=5, minimum=2)
-SLACK_MIN_LEVEL: str = os.getenv("SLACK_MIN_LEVEL", "INFO")
-
-# ---------------------------------------------
 # NOTIFICATIONS NTFY (optionnel)
 # ---------------------------------------------
 
 # URL du serveur Ntfy (cloud: https://ntfy.sh, self-hosted: http://pi:8080)
 NTFY_URL: str = os.getenv("NTFY_URL", "")
-# Topic Ntfy (ex: vigil)
+# Topic Ntfy de site (ex: vigil-dijon, vigil-nice) -- alertes de ligne
 NTFY_TOPIC: str = os.getenv("NTFY_TOPIC", "")
 NTFY_TIMEOUT: int = _get_int_env("NTFY_TIMEOUT", default=5, minimum=2)
 NTFY_MIN_LEVEL: str = os.getenv("NTFY_MIN_LEVEL", "INFO")
+# Jeton d'authentification Ntfy (Authorization: Bearer). Vide = publication
+# anonyme (comportement inchange par rapport a 2.1.0 si le serveur cible
+# l'autorise). Ne jamais journaliser cette valeur.
+NTFY_TOKEN: str = os.getenv("NTFY_TOKEN", "")
+# Topic Ntfy pour les evenements de cycle de vie (demarrage, arret,
+# sauvegardes, maintenance, rapports) -- distinct du topic de site pour
+# permettre de couper le bruit operationnel sans perdre les alertes de ligne.
+NTFY_TOPIC_OPS: str = os.getenv("NTFY_TOPIC_OPS", "vigil-ops")
 
 # ---------------------------------------------
 # NOTIFICATIONS EMAIL SMTP (optionnel)
@@ -264,15 +244,6 @@ SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
 SMTP_TIMEOUT: int = _get_int_env("SMTP_TIMEOUT", default=10, minimum=2)
 SMTP_MIN_LEVEL: str = os.getenv("SMTP_MIN_LEVEL", "WARNING")
-
-# ---------------------------------------------
-# NOTIFICATIONS PUSHOVER (optionnel)
-# ---------------------------------------------
-
-PUSHOVER_USER_KEY: str = os.getenv("PUSHOVER_USER_KEY", "")
-PUSHOVER_API_TOKEN: str = os.getenv("PUSHOVER_API_TOKEN", "")
-PUSHOVER_TIMEOUT: int = _get_int_env("PUSHOVER_TIMEOUT", default=5, minimum=2)
-PUSHOVER_MIN_LEVEL: str = os.getenv("PUSHOVER_MIN_LEVEL", "INFO")
 
 # ---------------------------------------------
 # ESCALADE D'ALERTES (optionnel)
@@ -294,6 +265,23 @@ ALERT_ESCALATION_DELAY: int = _get_int_env(
 # Token d'authentification pour les endpoints POST
 # Si vide, les endpoints POST sont ouverts (LAN only)
 API_TOKEN: str = os.getenv("API_TOKEN", "")
+
+# ---------------------------------------------
+# CONFIRMATION A CAPACITE -- POST /api/confirm/<action>/<jeton> (Ntfy-first
+# S2). Seul endpoint POST exempte de API_TOKEN (l'autorisation est le jeton
+# lui-meme) -- D3 impose donc un rate limiting dedie, en memoire, par IP.
+# ---------------------------------------------
+
+# Nombre de tentatives echouees (jeton invalide/expire/action erronee)
+# tolerees par IP dans la fenetre glissante avant reponse 429 + evenement
+# `confirm_bruteforce`. D3 du PRD Ntfy-first exige un minimum de 10/minute.
+CONFIRM_RATE_LIMIT_MAX_FAILURES: int = _get_int_env(
+    "CONFIRM_RATE_LIMIT_MAX_FAILURES", default=10, minimum=1
+)
+# Fenetre glissante (secondes) sur laquelle les echecs sont comptes par IP.
+CONFIRM_RATE_LIMIT_WINDOW: int = _get_int_env(
+    "CONFIRM_RATE_LIMIT_WINDOW", default=60, minimum=1
+)
 
 # ---------------------------------------------
 # IDENTITE DE L'INSTANCE
@@ -577,11 +565,10 @@ TPLINK_DEVICES: tuple[TplinkDeviceConfig, ...] = _load_tplink_devices()
 # MASQUAGE DE SECRETS -- helper reutilisable (A1, Sprint 3, 3.4)
 # ---------------------------------------------------------------------------
 
-# Motifs de nom de variable consideres secrets. Couvre les 11 secrets
-# existants (SMTP_PASSWORD, TELEGRAM_BOT_TOKEN, CLOUDFLARE_API_TOKEN,
-# *_WEBHOOK_URL, etc.) ainsi que TPLINK_<n>_PASSWORD -- pas seulement
-# TP-Link, tout secret futur suivant cette convention de nommage en
-# beneficie automatiquement.
+# Motifs de nom de variable consideres secrets. Couvre les secrets
+# existants (SMTP_PASSWORD, NTFY_TOKEN, CLOUDFLARE_API_TOKEN, API_TOKEN,
+# etc.) ainsi que TPLINK_<n>_PASSWORD -- pas seulement TP-Link, tout secret
+# futur suivant cette convention de nommage en beneficie automatiquement.
 _SECRET_NAME_SUFFIXES = ("_PASSWORD", "_TOKEN", "_KEY", "_WEBHOOK_URL")
 
 

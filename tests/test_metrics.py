@@ -1,7 +1,5 @@
 """Tests for metrics.py -- Prometheus exposition format rendering."""
 
-import pytest
-
 from src.metrics import render_metrics
 from src.state import WatchdogState
 
@@ -32,11 +30,19 @@ class TestRenderMetricsNoneState:
         result = render_metrics(None)
         assert "# TYPE vigil_up gauge" in result
 
-    def test_only_up_metric_emitted(self):
+    def test_only_up_and_notification_channels_metrics_emitted(self):
+        # Depuis le Sprint 1 du PRD Ntfy-first (S6.4), le garde-fou "aucun
+        # canal configure" doit etre visible sur /metrics des le demarrage,
+        # avant meme le premier cycle (state=None) -- pas seulement vigil_up.
         result = render_metrics(None)
-        lines = [l for l in result.splitlines() if l and not l.startswith("#")]
-        assert len(lines) == 1
-        assert lines[0] == "vigil_up 0"
+        lines = [
+            line for line in result.splitlines() if line and not line.startswith("#")
+        ]
+        assert len(lines) == 2
+        assert "vigil_up 0" in lines
+        assert any(
+            line.startswith("vigil_notification_channels_configured ") for line in lines
+        )
 
 
 # ===================================================================
@@ -66,7 +72,7 @@ class TestRenderMetricsFullState:
         state = _default_state()
         result = render_metrics(state)
         lines = result.splitlines()
-        metric_lines = [l for l in lines if l and not l.startswith("#")]
+        metric_lines = [line for line in lines if line and not line.startswith("#")]
         for metric_line in metric_lines:
             name = metric_line.split("{")[0].split(" ")[0]
             assert f"# HELP {name}" in result, f"Missing # HELP for {name}"
@@ -75,7 +81,7 @@ class TestRenderMetricsFullState:
         state = _default_state()
         result = render_metrics(state)
         lines = result.splitlines()
-        metric_lines = [l for l in lines if l and not l.startswith("#")]
+        metric_lines = [line for line in lines if line and not line.startswith("#")]
         for metric_line in metric_lines:
             name = metric_line.split("{")[0].split(" ")[0]
             assert f"# TYPE {name}" in result, f"Missing # TYPE for {name}"

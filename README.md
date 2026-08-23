@@ -1,6 +1,6 @@
 # Vigil v2.0.0
 
-Daemon de surveillance de connexion internet et redémarrage automatique du routeur Ubiquiti USG, fonctionnant sur Raspberry Pi ou Linux. Conçu pour les connexions fibre instables avec détection intelligente des pannes ISP, coordination multi-instance et notifications multi-canaux (7 canaux supportés).
+Daemon de surveillance de connexion internet et redémarrage automatique du routeur Ubiquiti USG, fonctionnant sur Raspberry Pi ou Linux. Conçu pour les connexions fibre instables avec détection intelligente des pannes ISP, coordination multi-instance et notifications multi-canaux (Ntfy, Email SMTP, MQTT/Home Assistant).
 
 **Version de production : v2.0.0**
 
@@ -20,8 +20,8 @@ Daemon de surveillance de connexion internet et redémarrage automatique du rout
 - [Configuration complète](#configuration-complète)
 - [Système de scoring](#système-de-scoring)
 - [Circuit breaker](#circuit-breaker)
-- [7 Canaux de notification](#7-canaux-de-notification)
-- [Commandes Telegram Bot](#commandes-telegram-bot)
+- [Canaux de notification](#canaux-de-notification)
+- [Contrôle à distance (Dashboard + boutons Ntfy)](#contrôle-à-distance-dashboard--boutons-ntfy)
 - [API HTTP complète](#api-http-complète)
 - [Dashboard PWA](#dashboard-pwa)
 - [Fonctionnalités avancées](#fonctionnalités-avancées)
@@ -43,8 +43,8 @@ Un système de **scoring** avec circuit breaker décide automatiquement de redé
 
 - **Scoring intelligent** : Pas de simple seuil. Points pour gateway KO, points pour internet partiel/KO, récupération quand tout va bien
 - **Circuit breaker complet** : Backoff exponentiel, limite de 10 reboots/jour, détection de panne ISP, backoff SSH
-- **7 Canaux de notification** : Telegram, Discord, Slack, Ntfy, Email SMTP, Pushover, MQTT/Home Assistant
-- **Telegram Bot interactif** : Commandes /status, /pause, /resume, /reboot, /ddns, /backup, /tailscale, /help
+- **Canaux de notification** : Ntfy (principal, boutons d'action), Email SMTP, MQTT/Home Assistant
+- **Boutons d'action Ntfy + Dashboard** : confirmer/annuler une action directement depuis la notification ou le dashboard web
 - **Haute disponibilité** : Coordination multi-instance avec failover basé sur priorité, détection de divergence
 - **API HTTP complète** : État complet, historique d'événements, configuration, rapports, maintenance
 - **Dashboard responsive + PWA** : Interface web avec support offline, compatible mobile/tablette/desktop
@@ -56,11 +56,11 @@ Un système de **scoring** avec circuit breaker décide automatiquement de redé
 - **Monitoring multi-WAN** : Détection failover dual-WAN
 - **Speedtest intégré** : Tests de débit périodiques (100KB) pour détection dégradation
 - **Mesure de latence** : RTT gateway + internet, alerte si dégradation
-- **Diagnostics traceroute** : Traceroute vers cibles ping sur demande Telegram
+- **Diagnostics traceroute** : Traceroute vers cibles ping, lancé automatiquement au premier seuil de défaillance atteint
 - **SNMP monitoring** : Lecture des métriques USG (CPU, mémoire, interfaces)
 - **Métrique Prometheus** : Endpoint /metrics pour Grafana + dashboards prêts
 - **Escalade d'alertes** : Re-envoi automatique via canaux prioritaires si pas d'ACK
-- **Maintenance programmée** : Mode pause avec durée, accessible via API ou Telegram
+- **Maintenance programmée** : Mode pause avec durée, accessible via API ou dashboard
 - **Auto-updater** : Récupère les versions depuis GitHub, valide, déploie, rollback auto
 - **Historique d'événements** : Ring buffer persisté (~100 événements) + export JSON
 
@@ -73,7 +73,7 @@ Un système de **scoring** avec circuit breaker décide automatiquement de redé
 - Raspberry Pi ou Linux (Fedora / Debian) avec systemd
 - Python 3.11+
 - SSH activé sur le USG (Settings > Device Authentication)
-- (optionnel) Bot Telegram / Webhooks Discord/Slack / Compte Cloudflare
+- (optionnel) Serveur Ntfy joignable (LAN/Tailscale) / Compte Cloudflare
 
 ### 1. Cloner le dépôt
 
@@ -108,9 +108,10 @@ Configuration minimale :
 USG_IP=192.168.1.1
 USG_USER=ubnt
 
-# Telegram (optionnel mais recommandé)
-TELEGRAM_BOT_TOKEN=123456789:ABCDefGHIjklmnoPQRstuvWXYz
-TELEGRAM_CHAT_ID=987654321
+# Ntfy (optionnel mais recommandé)
+NTFY_URL=http://127.0.0.1:7171
+NTFY_TOPIC=vigil-dijon
+NTFY_TOKEN=tk_xxxxxxxxxxxxxxxxx
 ```
 
 Sécuriser le fichier :
@@ -200,39 +201,16 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 | `ISP_OUTAGE_DETECTION_DELAY` | `1800` | Durée avant détection panne ISP (30 min) |
 | `USG_REBOOT_WAIT` | `60` | Attente après envoi reboot (s) |
 
-### Telegram (optionnel)
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `TELEGRAM_BOT_TOKEN` | _(vide)_ | Token bot Telegram |
-| `TELEGRAM_CHAT_ID` | _(vide)_ | Chat ID cible |
-| `TELEGRAM_TIMEOUT` | `5` | Timeout requête (secondes) |
-| `TELEGRAM_MIN_LEVEL` | `INFO` | Niveau min : INFO, WARNING, CRITICAL |
-
-### Discord (optionnel)
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `DISCORD_WEBHOOK_URL` | _(vide)_ | URL webhook Discord |
-| `DISCORD_TIMEOUT` | `5` | Timeout requête (secondes) |
-| `DISCORD_MIN_LEVEL` | `INFO` | Niveau min : INFO, WARNING, CRITICAL |
-
-### Slack (optionnel)
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `SLACK_WEBHOOK_URL` | _(vide)_ | URL webhook Slack |
-| `SLACK_TIMEOUT` | `5` | Timeout requête (secondes) |
-| `SLACK_MIN_LEVEL` | `INFO` | Niveau min : INFO, WARNING, CRITICAL |
-
 ### Ntfy (optionnel)
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `NTFY_URL` | _(vide)_ | URL serveur Ntfy (https://ntfy.sh ou self-hosted) |
-| `NTFY_TOPIC` | _(vide)_ | Topic Ntfy |
+| `NTFY_TOPIC` | _(vide)_ | Topic Ntfy de site (alertes de ligne, ex: vigil-dijon) |
+| `NTFY_TOPIC_OPS` | `vigil-ops` | Topic Ntfy pour le cycle de vie (demarrage, sauvegardes, rapports) |
 | `NTFY_TIMEOUT` | `5` | Timeout requête (secondes) |
 | `NTFY_MIN_LEVEL` | `INFO` | Niveau min : INFO, WARNING, CRITICAL |
+| `NTFY_TOKEN` | _(vide)_ | Jeton d'authentification (`Authorization: Bearer`). Vide = publication anonyme |
 
 ### Email SMTP (optionnel)
 
@@ -246,15 +224,6 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 | `SMTP_PASSWORD` | _(vide)_ | Password SMTP |
 | `SMTP_TIMEOUT` | `10` | Timeout requête (secondes) |
 | `SMTP_MIN_LEVEL` | `WARNING` | Niveau min : INFO, WARNING, CRITICAL |
-
-### Pushover (optionnel)
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `PUSHOVER_USER_KEY` | _(vide)_ | User key Pushover |
-| `PUSHOVER_API_TOKEN` | _(vide)_ | API token Pushover |
-| `PUSHOVER_TIMEOUT` | `5` | Timeout requête (secondes) |
-| `PUSHOVER_MIN_LEVEL` | `INFO` | Niveau min : INFO, WARNING, CRITICAL |
 
 ### MQTT / Home Assistant (optionnel)
 
@@ -405,46 +374,12 @@ Dans ce cas :
 
 ---
 
-## 7 Canaux de notification
+## Canaux de notification
 
-Le watchdog supporte 7 canaux de notification, chacun filtrable par niveau :
+Le watchdog supporte 3 canaux de notification actifs (Ntfy, Email SMTP,
+MQTT/Home Assistant), chacun filtrable par niveau :
 
-### 1. Telegram
-
-Requiert : `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
-
-**Avantages** : Push sur mobile, bot interactif avec commandes
-
-```bash
-# Exemple config
-TELEGRAM_BOT_TOKEN=123456789:ABCDefGHIjklmnoPQRstuvWXYz
-TELEGRAM_CHAT_ID=987654321
-TELEGRAM_MIN_LEVEL=INFO
-```
-
-### 2. Discord
-
-Requiert : `DISCORD_WEBHOOK_URL`
-
-**Avantages** : Webhooks simples, rich formatting, threading
-
-```bash
-DISCORD_WEBHOOK_URL=https://discordapp.com/api/webhooks/xxx/yyy
-DISCORD_MIN_LEVEL=INFO
-```
-
-### 3. Slack
-
-Requiert : `SLACK_WEBHOOK_URL`
-
-**Avantages** : Rich messages, statuses, thread support
-
-```bash
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
-SLACK_MIN_LEVEL=WARNING
-```
-
-### 4. Ntfy
+### 1. Ntfy
 
 Requiert : `NTFY_URL`, `NTFY_TOPIC`
 
@@ -456,7 +391,17 @@ NTFY_TOPIC=vigil
 NTFY_MIN_LEVEL=INFO
 ```
 
-### 5. Email SMTP
+Sur un serveur Ntfy protégé par authentification, ajouter `NTFY_TOKEN` (jeton
+`Authorization: Bearer`, jamais journalisé) et éventuellement `NTFY_TOPIC_OPS`
+pour séparer les alertes de ligne des événements de cycle de vie
+(démarrage, sauvegardes, rapports) :
+
+```bash
+NTFY_TOKEN=tk_xxxxxxxxxxxxxxxxx
+NTFY_TOPIC_OPS=vigil-ops
+```
+
+### 2. Email SMTP
 
 Requiert : `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TO`, `SMTP_USERNAME`, `SMTP_PASSWORD`
 
@@ -472,19 +417,7 @@ SMTP_PASSWORD=password
 SMTP_MIN_LEVEL=WARNING
 ```
 
-### 6. Pushover
-
-Requiert : `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`
-
-**Avantages** : Notifications mobiles riches, escalade priorités
-
-```bash
-PUSHOVER_USER_KEY=user_key_xxx
-PUSHOVER_API_TOKEN=token_xxx
-PUSHOVER_MIN_LEVEL=INFO
-```
-
-### 7. MQTT / Home Assistant
+### 3. MQTT / Home Assistant
 
 Requiert : `MQTT_BROKER`
 
@@ -505,74 +438,39 @@ Chaque canal supporte un niveau minimum de notification :
 - `WARNING` : Seulement avertissements et critiques
 - `CRITICAL` : Seulement incidents critiques
 
-Exemple : Telegram en INFO (notifications détaillées), Email en WARNING (important seulement)
+Exemple : Ntfy en INFO (notifications détaillées), Email en WARNING (important seulement)
 
 ```bash
-TELEGRAM_MIN_LEVEL=INFO
-DISCORD_MIN_LEVEL=WARNING
+NTFY_MIN_LEVEL=INFO
 SMTP_MIN_LEVEL=CRITICAL
 ```
 
 ---
 
-## Commandes Telegram Bot
+## Contrôle à distance (Dashboard + boutons Ntfy)
 
-Si `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID` sont configurés, le watchdog expose un bot interactif.
+Les commandes historiquement envoyées à un bot interactif sont remplacées
+par le dashboard web (authentification par jeton `API_TOKEN`, voir
+[Dashboard PWA](#dashboard-pwa)) et par les boutons d'action publiés dans
+les notifications Ntfy pour les décisions qui arrivent avec l'alerte
+(confirmer/annuler un reboot TP-Link, voir
+[Lignes de secours TP-Link (4G)](#lignes-de-secours-tp-link-4g)).
 
-Envoyer ces commandes au bot depuis votre téléphone :
+| Ancienne commande du bot | Équivalent 2.2.0 |
+|---|---|
+| État complet du watchdog | Dashboard (page d'accueil) ou `GET /api/state` |
+| Pause (durée optionnelle) | Bouton Pause du dashboard ou `POST /api/pause` |
+| Reprendre les reboots | Bouton Reprendre du dashboard ou `POST /api/resume` |
+| Forcer un reboot | Bouton Reboot du dashboard ou `POST /api/reboot` |
+| Vérification DDNS | Bouton DDNS du dashboard ou `POST /api/ddns/update` |
+| Backup UniFi | Bouton Backup du dashboard ou `POST /api/backup/unifi` |
+| Sync Tailscale DNS | Bouton Tailscale du dashboard ou `POST /api/tailscale/sync` |
+| Pilotage TP-Link (4G) | Section TP-Link du dashboard ou `/api/tplink/*` |
 
-### `/status`
-
-Affiche l'état complet du watchdog :
-- Score / seuil
-- Gateway et internet
-- Latences RTT
-- Reboots aujourd'hui
-- Statut ISP
-- Statut peer (si HA activé)
-
-### `/pause [minutes]`
-
-Passer en mode surveillance (pas de reboot automatique, alerte seulement).
-
-Optionnel : durée en minutes. Sans paramètre, pause infinie.
-
-```
-/pause 60    # Pause 1 heure
-/pause       # Pause infinie (jusqu'à /resume)
-```
-
-### `/resume`
-
-Reprendre les reboots automatiques après une pause.
-
-### `/reboot`
-
-Déclencher un reboot immédiatement (ignore les cooldowns et grace periods).
-
-**Utile** : Tests, maintenance, urgence.
-
-### `/ddns`
-
-Forcer une vérification et mise à jour DDNS Cloudflare.
-
-(Uniquement si `CLOUDFLARE_API_TOKEN` configuré)
-
-### `/backup`
-
-Lancer manuellement un backup UniFi vers rclone.
-
-(Uniquement si `UNIFI_BACKUP_DIR` configuré)
-
-### `/tailscale`
-
-Forcer une synchronisation Tailscale DNS.
-
-(Uniquement si `TAILSCALE_API_KEY` configuré)
-
-### `/help`
-
-Affiche l'aide des commandes disponibles.
+Toutes ces actions POST exigent `API_TOKEN` (en-tête `Authorization: Bearer`),
+saisi une fois dans le dashboard et conservé en `sessionStorage` (jamais
+`localStorage`). Seul `POST /api/confirm/<action>/<jeton>` (boutons Ntfy) en
+est exempté : le jeton de capacité **est** l'autorisation.
 
 ---
 
@@ -894,7 +792,7 @@ Utile pour détecter les lenteurs réseau avant coupure.
 
 ### Diagnostics traceroute
 
-Traceroute vers cibles ping sur demande Telegram (commande `/status`).
+Traceroute lancé automatiquement au premier seuil de défaillance atteint, journalisé dans les événements (`traceroute`).
 
 Utile pour identifier le point de rupture en cas de problème.
 
@@ -966,16 +864,8 @@ TPLINK_1_SNR_MIN=-100            # unité firmware, défaut -100 -- voir
                                   # docs/spikes/2026-08-23-mr110-compat.md
 ```
 
-**Commandes Telegram** (`/lte`) :
-
-```
-/lte                  Etat de tous les équipements déclarés (readiness,
-                       signal, réseau, saut en panne si problème)
-/lte <id>              Détail d'un équipement
-/lte check <id>         Sonde de bout en bout à la demande (non destructive)
-/lte reboot <id>         Demande de redémarrage -- renvoie un jeton
-/lte confirm <jeton>      Confirme et exécute l'action en attente
-```
+**Dashboard** : section TP-Link dédiée (liste, statut, sonde, reboot +
+confirmation) -- voir [Dashboard PWA](#dashboard-pwa).
 
 **Endpoints API** (`/api/tplink/*`) :
 
@@ -989,8 +879,7 @@ TPLINK_1_SNR_MIN=-100            # unité firmware, défaut -100 -- voir
 **`API_TOKEN` est obligatoire dès qu'un équipement est déclaré** : sans lui,
 les `GET /api/tplink/*` répondent aussi `403`, pas seulement les `POST` --
 divergence volontaire avec le reste de l'API (ces réponses exposent état SIM,
-opérateur, IP WAN et consommation). Telegram reste utilisable sans
-`API_TOKEN`.
+opérateur, IP WAN et consommation).
 
 **Périmètre A1** : management manuel uniquement (état, sonde à la demande,
 reboot confirmé). Pas de bascule automatique du trafic vers le secours, pas
@@ -1105,18 +994,14 @@ vigil/
 │   ├── snmp_monitor.py           # SNMP monitoring
 │   ├── mqtt_publisher.py         # MQTT / Home Assistant
 │   ├── alert_escalation.py       # Escalade d'alertes
-│   ├── telegram_bot.py           # Telegram bot interactif
+│   ├── confirm.py                # Confirmation à capacité (boutons Ntfy)
 │   ├── messages.py               # Templates messages
 │   ├── notifier/
 │   │   ├── __init__.py
 │   │   ├── _types.py             # Level, NotificationContext
 │   │   ├── _dispatch.py          # Dispatch multi-canaux
-│   │   ├── _telegram.py          # Telegram
-│   │   ├── _discord.py           # Discord
-│   │   ├── _slack.py             # Slack
 │   │   ├── _ntfy.py              # Ntfy
-│   │   ├── _email.py             # Email SMTP
-│   │   └── _pushover.py          # Pushover
+│   │   └── _email.py             # Email SMTP
 │   └── __init__.py
 ├── updater/
 │   ├── update.py                 # Auto-updater principal
@@ -1179,7 +1064,7 @@ Vérifier :
 
 1. Vérifier niveau log : `cat /var/log/vigil.log`
 2. Augmenter verbosité : `echo "LOG_LEVEL=DEBUG" >> /opt/vigil/.env && sudo systemctl restart vigil`
-3. Pour Telegram : tester token/chat_id avec curl
+3. Pour Ntfy : tester avec `curl -H "Authorization: Bearer $NTFY_TOKEN" -d "test" $NTFY_URL/$NTFY_TOPIC`
 4. HTTP port disponible ? `sudo netstat -tlnp | grep 9000`
 5. Vérifier permissions fichier log : `sudo ls -l /var/log/vigil.log`
 
@@ -1203,17 +1088,11 @@ Solutions :
 
 ### Notifications non reçues
 
-Telegram :
-- Vérifier token : `curl https://api.telegram.org/bot<TOKEN>/getMe`
-- Vérifier chat_id : envoyer "/start" au bot, vérifier id dans logs
-- Vérifier niveau : `TELEGRAM_MIN_LEVEL`
-
-Discord :
-- Tester webhook : `curl -X POST <WEBHOOK_URL> -d '{"content":"test"}'`
-- Vérifier formatting
-
-Slack :
-- Tester webhook : `curl -X POST <WEBHOOK_URL> -d '{"text":"test"}'`
+Ntfy :
+- Tester publication : `curl -H "Authorization: Bearer $NTFY_TOKEN" -d "test" $NTFY_URL/$NTFY_TOPIC`
+- Vérifier `NTFY_MIN_LEVEL`
+- Vérifier que le serveur est joignable en LAN/Tailscale (jamais via
+  Cloudflare pour la publication interne, voir INVARIANTS.md)
 
 Email :
 - Tester SMTP : `python3 -c "import smtplib; smtplib.SMTP('host', 587).login('user', 'pass')"`

@@ -613,10 +613,7 @@ class TestDailyReport:
         mock_sleep,
     ):
         """Lines 301-309: daily report sent when date changes and hour >= DAILY_REPORT_HOUR."""
-        from datetime import date, datetime as real_dt
-
-        day1 = date(2026, 3, 30)
-        day2 = date(2026, 3, 31)
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -652,7 +649,7 @@ class TestDailyReport:
         self, mock_dt, mock_gen, mock_conn, mock_reboot, mock_notify, mock_sleep
     ):
         """Lines 301-309: exception in generate_daily_report is caught."""
-        from datetime import date, datetime as real_dt
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -700,7 +697,7 @@ class TestWeeklyReport:
         mock_sleep,
     ):
         """Lines 317-331: weekly report sent when week changes on the configured weekday."""
-        from datetime import date, datetime as real_dt
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -737,7 +734,7 @@ class TestWeeklyReport:
         self, mock_dt, mock_gen, mock_conn, mock_reboot, mock_notify, mock_sleep
     ):
         """Lines 317-331: exception in generate_weekly_report is caught."""
-        from datetime import date, datetime as real_dt
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -799,7 +796,7 @@ class TestScheduledBackup:
         mock_sleep,
     ):
         """Lines 363-377: successful scheduled backup sends notification."""
-        from datetime import date, datetime as real_dt
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -841,7 +838,7 @@ class TestScheduledBackup:
         mock_sleep,
     ):
         """Lines 371-373: failed scheduled backup sends notification."""
-        from datetime import date, datetime as real_dt
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -883,7 +880,7 @@ class TestScheduledBackup:
         mock_sleep,
     ):
         """Lines 378-384: stale backup file triggers additional notification."""
-        from datetime import date, datetime as real_dt
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -926,7 +923,7 @@ class TestScheduledBackup:
         mock_sleep,
     ):
         """Lines 385-386: exception in unifi_backup is caught."""
-        from datetime import date, datetime as real_dt
+        from datetime import datetime as real_dt
 
         call_count = 0
 
@@ -961,7 +958,6 @@ class TestCommandProcessing:
         self, mock_conn, mock_reboot, mock_notify, mock_sleep
     ):
         """Lines 391-396: CMD_PAUSE enables surveillance_only."""
-        from src.state import StateHolder
 
         mock_conn.return_value = _make_result(True, 3)
 
@@ -1780,6 +1776,51 @@ class TestAlertEscalation:
         ]
         assert len(escalation_calls) >= 1
 
+    @mock.patch("src.watchdog.ALERT_ESCALATION_DELAY", 1)
+    @mock.patch("src.watchdog.USG_REBOOT_WAIT", 1)
+    @mock.patch("src.watchdog.POST_REBOOT_GRACE", 1)
+    @mock.patch("src.watchdog.time.sleep")
+    @mock.patch("src.watchdog.notify")
+    @mock.patch("src.watchdog.reboot_usg", return_value=True)
+    @mock.patch("src.watchdog.check_connectivity")
+    @mock.patch("src.watchdog.time.time")
+    def test_escalation_notification_uses_escalation_category(
+        self, mock_time, mock_conn, mock_reboot, mock_notify, mock_sleep
+    ):
+        """L'escalade doit passer par un contexte category="escalation" --
+        c'est ce qui fait produire a _ntfy.py Priority 5, tag sos, titre
+        [RELANCE] et l'absence de bouton Actions (voir
+        tests/test_ntfy_notifier.py::TestNtfyEscalation)."""
+        mock_conn.return_value = _make_result(False, 0)
+
+        tick = 0.0
+
+        def time_side():
+            nonlocal tick
+            tick += 200
+            return tick
+
+        mock_time.side_effect = time_side
+        mock_sleep.side_effect = _make_sleep_limiter(20)
+
+        with mock.patch("src.watchdog.EscalationTracker") as MockEscalation:
+            escalation = mock.MagicMock()
+            escalation.should_escalate.return_value = True
+            MockEscalation.return_value = escalation
+
+            with pytest.raises(KeyboardInterrupt):
+                watchdog.main()
+
+        escalation_calls = [
+            c
+            for c in mock_notify.call_args_list
+            if "escalade" in str(c).lower() or "critique" in str(c).lower()
+        ]
+        assert len(escalation_calls) >= 1
+        _, _, ctx = escalation_calls[0].args
+        assert ctx is not None
+        assert ctx.category == "escalation"
+
 
 # ===================================================================
 # Speedtest
@@ -1908,7 +1949,7 @@ class TestShutdownHandlers:
             mock.patch("src.watchdog.main", side_effect=KeyboardInterrupt),
             mock.patch("src.watchdog.notify") as mock_notify,
             mock.patch("src.watchdog._event_log") as mock_log,
-            mock.patch("src.watchdog.sys.exit") as mock_exit,
+            mock.patch("src.watchdog.sys.exit"),
         ):
             mock_log.__bool__ = lambda self: True
 
@@ -1934,7 +1975,7 @@ class TestShutdownHandlers:
             mock.patch("src.watchdog.main", side_effect=RuntimeError("boom")),
             mock.patch("src.watchdog.notify") as mock_notify,
             mock.patch("src.watchdog._event_log") as mock_log,
-            mock.patch("src.watchdog.sys.exit") as mock_exit,
+            mock.patch("src.watchdog.sys.exit"),
         ):
             mock_log.__bool__ = lambda self: True
 
@@ -2279,3 +2320,105 @@ class TestStartupWithPeerConfigured:
 
         with pytest.raises(KeyboardInterrupt):
             watchdog.main()
+
+
+# ===================================================================
+# PRD Ntfy-first S1 -- garde-fou "aucun canal de notification configure"
+# ===================================================================
+
+
+class TestConfiguredNotificationChannels:
+    @mock.patch("mqtt_publisher.is_configured", return_value=False)
+    @mock.patch("notifier._email.is_configured", return_value=False)
+    @mock.patch("notifier._ntfy.is_configured", return_value=False)
+    def test_empty_when_none_configured(self, mock_ntfy, mock_email, mock_mqtt):
+        assert watchdog._configured_notification_channels() == []
+
+    @mock.patch("mqtt_publisher.is_configured", return_value=False)
+    @mock.patch("notifier._email.is_configured", return_value=False)
+    @mock.patch("notifier._ntfy.is_configured", return_value=True)
+    def test_ntfy_only(self, mock_ntfy, mock_email, mock_mqtt):
+        assert watchdog._configured_notification_channels() == ["ntfy"]
+
+    @mock.patch("mqtt_publisher.is_configured", return_value=True)
+    @mock.patch("notifier._email.is_configured", return_value=True)
+    @mock.patch("notifier._ntfy.is_configured", return_value=True)
+    def test_all_three_configured(self, mock_ntfy, mock_email, mock_mqtt):
+        assert watchdog._configured_notification_channels() == [
+            "ntfy",
+            "email",
+            "mqtt",
+        ]
+
+
+class TestOpsContext:
+    def test_none_context_gets_ops_category(self):
+        ctx = watchdog._ops_context(None)
+        assert ctx.category == "ops"
+
+    def test_existing_context_preserves_other_fields(self):
+        from src.notifier._types import NotificationContext
+
+        original = NotificationContext(score=5, threshold=10)
+        ops_ctx = watchdog._ops_context(original)
+        assert ops_ctx.category == "ops"
+        assert ops_ctx.score == 5
+        assert ops_ctx.threshold == 10
+
+
+class TestNoNotificationChannelGuard:
+    @mock.patch("mqtt_publisher.is_configured", return_value=False)
+    @mock.patch("notifier._email.is_configured", return_value=False)
+    @mock.patch("notifier._ntfy.is_configured", return_value=False)
+    @mock.patch("src.watchdog.time.sleep")
+    @mock.patch("src.watchdog.notify")
+    @mock.patch("src.watchdog.reboot_usg")
+    @mock.patch("src.watchdog.check_connectivity")
+    def test_logs_critical_and_records_event_when_no_channel(
+        self,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
+        mock_ntfy,
+        mock_email,
+        mock_mqtt,
+    ):
+        mock_conn.return_value = _make_result(True, 3)
+        mock_sleep.side_effect = _make_sleep_limiter(1)
+
+        with mock.patch("src.watchdog.logging.critical") as mock_critical:
+            with pytest.raises(KeyboardInterrupt):
+                watchdog.main()
+            mock_critical.assert_called_once()
+
+        events = [e["type"] for e in watchdog._event_log.get_all()]
+        assert "no_notification_channel" in events
+
+    @mock.patch("mqtt_publisher.is_configured", return_value=True)
+    @mock.patch("notifier._email.is_configured", return_value=False)
+    @mock.patch("notifier._ntfy.is_configured", return_value=False)
+    @mock.patch("src.watchdog.time.sleep")
+    @mock.patch("src.watchdog.notify")
+    @mock.patch("src.watchdog.reboot_usg")
+    @mock.patch("src.watchdog.check_connectivity")
+    def test_no_critical_log_when_at_least_one_channel_configured(
+        self,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
+        mock_ntfy,
+        mock_email,
+        mock_mqtt,
+    ):
+        mock_conn.return_value = _make_result(True, 3)
+        mock_sleep.side_effect = _make_sleep_limiter(1)
+
+        with mock.patch("src.watchdog.logging.critical") as mock_critical:
+            with pytest.raises(KeyboardInterrupt):
+                watchdog.main()
+            mock_critical.assert_not_called()
+
+        events = [e["type"] for e in watchdog._event_log.get_all()]
+        assert "no_notification_channel" not in events

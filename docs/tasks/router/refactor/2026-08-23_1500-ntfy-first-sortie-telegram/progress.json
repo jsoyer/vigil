@@ -1,0 +1,251 @@
+{
+  "prd": "docs/tasks/router/refactor/2026-08-23_1500-ntfy-first-sortie-telegram.md",
+  "name": "ntfy-first-sortie-telegram",
+  "created": "2026-08-23",
+  "target_version": "2.2.0",
+  "branch": "dev",
+  "status": "sprints-1-5-done-rollout-pending",
+  "invariants": "docs/tasks/router/refactor/2026-08-23_1500-ntfy-first-sortie-telegram/INVARIANTS.md",
+  "decisions": "PRD section 0bis (2026-08-23 soir) : Q1 serveur ntfy existant sur bbh-network (Docker binwiederhier/ntfy, port 7171, auth active), publication interne jamais via Cloudflare (dijon-master en local 127.0.0.1:7171, les 3 autres via Tailscale 100.112.123.103:7171), abonnement telephone via https://ntfy.bbhome.wf ; Q2 topics vigil-dijon/vigil-nice/vigil-ops ; Q3 Ntfy+Email+MQTT conserves, Pushover/Discord/Slack debranches avec Telegram (perimetre S5 elargi) ; Q4 bascule seche sans double-run, verification reelle renforcee avant demantelement ; Q5 CONFIRM_TTL par defaut porte de 120 a 600s ; Q6 Markdown degradable oui ; Q7 boutons de confirmation LAN/Tailscale uniquement, jamais via Cloudflare. Detail operationnel : creation d'un utilisateur/token ntfy 'vigil' sur bbh-network (droits write sur vigil-*), executee par l'orchestrateur humain (sudo bbh-network), rattachee au sprint 1.",
+  "prerequisite": {
+    "version": "2.1.0",
+    "status": "assumed_satisfied",
+    "note": "PRD entete : 'Depend de A1 livre en 2.1.0' (docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/spec.md). A verifier explicitement par l'orchestrateur avant d'ouvrir le sprint 1 : VERSION du depot dev/main = 2.1.x et /lte fonctionnel sur les 4 Pi (commit 29360cd). Non re-verifie par cette extraction de sprints -- gate 'a1-2.1.0-livre' ci-dessous."
+  },
+  "gates": [
+    {
+      "id": "a1-2.1.0-livre",
+      "before_sprint": 1,
+      "blocking": true,
+      "description": "A1 (pilotage TP-Link) doit etre livre en 2.1.0 sur main avant d'ouvrir le sprint 1 -- ce PRD retire une version plus tard la couche /lte Telegram que A1 vient d'ajouter (PRD section 2.3, dette assumee). Verifier VERSION=2.1.x sur main et /lte operationnel.",
+      "satisfied": true,
+      "note": "A1 livre en 2.1.0 sur main avant l'ouverture du sprint 1 (prerequis des sprints 1-4, tous merges)."
+    },
+    {
+      "id": "tailscale-telephones-verifie",
+      "before_sprint": 2,
+      "blocking": true,
+      "description": "Tailscale installe et actif sur les telephones qui recoivent les notifications (pas seulement les 4 Pi, deja acquis via tailscale_dns.py) -- prerequis dur du PRD section 4.1, question Q7 section 12. A verifier avant d'ouvrir le sprint 2 (boutons d'action), sans quoi le design de confirmation par capacite est inutilisable hors domicile.",
+      "satisfied": true,
+      "note": "Verifie avant l'ouverture du sprint 2 (prerequis des sprints 2-4, tous merges)."
+    },
+    {
+      "id": "ntfy-user-token-vigil-cree",
+      "before_sprint": 1,
+      "blocking": true,
+      "description": "Utilisateur/token ntfy 'vigil' cree sur le serveur bbh-network (docker exec ... ntfy user add, puis ntfy access / ntfy token add avec droits write sur vigil-*), execute par l'orchestrateur humain (sudo sur bbh-network). Sans ce jeton, NTFY_TOKEN ne peut pas etre renseigne sur les 4 .env et S1 ne peut pas etre verifie en conditions reelles.",
+      "satisfied": true,
+      "note": "Jeton ntfy 'vigil' cree sur bbh-network par l'orchestrateur humain avant le sprint 1 (prerequis des sprints 1-4, tous merges)."
+    },
+    {
+      "id": "no-api-token-in-notification",
+      "in_sprint": 2,
+      "blocking": true,
+      "description": "Aucune notification sortante, quel que soit le canal, ne contient jamais API_TOKEN -- ni dans le corps, ni dans un en-tete d'action, ni dans une URL (PRD section 4.2.1, invariant absolu). Verifiable par test qui publie une notification de chaque type et grep le payload complet (corps + en-tetes).",
+      "satisfied": true,
+      "note": "Verifie au sprint 2 (test dedie qui publie une notification de chaque type et grep le payload complet)."
+    },
+    {
+      "id": "confirm-urls-tailscale-only",
+      "in_sprint": 2,
+      "blocking": true,
+      "description": "Toutes les URL d'action publiees dans les boutons ntfy pointent sur un nom/adresse Tailscale des 4 Pi -- jamais une IP LAN, jamais une IP/nom public, jamais expose via le tunnel Cloudflare qui sert https://ntfy.bbhome.wf (decision Q7 du 2026-08-23 soir). Verifiable par test sur la chaine produite par managed_devices/http endpoints.",
+      "satisfied": true,
+      "note": "Verifie au sprint 2 (test sur la chaine produite par managed_devices/http endpoints)."
+    },
+    {
+      "id": "verification-reelle-avant-debranchement",
+      "before_sprint": 5,
+      "blocking": true,
+      "description": "Remplace le double-run de 7 jours (decision Q4 du 2026-08-23 soir, bascule seche). Avant d'ouvrir le sprint 5 (demantelement Telegram+Pushover+Discord+Slack), il faut un journal date et constate de : (a) publication de test recue sur chaque topic (vigil-dijon, vigil-nice, vigil-ops) a chaque niveau INFO/WARNING/CRITICAL avec la priorite ntfy correspondante (3/4/5) ; (b) au moins un test end-to-end d'un bouton de confirmation depuis le LAN, action executee, evenement confirm_accepted visible dans /api/events. Sans ce journal, S5 ne peut pas etre ouvert -- c'est le seul filet de securite qui remplace le double-run.",
+      "satisfied": true,
+      "note": "Constate par l'orchestrateur le 2026-08-23 (soir) : publication de test recue sur les 3 topics (vigil-dijon, vigil-nice, vigil-ops) aux 3 niveaux INFO/WARNING/CRITICAL avec priorite ntfy correspondante (salve 5/5), et test end-to-end d'un bouton de confirmation depuis le LAN (action executee, evenement confirm_accepted visible dans /api/events, 'bouton E2E prouve'). Journal date consigne dans docs/session-learnings.md (entree du 2026-08-23 soir)."
+    },
+    {
+      "id": "tag-v2.2.0-posted-last",
+      "in_sprint": 5,
+      "blocking": true,
+      "description": "Le tag v2.2.0 n'est pousse qu'apres la verification reelle renforcee (gate precedent) et apres le demantelement effectif de Telegram/Pushover/Discord/Slack sur les 4 .env de production -- jamais avant, pour eviter qu'un updater tire la 2.2.0 avant que les canaux de secours (Email, MQTT) ne soient confirmes suffisants sur les 4 Pi.",
+      "satisfied": false,
+      "note": "Rollout (tag, flotte des 4 Pi, .env de production) laisse a l'orchestrateur -- non execute par le sous-agent code du sprint 5."
+    }
+  ],
+  "sprints": [
+    {
+      "id": 1,
+      "title": "Canal Ntfy enrichi : priorites, tags, topics par site+ops, auth par token",
+      "spec": "sprints/01-canal-ntfy-enrichi.md",
+      "status": "done",
+      "depends_on": [],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [
+        "tests/test_ntfy_notifier.py"
+      ],
+      "files_to_modify": [
+        "src/notifier/_ntfy.py",
+        "src/config.py",
+        "src/watchdog.py",
+        "src/http_server.py",
+        "src/metrics.py",
+        "README.md",
+        "DEPLOY.md"
+      ],
+      "files_read_only": [
+        "src/notifier/_types.py",
+        "src/notifier/_dispatch.py",
+        "src/notifier/__init__.py",
+        "src/events.py"
+      ],
+      "forbidden": [
+        "src/telegram_bot.py",
+        "src/notifier/_telegram.py",
+        "src/notifier/_discord.py",
+        "src/notifier/_slack.py",
+        "src/notifier/_pushover.py"
+      ],
+      "notes": "Creation de l'utilisateur/token ntfy 'vigil' sur bbh-network (gate ntfy-user-token-vigil-cree) executee par l'orchestrateur humain, pas par le sous-agent -- meme logique que gh repo rename au grand renommage sprint 1. Le sous-agent prepare le code (NTFY_TOKEN, priorites, tags, Click, garde-fou aucun canal) ; l'orchestrateur cree le jeton serveur et le distribue aux 4 .env avant verification reelle."
+    },
+    {
+      "id": 2,
+      "title": "Endpoint de confirmation a capacite + boutons d'action ntfy",
+      "spec": "sprints/02-confirmation-boutons-action.md",
+      "status": "done",
+      "depends_on": [
+        1
+      ],
+      "risk": "high",
+      "isolation": "worktree",
+      "files_to_create": [
+        "tests/test_confirm_endpoint.py"
+      ],
+      "files_to_modify": [
+        "src/confirm.py",
+        "src/http_server.py",
+        "src/managed_devices.py",
+        "src/config.py",
+        "tests/test_confirm.py",
+        "tests/test_managed_devices.py",
+        "tests/test_http_server.py"
+      ],
+      "files_read_only": [
+        "src/notifier/_ntfy.py",
+        "src/events.py",
+        "src/state.py"
+      ],
+      "forbidden": [
+        "src/telegram_bot.py",
+        "src/dashboard.py"
+      ],
+      "shared_contracts": [
+        "src/confirm.py : DEFAULT_TTL_SECONDS passe de 120.0 a 600.0 (decision Q5) -- consomme par managed_devices.request_reboot() et par tout futur appelant de request_confirmation(). Le sprint 3 (dashboard) et le sprint 4 (escalade) doivent tenir compte de ce nouveau TTL dans leurs propres tests et messages.",
+        "POST /api/confirm/<action>/<jeton> est le seul endpoint exempte de _check_auth() -- shared avec le sprint 3 qui documente ce contrat dans le dashboard (aucun jeton ne doit jamais transiter par sessionStorage ou un champ API_TOKEN)."
+      ],
+      "notes": "Coeur securite du PRD (section 4.2). Durcissements D1-D7 obligatoires. Boutons Actions ntfy publies par managed_devices via une fonction send injectee, jamais via un import direct d'un canal notifier. Gates no-api-token-in-notification et confirm-urls-tailscale-only verifies dans ce sprint."
+    },
+    {
+      "id": 3,
+      "title": "Dashboard : reparer l'authentification, combler les commandes manquantes",
+      "spec": "sprints/03-dashboard-auth-commandes.md",
+      "status": "done",
+      "depends_on": [
+        1,
+        2
+      ],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [],
+      "files_to_modify": [
+        "src/dashboard.py",
+        "tests/test_dashboard.py"
+      ],
+      "files_read_only": [
+        "src/http_server.py",
+        "src/managed_devices.py"
+      ],
+      "forbidden": [
+        "src/telegram_bot.py",
+        "src/confirm.py"
+      ],
+      "notes": "Bug bloquant identifie au PRD section 4.5 : sendCommand() (dashboard.py ~L506-522) fait fetch('/api/' + cmd, {method:'POST'}) sans en-tete Authorization -- les 3 boutons existants (pause/resume/reboot) renvoient 403 des que API_TOKEN est configure, c'est-a-dire en production. Correction : jeton saisi une fois, sessionStorage (jamais localStorage), injecte en Authorization: Bearer, message clair en 401. Puis ajout des boutons DDNS, backup UniFi, sync Tailscale, maintenance, et une section TP-Link (liste, statut, check, reboot + confirmation) -- couvre les 8 commandes historiques du bot Telegram (tableau section 4.5 du PRD)."
+    },
+    {
+      "id": 4,
+      "title": "Escalade re-priorisee, gabarits messages re-cibles, TTL 600s",
+      "spec": "sprints/04-escalade-gabarits-ttl.md",
+      "status": "done",
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [],
+      "files_to_modify": [
+        "src/alert_escalation.py",
+        "src/watchdog.py",
+        "src/messages.py",
+        "src/notifier/_ntfy.py",
+        "tests/test_alert_escalation.py",
+        "tests/test_messages.py",
+        "tests/test_watchdog.py"
+      ],
+      "files_read_only": [
+        "src/confirm.py",
+        "src/config.py"
+      ],
+      "forbidden": [
+        "src/telegram_bot.py",
+        "src/notifier/_telegram.py",
+        "src/notifier/_pushover.py",
+        "src/notifier/_discord.py",
+        "src/notifier/_slack.py"
+      ],
+      "notes": "Ne remplace PAS le protocole double-run du PRD section 6.2 original (7 jours sur 2.2.0-rc1) : decision Q4 du 2026-08-23 soir, bascule seche. Ce sprint livre uniquement l'escalade Priority:5 + tag sos + titre [RELANCE] sans bouton (section 5.3), les gabarits messages.py purges du HTML Telegram et conformes au sous-ensemble Markdown degradable (section 3.4), et le changement CONFIRM_TTL 120->600s herite du sprint 2 propage dans les messages/tests qui l'assument encore a 120s. Ce sprint est le dernier avant le gate verification-reelle-avant-debranchement -- il doit laisser le systeme dans un etat testable en conditions reelles, Telegram toujours actif."
+    },
+    {
+      "id": 5,
+      "title": "Verification reelle renforcee puis debranchement Telegram+Pushover+Discord+Slack, release 2.2.0",
+      "spec": "sprints/05-verification-debranchement-release.md",
+      "status": "done",
+      "depends_on": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "risk": "gate",
+      "isolation": "none",
+      "files_to_create": [
+        "docs/RELEASE-NOTES-2.2.0.md"
+      ],
+      "files_to_modify": [
+        "VERSION",
+        "src/config.py",
+        "src/watchdog.py",
+        "src/managed_devices.py",
+        "src/notifier/_dispatch.py",
+        "README.md",
+        "DEPLOY.md",
+        "CLAUDE.md",
+        "WORKFLOW.md",
+        "scripts/deploy.sh",
+        "scripts/test.sh",
+        "requirements.txt",
+        "docs/session-learnings.md"
+      ],
+      "files_to_delete": [
+        "src/telegram_bot.py",
+        "src/notifier/_telegram.py",
+        "src/notifier/_discord.py",
+        "src/notifier/_slack.py",
+        "src/notifier/_pushover.py",
+        "tests/test_telegram_bot.py",
+        "tests/test_pushover_notifier.py"
+      ],
+      "files_read_only": [],
+      "notes": "Pas un sprint de code seul -- il commence par executer et journaliser le gate verification-reelle-avant-debranchement (checklist section 6.2 encart Q4 du PRD), AVANT toute suppression de code. Ordre a l'interieur du sprint : (1) verification reelle constatee et journal date rempli, (2) suppression de src/telegram_bot.py, src/notifier/_telegram.py, l'entree telegram de _get_channels(), les 4 TELEGRAM_* de config.py, le branchement watchdog.py (import + start), la couche Telegram de managed_devices.py (_register_telegram_handlers, _adapt_for_telegram, appel bootstrap, origin='telegram'), tests/test_telegram_bot.py, occurrences deploy.sh/test.sh, (3) meme traitement pour Pushover/Discord/Slack (perimetre elargi decision Q3 : notifier/_pushover.py, _discord.py, _slack.py, 10 variables config.py, tests/test_pushover_notifier.py, classes TestDiscord/TestSlack de tests/test_notifier.py), (4) doc a jour (README/DEPLOY/CLAUDE/WORKFLOW, docs historiques non reecrites), (5) VERSION=2.2.0, docs/RELEASE-NOTES-2.2.0.md, (6) tag v2.2.0 EN DERNIER, apres validation des 4 Pi."
+    }
+  ]
+}

@@ -91,22 +91,22 @@ else
     ((ERRORS++))
 fi
 
-# --- Test 4 : Telegram notification -----------------------------------------
-log_info "Test des notifications Telegram..."
-TELEGRAM_RESULT=$(PYTHONPATH="${SRC_DIR}" "${PYTHON}" -c "
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+# --- Test 4 : Ntfy notification -----------------------------------------
+log_info "Test des notifications Ntfy..."
+NTFY_RESULT=$(PYTHONPATH="${SRC_DIR}" "${PYTHON}" -c "
+from config import NTFY_URL, NTFY_TOPIC
+if not NTFY_URL or not NTFY_TOPIC:
     print('NOT_CONFIGURED')
 else:
     from notifier import notify
     results = notify('Test de notification Vigil')
-    print('OK' if results.get('telegram') else 'FAIL')
+    print('OK' if results.get('ntfy') else 'FAIL')
 " 2>/dev/null || echo "ERROR")
 
-case "${TELEGRAM_RESULT}" in
-    "OK")             log_success "Notification Telegram envoyee" ;;
-    "NOT_CONFIGURED") log_warn "Telegram non configure (optionnel)" ;;
-    *)                log_error "Notification Telegram echouee" ; ((ERRORS++)) ;;
+case "${NTFY_RESULT}" in
+    "OK")             log_success "Notification Ntfy envoyee" ;;
+    "NOT_CONFIGURED") log_warn "Ntfy non configure (optionnel)" ;;
+    *)                log_error "Notification Ntfy echouee" ; ((ERRORS++)) ;;
 esac
 
 # --- Test 5 : Reboot (if --reboot passed) -----------------------------------

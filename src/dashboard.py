@@ -153,6 +153,40 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
   display: none;
   font-size: 0.85rem;
 }
+
+.token-prompt {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+.token-prompt-msg {
+  width: 100%;
+  color: #f85149;
+  font-size: 0.85rem;
+  display: none;
+}
+.token-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #e1e4e8;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+.tplink-item { padding: 0.6rem 0; border-bottom: 1px solid #21262d; }
+.tplink-item:last-child { border-bottom: none; }
+.tplink-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.tplink-label { font-weight: 600; margin-right: 0.25rem; }
 </style>
 </head>
 <body>
@@ -160,11 +194,25 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
   <h1>Vigil</h1>
   <div id="error-banner" class="error-banner"></div>
 
+  <div id="token-prompt" class="token-prompt" style="display:none">
+    <div id="token-prompt-msg" class="token-prompt-msg"></div>
+    <input type="password" id="api-token-input" class="token-input" placeholder="Jeton API (Authorization Bearer)">
+    <button id="btn-save-token" class="btn" onclick="saveTokenFromInput()">Enregistrer le jeton</button>
+  </div>
+
   <div class="controls">
     <button id="btn-pause" class="btn" onclick="sendCommand('pause')">Pause</button>
     <button id="btn-resume" class="btn" onclick="sendCommand('resume')" style="display:none">Resume</button>
     <button id="btn-reboot" class="btn btn-danger" onclick="confirmReboot()">Reboot USG</button>
     <span id="cmd-feedback" class="btn-feedback"></span>
+  </div>
+
+  <div class="controls" id="actions-section">
+    <button id="btn-ddns" class="btn" onclick="runAction('/api/ddns/update', 'action-feedback', 'DDNS')">DDNS</button>
+    <button id="btn-backup" class="btn" onclick="runAction('/api/backup/unifi', 'action-feedback', 'Backup UniFi')">Backup UniFi</button>
+    <button id="btn-tailscale" class="btn" onclick="runAction('/api/tailscale/sync', 'action-feedback', 'Sync Tailscale')">Sync Tailscale</button>
+    <button id="btn-maintenance" class="btn" onclick="runAction('/api/maintenance', 'action-feedback', 'Maintenance')">Maintenance</button>
+    <span id="action-feedback" class="btn-feedback"></span>
   </div>
 
   <div class="grid">
@@ -228,6 +276,14 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
     <div class="card events-card">
       <div class="card-title">Evenements recents</div>
       <ul id="events-list" class="events-list">
+        <li><span class="event-data">Chargement...</span></li>
+      </ul>
+    </div>
+
+    <!-- TP-Link -->
+    <div class="card events-card" id="tplink-card">
+      <div class="card-title">TP-Link</div>
+      <ul id="tplink-list" class="events-list">
         <li><span class="event-data">Chargement...</span></li>
       </ul>
     </div>
@@ -503,21 +559,121 @@ async function refreshCharts() {
   } catch(e) {}
 }
 
-async function sendCommand(cmd) {
-  var feedback = document.getElementById('cmd-feedback');
+// --- API token capture: entered once by the operator, kept in the
+// browser tab's short-lived session store ONLY -- no persistence past
+// tab close, explicit requirement. The server never embeds the secret in
+// this HTML: it is generic/static regardless of the configured value on
+// the server side, and is only ever known client-side once typed here.
+var TOKEN_STORAGE_KEY = 'vigil_api_token';
+
+function getApiToken() {
   try {
-    var res = await fetch('/api/' + cmd, { method: 'POST' });
-    var data = await res.json();
-    if (data.ok) {
-      feedback.textContent = cmd + ' OK';
+    return sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  } catch(e) {
+    return '';
+  }
+}
+
+function setApiToken(token) {
+  try {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } catch(e) {}
+}
+
+function clearApiToken() {
+  try {
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch(e) {}
+}
+
+function showTokenPrompt(message) {
+  var wrap = document.getElementById('token-prompt');
+  var msg = document.getElementById('token-prompt-msg');
+  if (!wrap || !msg) return;
+  if (message) {
+    msg.textContent = message;
+    msg.style.display = 'block';
+  } else {
+    msg.style.display = 'none';
+  }
+  wrap.style.display = '';
+}
+
+function hideTokenPrompt() {
+  var wrap = document.getElementById('token-prompt');
+  if (wrap) wrap.style.display = 'none';
+}
+
+function saveTokenFromInput() {
+  var input = document.getElementById('api-token-input');
+  if (!input) return;
+  var val = (input.value || '').trim();
+  if (!val) return;
+  setApiToken(val);
+  input.value = '';
+  hideTokenPrompt();
+  refreshTplink();
+}
+
+// Authenticated fetch wrapper used by every POST/GET command on this
+// dashboard -- injects Authorization: Bearer <token> on every call, and
+// surfaces a clear, visible message (never a silent failure) on 401.
+async function apiRequest(path, method, body) {
+  var token = getApiToken();
+  if (!token) {
+    showTokenPrompt('Jeton API requis -- saisissez-le ci-dessus pour utiliser les commandes.');
+    throw new Error('jeton API manquant');
+  }
+  var opts = {
+    method: method || 'POST',
+    headers: { 'Authorization': 'Bearer ' + token }
+  };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  var res = await fetch(path, opts);
+  if (res.status === 401) {
+    clearApiToken();
+    showTokenPrompt('Jeton invalide ou expire (401) -- merci de le re-saisir ci-dessus.');
+    throw new Error('non autorise (401) -- jeton invalide ou expire');
+  }
+  var data = {};
+  try { data = await res.json(); } catch(e) {}
+  return { res: res, data: data };
+}
+
+async function sendCommand(cmd) {
+  await runAction('/api/' + cmd, 'cmd-feedback', cmd);
+}
+
+// Generic authenticated action runner -- shared by pause/resume/reboot
+// (via sendCommand) and the newer Actions section buttons (DDNS, backup,
+// tailscale, maintenance). Always goes through apiRequest() so the
+// Authorization header and 401 handling are applied uniformly.
+async function runAction(path, feedbackId, label) {
+  var feedback = document.getElementById(feedbackId);
+  try {
+    var result = await apiRequest(path, 'POST');
+    var data = result.data;
+    if (feedback) {
+      if (data && data.ok) {
+        feedback.textContent = label + ' OK';
+        feedback.style.color = '';
+      } else {
+        feedback.textContent = label + ': ' + ((data && data.error) || 'echec');
+        feedback.style.color = '#f85149';
+      }
       feedback.style.display = 'inline';
       setTimeout(function() { feedback.style.display = 'none'; }, 3000);
-      setTimeout(refresh, 1000);
     }
+    setTimeout(refresh, 1000);
   } catch(err) {
-    feedback.textContent = 'Erreur: ' + err.message;
-    feedback.style.color = '#f85149';
-    feedback.style.display = 'inline';
+    if (feedback) {
+      feedback.textContent = 'Erreur: ' + err.message;
+      feedback.style.color = '#f85149';
+      feedback.style.display = 'inline';
+    }
   }
 }
 
@@ -527,12 +683,126 @@ function confirmReboot() {
   }
 }
 
+// --- TP-Link section: list + per-device status, check, reboot. Reboot
+// reuses the existing two-step confirmation flow already shipped server
+// side (POST /reboot then POST /reboot/confirm with the returned token) --
+// no new confirmation mechanism is introduced here.
+function tplinkFeedbackId(deviceId) {
+  return 'tplink-feedback-' + deviceId;
+}
+
+function renderTplinkList(devices) {
+  var container = document.getElementById('tplink-list');
+  if (!container) return;
+  if (!devices || !devices.length) {
+    container.innerHTML = '<li><span class="event-data">Aucun equipement TP-Link configure</span></li>';
+    return;
+  }
+  container.innerHTML = devices.map(function(d) {
+    var id = d.id;
+    var reachable = !!d.reachable;
+    var badgeClass = reachable ? 'badge-ok' : 'badge-ko';
+    var badgeText = reachable ? 'OK' : 'KO';
+    return '<li class="tplink-item" id="tplink-item-' + id + '">' +
+      '<div class="tplink-row">' +
+      '<span class="tplink-label">' + d.label + '</span>' +
+      '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
+      '<button class="btn" onclick="tplinkCheck(\'' + id + '\')">Verifier</button>' +
+      '<button class="btn btn-danger" onclick="tplinkReboot(\'' + id + '\')">Redemarrer</button>' +
+      '<span id="' + tplinkFeedbackId(id) + '" class="btn-feedback"></span>' +
+      '</div>' +
+      '</li>';
+  }).join('');
+}
+
+async function refreshTplink() {
+  if (!getApiToken()) return;
+  try {
+    var result = await apiRequest('/api/tplink', 'GET');
+    renderTplinkList(Array.isArray(result.data) ? result.data : []);
+  } catch(err) {
+    // apiRequest() already surfaced a clear message via showTokenPrompt()
+    // on 401; other errors are transient and covered by the next refresh.
+  }
+}
+
+async function tplinkCheck(deviceId) {
+  await runAction('/api/tplink/' + deviceId + '/check', tplinkFeedbackId(deviceId), 'Verifier');
+  refreshTplink();
+}
+
+async function tplinkReboot(deviceId) {
+  var feedback = document.getElementById(tplinkFeedbackId(deviceId));
+  try {
+    var result = await apiRequest('/api/tplink/' + deviceId + '/reboot', 'POST');
+    var data = result.data;
+    if (data && data.token) {
+      var msg = 'Confirmer le reboot de ' + (data.label || deviceId) + ' ?';
+      if (data.warning && data.warning_reason) {
+        msg += '\n' + data.warning_reason;
+      }
+      if (confirm(msg)) {
+        await tplinkConfirmReboot(deviceId, data.token);
+      }
+    } else if (feedback) {
+      feedback.textContent = 'Erreur: ' + ((data && data.error) || 'echec');
+      feedback.style.color = '#f85149';
+      feedback.style.display = 'inline';
+    }
+  } catch(err) {
+    if (feedback) {
+      feedback.textContent = 'Erreur: ' + err.message;
+      feedback.style.color = '#f85149';
+      feedback.style.display = 'inline';
+    }
+  }
+}
+
+async function tplinkConfirmReboot(deviceId, token) {
+  var feedback = document.getElementById(tplinkFeedbackId(deviceId));
+  try {
+    var result = await apiRequest(
+      '/api/tplink/' + deviceId + '/reboot/confirm', 'POST', { token: token }
+    );
+    var data = result.data;
+    if (feedback) {
+      if (data && data.executed) {
+        feedback.textContent = 'Reboot OK';
+        feedback.style.color = '';
+      } else {
+        feedback.textContent = 'Erreur: ' + ((data && data.error) || 'echec');
+        feedback.style.color = '#f85149';
+      }
+      feedback.style.display = 'inline';
+      setTimeout(function() { feedback.style.display = 'none'; }, 3000);
+    }
+    refreshTplink();
+  } catch(err) {
+    if (feedback) {
+      feedback.textContent = 'Erreur: ' + err.message;
+      feedback.style.color = '#f85149';
+      feedback.style.display = 'inline';
+    }
+  }
+}
+
 // Start SSE connection (primary real-time update path)
 startSSE();
+
+// Prompt for the API token up front if not already captured this tab
+// session -- every command button needs it (fail-closed server side).
+if (!getApiToken()) {
+  showTokenPrompt();
+}
 
 // Initial data load via polling while SSE handshake is in progress
 refresh();
 refreshCharts();
+refreshTplink();
+
+// TP-Link status polls every 60s -- same cadence as charts, no need for
+// real-time updates on router metrics.
+setInterval(refreshTplink, 60000);
 
 // Charts poll every 60s -- historical data does not need real-time updates
 setInterval(refreshCharts, 60000);

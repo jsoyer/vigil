@@ -1,3 +1,52 @@
+## 2026-08-23 (soir) -- Sprint 5 Ntfy-first : correctif idempotence + debranchement Telegram/Pushover/Discord/Slack (2.2.0)
+
+Verification reelle renforcee constatee par l'orchestrateur (salve 5/5 recue
+sur telephone sur les 3 topics x 3 niveaux, bouton de confirmation E2E prouve
+depuis le LAN, evenement `confirm_accepted` visible) -- gate
+`verification-reelle-avant-debranchement` satisfait avant toute suppression
+de code (voir `progress.json` du dossier de sprints).
+
+### `LOGIC` -- Jeton de confirmation a usage unique incompatible avec les rafales client (decouvert au test E2E reel)
+
+L'app ntfy iOS envoie ~10 POST identiques en ~20ms pour un seul appui de
+bouton. Avec un jeton a usage unique strict, 1 requete reussit et les 9
+autres echouent (jeton deja consomme), declenchant quasi systematiquement le
+rate limiter D3 (10/60s) et un faux `confirm_bruteforce` a chaque appui
+pourtant legitime.
+
+**Correctif** : fenetre d'idempotence (~30s, `IDEMPOTENCY_WINDOW_SECONDS`
+dans `src/confirm.py`) qui memorise l'empreinte SHA-256 (jamais le jeton en
+clair) d'un jeton consomme avec succes. Un rejeu du meme jeton+action dans
+la fenetre repond `200` sans re-executer l'action ni compter d'echec. Le
+contrat existant de `confirm.py` (`request_confirmation`, `validate`,
+`purge_expired`) n'a pas change -- les deux nouvelles fonctions sont
+additives, conformement a l'invariant "Le contrat de confirm.py (hors TTL)
+ne change pas".
+
+**Lecon** : un mecanisme de jeton a usage unique concu pour une saisie
+humaine (un seul essai possible en pratique) ne survit pas tel quel a un
+client mobile qui retente automatiquement en rafale sur clic. Prevoir une
+fenetre d'idempotence des la conception plutot qu'en correctif post-E2E des
+qu'un jeton devient cliquable depuis une app tierce non maitrisee.
+
+### `CONFIG` -- Debranchement Telegram/Pushover/Discord/Slack (S5, perimetre elargi decision Q3)
+
+5 fichiers supprimes (`telegram_bot.py`, `_telegram.py`, `_discord.py`,
+`_slack.py`, `_pushover.py`), 14 variables retirees de `config.py`,
+`_get_channels()` reduit a `(ntfy, email)`. Le grep de non-regression
+`grep -riI "telegram|pushover|discord|slack" src/ tests/ scripts/ updater/
+requirements.txt` doit valoir 0 -- **exception documentee** :
+`tests/test_ntfy_notifier.py::test_no_reference_to_other_channels` (sprint 1,
+hors perimetre S5) contient la liste des mots interdits en dur pour
+verifier que `_ntfy.py` ne les referme jamais -- un grep litteral la
+detecte forcement comme "hit", c'est un faux positif attendu du test
+lui-meme, pas un residu de demantelement.
+
+**Lecon** : un invariant "grep = 0" applique a l'aveugle finira par flagger
+un test de non-regression qui liste les memes mots interdits pour PROUVER
+leur absence ailleurs. Documenter l'exception plutot que fragiliser le test
+(obfuscation des chaines) juste pour satisfaire un grep litteral.
+
 ## 2026-08-23 — Renommage USG Watchdog -> Vigil (v2.0.0)
 
 Sprint 1 du grand renommage : dépôt GitHub renommé `jsoyer/vigil` (redirection
@@ -6,6 +55,31 @@ template d'issue) mise à jour vers Vigil v2.0.0. Le routeur Ubiquiti reste
 désigné USG (src/usg.py, USG_IP, etc. inchangés).
 
 # Session Learnings — Vigil (ex-USG Watchdog)
+
+## Ship Pipeline State — A1 LIVRÉ EN PRODUCTION (2026-08-23, soir)
+
+- **2.1.0 (A1 pilotage TP-Link)** : PR #43 dev→main mergée, tag v2.1.0,
+  flotte auto-mise-à-jour — première install auto de dépendance
+  (tplinkrouterc6u) ET premier auto-update de l'updater, tous deux prouvés
+  dans les journaux des 4 Pi.
+- **MR110 déclarés sur les guardians** (TPLINK_1_* dans .env, mode bridged) :
+  driver lit les vraies données (Free, CGNAT, signal, compteurs), API
+  fail-closed vérifiée (401/403 sans token).
+- **2.1.1 (bugfix trouvé par la vérif en réel)** : l'étage bridge de la
+  sonde interrogeait wlan0 en dur (faux négatif) et posait un veto sur
+  reachable. Fix : ip route get générique + bridge devient signal de
+  diagnostic. Flotte en 2.1.1, les deux MR110 : « chemin d'audit sain »,
+  reachable=true, RTT ~10-19 ms.
+- **Leçon Anti-Goodhart confirmée** : 1049 tests mockés verts n'avaient pas
+  vu le bug wlan0 — seule la vérification post-déploiement contre le vrai
+  matériel l'a révélé. Toujours vérifier en réel après un ship.
+- **PRD Ntfy 2.2.0 (option B, sortie de Telegram)** : rédigé, corrigé d'une
+  hallucination (fausse corruption de requirements.txt — démentie par git),
+  committé sur dev. EN ATTENTE DE RELECTURE UTILISATEUR (7 questions).
+  Bug réel confirmé au passage : dashboard sans header Authorization →
+  403 en prod sur pause/resume/reboot (prérequis S3 du PRD Ntfy).
+- Reste du plan : 2.2.0 Ntfy (après relecture) → 2.3.0 A2 exposition HA →
+  PRD B. Et purge J+7 des vestiges usg-watchdog (≥ 2026-08-30, sur demande).
 
 ## Ship Pipeline State — plan global (2026-08-23, après-midi)
 

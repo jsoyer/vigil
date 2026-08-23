@@ -287,7 +287,7 @@ class TestControlAPI:
         assert "reboot_score_threshold" in body
         assert "ping_targets" in body
         # Verify no secrets exposed
-        assert "TELEGRAM_BOT_TOKEN" not in str(body)
+        assert "NTFY_TOKEN" not in str(body)
         assert "SSH_PASSWORD" not in str(body)
         assert "WEBHOOK_URL" not in str(body)
 
@@ -408,8 +408,7 @@ class TestGetStaticRoutes:
         body_str = json.dumps(body)
         secret_keys = [
             "API_TOKEN",
-            "TELEGRAM_BOT_TOKEN",
-            "TELEGRAM_CHAT_ID",
+            "NTFY_TOKEN",
             "USG_SSH_KEY",
             "USG_SSH_PASSWORD",
             "CLOUDFLARE_API_TOKEN",
@@ -678,16 +677,12 @@ class TestGetBackupConfig:
         body_str = json.dumps(body)
         secret_keys = [
             "API_TOKEN",
-            "TELEGRAM_BOT_TOKEN",
-            "TELEGRAM_CHAT_ID",
+            "NTFY_TOKEN",
             "USG_SSH_PASSWORD",
             "CLOUDFLARE_API_TOKEN",
             "TAILSCALE_API_KEY",
             "MQTT_PASSWORD",
             "SMTP_PASSWORD",
-            "PUSHOVER_API_TOKEN",
-            "DISCORD_WEBHOOK_URL",
-            "SLACK_WEBHOOK_URL",
         ]
         for key in secret_keys:
             assert key not in body_str, f"Secret leaked in /api/backup/config: {key}"

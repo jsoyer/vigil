@@ -3,6 +3,25 @@
 from state import WatchdogState
 
 
+def _configured_notification_channels_count() -> int:
+    """Nombre de canaux de notification effectivement configures.
+
+    Duplique volontairement notifier._dispatch (read-only pour ce sprint) --
+    petite fonction pure, coherente avec http_server._configured_notification_channels.
+    """
+    from notifier import _ntfy, _email
+    import mqtt_publisher
+
+    count = 0
+    if _ntfy.is_configured():
+        count += 1
+    if _email.is_configured():
+        count += 1
+    if mqtt_publisher.is_configured():
+        count += 1
+    return count
+
+
 def render_metrics(state: WatchdogState | None) -> str:
     """Render Prometheus exposition format text from WatchdogState.
 
@@ -23,6 +42,11 @@ def render_metrics(state: WatchdogState | None) -> str:
 
     if state is None:
         gauge("vigil_up", "Whether the watchdog is running", 0)
+        gauge(
+            "vigil_notification_channels_configured",
+            "Number of configured notification channels (ntfy/email/mqtt)",
+            _configured_notification_channels_count(),
+        )
         return "\n".join(lines) + "\n"
 
     # Watchdog status
@@ -110,6 +134,13 @@ def render_metrics(state: WatchdogState | None) -> str:
         "vigil_instance_priority",
         "Instance priority (1=primary)",
         state.instance_priority,
+    )
+
+    # Notification channels (PRD Ntfy-first S6.4)
+    gauge(
+        "vigil_notification_channels_configured",
+        "Number of configured notification channels (ntfy/email/mqtt)",
+        _configured_notification_channels_count(),
     )
 
     return "\n".join(lines) + "\n"
