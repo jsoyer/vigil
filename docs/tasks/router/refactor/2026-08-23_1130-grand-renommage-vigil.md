@@ -8,8 +8,34 @@
   déjà livrée sur les 4 Pi) et, fortement recommandé, 1.8.3
   (`docs/tasks/router/infrastructure/2026-08-23_1100-release-updater-debts.md` :
   `release.sh` utilisable + `pip install` dans l'updater)
-- **Statut** : **PRD à valider — aucune exécution, aucun commit, aucun renommage
-  GitHub tant que l'utilisateur n'a pas tranché les questions ouvertes**
+- **Statut** : **Décisions tranchées (2026-08-23) — voir § 0bis. Sprints
+  extraits dans `2026-08-23_1130-grand-renommage-vigil/`. Exécution immédiate.**
+
+---
+
+## 0bis. Décisions (2026-08-23)
+
+Réponses utilisateur aux questions ouvertes du § 10, tranchées le jour même de
+la rédaction du PRD. Elles priment sur les recommandations formulées plus haut
+dans le document là où elles diffèrent ; le corps du PRD n'est pas réécrit,
+seule la section métriques (§ 2.6) reçoit un encart daté (bascule sèche).
+
+| # | Question | Décision | Écart vs recommandation § 10 |
+|---|---|---|---|
+| **Q1** | Utilisateur système | **Oui**, renommé `usg-watchdog` → `vigil`. Nouvel utilisateur **créé** par `deploy.sh` (jamais `usermod -l`). Ancien utilisateur supprimé **en fin de migration** (J+7, après vérification `find -xdev -user usg-watchdog`) | Conforme à la reco |
+| **Q2** | Métriques Prometheus | **Bascule sèche** : `vigil_*` seul dès la 2.0.0, **pas de double émission**. Rupture d'historique Prometheus assumée. Aucune règle d'alerte Prometheus/Alertmanager hors dépôt à inventorier (confirmé : aucune n'existe) | **Écart** : le PRD recommandait la double émission (§ 2.6, § Q2). L'utilisateur tranche pour la simplicité — voir encart § 2.6 |
+| **Q3** | Nom du dépôt | `jsoyer/vigil` confirmé | Conforme à la reco |
+| **Q4** | Chemin d'installation | `/opt/vigil` confirmé | Conforme à la reco |
+| **Q5** | Alias systemd de l'ancien nom | **Non** — pas d'`Alias=usg-watchdog.service` | Conforme à la reco |
+| **Q6** | Créneau | **Immédiat** : exécution dès que les specs de sprint sont prêtes, flotte migrée dans la même fenêtre (pas d'état mixte > 24 h) | Reco suivie (« ne pas laisser la flotte en état mixte ») |
+| **Q7** | 1.8.3 avant migration | 1.8.3 déjà livrée (`release.sh` idempotent + `pip install` de l'updater) — prérequis satisfait | Conforme à la reco |
+| **Q8** | Renommer `src/watchdog.py` | **Non** — le module garde son nom (chien de garde, pas l'ancien nom produit) | Conforme à la reco |
+
+**Conséquence directe sur le découpage des sprints (§ 7)** : le Sprint 4
+(métriques) est **simplifié** — renommage direct des 19 séries `usg_watchdog_*`
+→ `vigil_*` et du dashboard Grafana, sans code de double émission ni logique de
+dépréciation. Voir l'encart daté en § 2.6 et le détail dans
+`2026-08-23_1130-grand-renommage-vigil/sprints/04-metriques-prometheus-grafana.md`.
 
 ---
 
@@ -162,6 +188,21 @@ série s'arrête, la nouvelle démarre à zéro) et casse toute alerte/dashboard
 `vigil_*` (canonique) + `usg_watchdog_*` (déprécié, marqué en commentaire
 `# DEPRECATED — retrait en 2.1.0`) pendant une version mineure, le temps de
 migrer dashboards et alertes. Coût : ~20 lignes et un test. Cf. **Q2**.
+
+> **Encart 2026-08-23 — décision Q2 : bascule sèche.** L'utilisateur tranche
+> pour la **bascule sèche** plutôt que la double émission recommandée
+> ci-dessus : `vigil_*` seul dès la 2.0.0, aucune série `usg_watchdog_*`
+> conservée. Confirmé : aucune règle d'alerte Prometheus/Alertmanager hors
+> dépôt ne dépend des séries actuelles — la question complémentaire du § Q2
+> est donc close sans inventaire. Conséquence : le Sprint 4 se réduit à un
+> **renommage direct** des 19 séries dans `src/metrics.py` et
+> `grafana/dashboard.json` (retrait du préfixe `usg_watchdog_`, pose du
+> préfixe `vigil_`), sans logique de double émission, sans commentaire
+> `DEPRECATED`, sans échéance 2.1.0 à tenir. Le risque n°3 du § 8 (« perte de
+> continuité Prometheus / alertes muettes ») est **assumé**, pas mitigé : la
+> rupture d'historique et le silence d'alerte le temps de migrer un dashboard
+> externe sont le prix accepté de la simplicité. À documenter explicitement
+> dans `docs/RELEASE-NOTES-2.0.0.md`.
 
 ### 2.7 `MQTT_TOPIC_PREFIX`
 
@@ -336,8 +377,9 @@ site (un cycle de rapport + une remontée MQTT).
    - journalctl -u vigil -n 50 : « Vigil demarre », « MQTT connecte (rc=0) »,
      « discovery envoye », aucune trace de /opt/usg-watchdog
    - ls -l /var/log/vigil.log /var/log/vigil-events.json (créés, non vides)
-   - curl -s :PORT/metrics | grep -c '^vigil_' (>0) et '^usg_watchdog_' (>0 si
-     double émission)
+   - curl -s :PORT/metrics | grep -c '^vigil_' (>0) ; grep -c '^usg_watchdog_'
+     doit valoir 0 (bascule sèche, décision 2026-08-23 Q2 — pas de double
+     émission)
    - dashboard HTTP accessible, entités HA du device « Vigil {instance} »
      toujours vertes (les unique_id n'ont pas bougé)
    - depuis le peer : curl :PEER/api/state → l'instance migrée est vue
@@ -403,7 +445,7 @@ règle « tag en dernier » + gel des timers + repli de chemins (§ 5.1).
 | **S1** | Dépôt, redirection et documentation vivante | Renommer `jsoyer/usg-watchdog` → `jsoyer/vigil`, prouver la redirection API/tarball, mettre à jour README/DEPLOY/WORKFLOW/CLAUDE.md/templates + `UPDATER_GITHUB_REPO` par défaut, sans toucher aux docs historiques | `curl -sIL https://api.github.com/repos/jsoyer/usg-watchdog/tags` renvoie 200 après redirection ; téléchargement d'un tarball par l'ancien nom réussi ; `grep -rn 'usg-watchdog' README.md DEPLOY.md WORKFLOW.md CLAUDE.md` ne renvoie que des mentions historiques assumées |
 | **S2** | Unités systemd, scripts et arborescence `/opt/vigil` | Renommer les 4 units + les 7 scripts (`INSTALL_DIR`, `SERVICE_NAME`, `SERVICE_USER`, logs, logrotate), ajouter `ReadWritePaths` pour le fichier d'événements, rendre `uninstall.sh` capable de nettoyer l'ancien nom | `bash -n` sur les 7 scripts ; `systemd-analyze verify systemd/vigil*.service` ; déploiement réel sur le Pi cobaye (dijon-slave) suivi de `/health` OK |
 | **S3** | Code applicatif : chemins, libellés, repli de compatibilité | `config.py`/`events.py`/`http_server.py`/`updater` sur `/opt/vigil` + `/var/log/vigil*` avec **repli** sur l'ancien chemin s'il existe seul, `MQTT_TOPIC_PREFIX` défaut `vigil`, tous les libellés produit et User-Agents ; tests adaptés | `./scripts/validate.sh` vert, coverage ≥ 80 % ; test dédié du repli (ancien chemin présent / absent) ; aucun `usg_watchdog`/`USG Watchdog` résiduel dans `src/` hors frontière § 3 |
-| **S4** | Métriques Prometheus et Grafana | Préfixe canonique `vigil_*` + double émission `usg_watchdog_*` dépréciée, dashboard Grafana migré sur `vigil_*`, doc des métriques mise à jour | `/metrics` contient les 19 séries `vigil_*` **et** les 19 `usg_watchdog_*` ; `tests/test_metrics.py` couvre les deux familles ; `grep -c usg_watchdog grafana/dashboard.json` = 0 |
+| **S4** | Métriques Prometheus et Grafana | ~~Préfixe canonique `vigil_*` + double émission `usg_watchdog_*` dépréciée~~ → **bascule sèche (décision 2026-08-23, Q2)** : préfixe `vigil_*` seul, aucune double émission ; dashboard Grafana migré sur `vigil_*`, doc des métriques mise à jour | `/metrics` contient les 19 séries `vigil_*` et **aucune** série `usg_watchdog_*` ; `tests/test_metrics.py` couvre uniquement la famille `vigil_*` ; `grep -c usg_watchdog grafana/dashboard.json` = 0 |
 | **S5** | Migration de la flotte et release 2.0.0 | Exécuter le runbook § 5.3 sur les 4 Pi dans l'ordre slave→master, puis `VERSION`=2.0.0, notes de version avec la procédure de migration, tag `v2.0.0` **en dernier**, timers réactivés | Les 4 `/health` annoncent `2.0.0` sous `vigil.service` ; `systemctl is-enabled vigil-updater.timer` = enabled ×4 ; MQTT connecté ×4 ; entités HA toujours vertes ; `docs/RELEASE-NOTES-2.0.0.md` présent |
 
 Dépendances : S1 → S2 → S3 → S4 → S5 (S5 dépend de tout). S2 et S3 pourraient
@@ -433,7 +475,10 @@ convention de chemins : **les garder séquentiels**.
    bascule sèche, impact moyen) : séries `usg_watchdog_*` figées, dashboards et
    règles d'alerte silencieux — une alerte qui ne se déclenche plus ne se
    remarque pas.
-   *Mitigation* : double émission pendant 2.0.x, retrait planifié en 2.1.0.
+   *Mitigation initialement recommandée* : double émission pendant 2.0.x,
+   retrait planifié en 2.1.0.
+   *Décision 2026-08-23 (Q2)* : risque **assumé**, pas mitigé — bascule sèche,
+   aucune double émission. Confirmé sans règle d'alerte hors dépôt à migrer.
 4. **Suppression prématurée de `/opt/usg-watchdog` ou du user système** : le
    rollback devient une réinstallation complète ; fichiers en UID orphelin.
    *Mitigation* : purge à J+7 seulement, sur demande explicite.
@@ -467,7 +512,7 @@ Périmètre code (S1-S4) :
 - [ ] `systemd/vigil.service` liste `/var/log/vigil.log` **et** `/var/log/vigil-events.json` en `ReadWritePaths`, et le fichier d'événements est effectivement écrit après un redémarrage sur le Pi cobaye
 - [ ] `updater/update.py` : `GITHUB_REPO=jsoyer/vigil`, `INSTALL_DIR=/opt/vigil`, `SERVICE_NAME=vigil`
 - [ ] Repli de compatibilité testé : avec `/opt/vigil` absent et `/opt/usg-watchdog` présent, les chemins par défaut retombent sur l'ancien emplacement (test unitaire)
-- [ ] `/metrics` expose les 19 séries `vigil_*` ; les `usg_watchdog_*` sont encore présentes et marquées dépréciées ; `grafana/dashboard.json` n'utilise plus que `vigil_*`
+- [ ] `/metrics` expose les 19 séries `vigil_*` ; **bascule sèche (décision 2026-08-23, Q2)** : aucune série `usg_watchdog_*` résiduelle ; `grafana/dashboard.json` n'utilise plus que `vigil_*`
 - [ ] `MQTT_TOPIC_PREFIX` défaut = `vigil` ; **aucune** modification de `src/mqtt_publisher.py` (identité HA figée depuis 1.8.2) — vérifié par `git diff --stat`
 - [ ] Aucune variable d'environnement existante renommée ni supprimée (diff de la liste des clés `os.getenv`/`_get_env` avant/après = identique, hors ajouts)
 - [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
@@ -486,6 +531,10 @@ Périmètre flotte (S5) :
 ---
 
 ## 10. Questions ouvertes (à trancher avant extraction des sprints)
+
+> **Tranchées le 2026-08-23** — voir § 0bis pour les réponses et les écarts
+> vs les recommandations ci-dessous (notamment Q2 : bascule sèche, pas de
+> double émission).
 
 **Q1 — Renommer l'utilisateur système `usg-watchdog` → `vigil` ?**
 Recommandation : **oui**, via création d'un nouvel utilisateur par `deploy.sh`

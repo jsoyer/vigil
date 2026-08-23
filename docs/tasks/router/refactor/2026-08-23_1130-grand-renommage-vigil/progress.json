@@ -1,0 +1,202 @@
+{
+  "prd": "docs/tasks/router/refactor/2026-08-23_1130-grand-renommage-vigil.md",
+  "name": "grand-renommage-vigil",
+  "created": "2026-08-23",
+  "target_version": "2.0.0",
+  "branch": "dev",
+  "status": "planned",
+  "invariants": "docs/tasks/router/refactor/2026-08-23_1130-grand-renommage-vigil/INVARIANTS.md",
+  "decisions": "PRD section 0bis (2026-08-23) : Q1 nouvel utilisateur vigil cree par deploy.sh (jamais usermod -l, ancien supprime a J+7) ; Q2 bascule seche des metriques (vigil_* seul, pas de double emission) ; Q3 depot jsoyer/vigil ; Q4 /opt/vigil ; Q5 pas d'alias systemd ; Q6 fenetre immediate, flotte migree dans la meme fenetre ; Q7 1.8.3 satisfait ; Q8 src/watchdog.py inchange.",
+  "prerequisite": {
+    "version": "1.8.3",
+    "status": "satisfied",
+    "note": "1.8.3 livree (release.sh idempotent + pip install des dependances par l'updater), cf. CLAUDE.md log de commits et docs/RELEASE-NOTES-1.8.2.md. Prerequis explicitement leve par Q7 (section 0bis du PRD) : plus aucun blocage avant d'attaquer le sprint 1."
+  },
+  "gates": [
+    {
+      "id": "s1-s4-merged-before-fleet",
+      "before_sprint": 5,
+      "blocking": true,
+      "description": "Les sprints 1 a 4 doivent etre merges sur main (via dev -> PR) et scripts/validate.sh vert avant d'ouvrir la fenetre de migration flotte. Le sprint 5 opere depuis un clone git de main a jour, pas depuis une branche de travail."
+    },
+    {
+      "id": "env-mqtt-prefix-audit",
+      "before_sprint": 5,
+      "blocking": true,
+      "description": "grep MQTT_TOPIC_PREFIX /opt/usg-watchdog/.env sur les 4 Pi avant migration (PRD section 2.7) : confirmer que les 4 instances portent un prefixe explicite vigil/<site>-<role> et qu'aucune ne s'appuie sur le defaut usg-watchdog qui devient vigil en 2.0.0."
+    },
+    {
+      "id": "updater-timers-frozen",
+      "in_sprint": 5,
+      "blocking": true,
+      "description": "systemctl disable --now usg-watchdog-updater.timer sur les 4 Pi avant la premiere bascule, reactive uniquement sous le nom vigil-updater.timer une fois chaque instance validee. Aucun updater ne doit tourner pendant la fenetre de migration (PRD section 5.1)."
+    },
+    {
+      "id": "tag-v2.0.0-posted-last",
+      "in_sprint": 5,
+      "blocking": true,
+      "description": "Le tag v2.0.0 n'est pousse qu'apres la validation des 4 Pi (bbh-dij-guardian, bbh-nce-guardian, bbh-network, penelope), jamais avant. Tant qu'il n'existe pas, aucun updater non migre ne peut tirer la 2.0.0. Violer cet ordre expose le risque n1 du PRD (section 8)."
+    }
+  ],
+  "sprints": [
+    {
+      "id": 1,
+      "title": "Depot GitHub, redirection et documentation vivante",
+      "spec": "sprints/01-depot-documentation.md",
+      "status": "pending",
+      "depends_on": [],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [],
+      "files_to_modify": [
+        "README.md",
+        "DEPLOY.md",
+        "WORKFLOW.md",
+        "CLAUDE.md",
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        "updater/update.py"
+      ],
+      "files_read_only": [
+        "docs/adr/",
+        "docs/RELEASE-NOTES-1.8.1.md",
+        "docs/RELEASE-NOTES-1.8.2.md",
+        "docs/tasks/"
+      ],
+      "notes": "Le renommage GitHub lui-meme (gh repo rename jsoyer/usg-watchdog vigil) est execute par l'orchestrateur humain/CLI, PAS par le sous-agent sprint-executor : un sous-agent en worktree n'a pas a manipuler l'identite du depot distant partage par toute la flotte. Le sous-agent prepare le contenu (docs, defaut UPDATER_GITHUB_REPO) ; l'orchestrateur execute gh repo rename et verifie la redirection avant de merger."
+    },
+    {
+      "id": 2,
+      "title": "Unites systemd, scripts et arborescence /opt/vigil",
+      "spec": "sprints/02-systemd-scripts.md",
+      "status": "pending",
+      "depends_on": [1],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [
+        "systemd/vigil.service",
+        "systemd/vigil-updater.service",
+        "systemd/vigil-updater.timer",
+        "systemd/vigil.logrotate"
+      ],
+      "files_to_modify": [
+        "scripts/deploy.sh",
+        "scripts/uninstall.sh",
+        "scripts/setup_ssh.sh",
+        "scripts/test.sh",
+        "scripts/validate.sh",
+        "scripts/release.sh",
+        "scripts/lib/logging.sh"
+      ],
+      "files_read_only": [
+        "systemd/usg-watchdog.service",
+        "systemd/usg-watchdog-updater.service",
+        "systemd/usg-watchdog-updater.timer",
+        "systemd/usg-watchdog.logrotate"
+      ],
+      "forbidden": [
+        "src/",
+        "updater/update.py"
+      ],
+      "notes": "Anciens fichiers systemd/usg-watchdog* restent presents dans le depot (non supprimes) : ils documentent l'unit encore active sur les Pi non migres pendant la fenetre de rollback. Suppression differee, hors perimetre de ce sprint."
+    },
+    {
+      "id": 3,
+      "title": "Code applicatif : chemins, libelles, repli de compatibilite",
+      "spec": "sprints/03-code-applicatif.md",
+      "status": "pending",
+      "depends_on": [1, 2],
+      "risk": "medium",
+      "isolation": "worktree",
+      "files_to_create": [
+        "tests/test_path_fallback.py"
+      ],
+      "files_to_modify": [
+        "src/config.py",
+        "src/events.py",
+        "src/http_server.py",
+        "src/dashboard.py",
+        "src/pwa.py",
+        "src/report.py",
+        "src/telegram_bot.py",
+        "src/watchdog.py",
+        "src/notifier/__init__.py",
+        "src/notifier/_telegram.py",
+        "src/notifier/_discord.py",
+        "src/notifier/_slack.py",
+        "src/notifier/_ntfy.py",
+        "src/notifier/_pushover.py",
+        "src/notifier/_email.py",
+        "src/notifier/_dispatch.py",
+        "src/speedtest.py",
+        "src/ddns_cloudflare.py",
+        "src/isp_status.py",
+        "updater/update.py",
+        "updater/preflight.py",
+        "tests/test_usg.py",
+        "tests/test_dashboard.py",
+        "tests/test_pwa.py",
+        "tests/test_report.py",
+        "tests/test_pushover_notifier.py",
+        "tests/test_watchdog.py",
+        "tests/test_http_server.py"
+      ],
+      "files_read_only": [
+        "src/usg.py",
+        "src/mqtt_publisher.py",
+        "tests/test_mqtt_publisher.py",
+        "src/messages.py"
+      ],
+      "forbidden": [
+        "src/mqtt_publisher.py",
+        "tests/test_mqtt_publisher.py",
+        "src/metrics.py",
+        "tests/test_metrics.py"
+      ],
+      "shared_contracts": [
+        "src/config.py definit les defauts de chemin (/opt/vigil, /var/log/vigil*, MQTT_TOPIC_PREFIX=vigil) consommes par events.py, http_server.py et updater/update.py : ce sprint doit livrer le repli de compatibilite avant que S4 (metriques) ou S5 (flotte) ne s'appuient dessus."
+      ],
+      "notes": "src/watchdog.py reste watchdog.py (decision Q8) : seul son docstring et ses logs de demarrage/arret changent de libelle produit, le nom de fichier et le module ne bougent pas."
+    },
+    {
+      "id": 4,
+      "title": "Metriques Prometheus et Grafana (bascule seche)",
+      "spec": "sprints/04-metriques-prometheus-grafana.md",
+      "status": "pending",
+      "depends_on": [1, 2, 3],
+      "risk": "low",
+      "isolation": "worktree",
+      "files_to_create": [],
+      "files_to_modify": [
+        "src/metrics.py",
+        "tests/test_metrics.py",
+        "grafana/dashboard.json"
+      ],
+      "files_read_only": [
+        "src/config.py"
+      ],
+      "forbidden": [
+        "src/mqtt_publisher.py",
+        "tests/test_mqtt_publisher.py"
+      ],
+      "notes": "Decision 2026-08-23 (Q2) : BASCULE SECHE. Renommage direct des 19 series usg_watchdog_* -> vigil_*, aucune double emission, aucun commentaire DEPRECATED, aucune echeance 2.1.0 a tenir. Sprint plus simple et plus court que la version double-emission initialement chiffree dans le PRD (~20 lignes en moins, pas de test de coexistence des deux familles)."
+    },
+    {
+      "id": 5,
+      "title": "Migration de la flotte et release 2.0.0 (runbook operateur)",
+      "spec": "sprints/05-migration-flotte-release.md",
+      "status": "pending",
+      "depends_on": [1, 2, 3, 4],
+      "risk": "gate",
+      "isolation": "none",
+      "files_to_create": [
+        "docs/RELEASE-NOTES-2.0.0.md"
+      ],
+      "files_to_modify": [
+        "VERSION",
+        "docs/session-learnings.md"
+      ],
+      "files_read_only": [],
+      "notes": "Pas un sprint de code : c'est un runbook execute manuellement (SSH) par l'operateur sur les 4 Pi de production, dans l'ordre slave -> verif -> master -> verif site, site par site (Dijon puis Nice). Pas d'isolation worktree pertinente ici -- ce sprint touche des machines hors depot. Le tag v2.0.0 n'est pousse qu'a la toute fin, apres les 4 Pi valides (gate tag-v2.0.0-posted-last)."
+    }
+  ]
+}
