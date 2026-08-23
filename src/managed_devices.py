@@ -224,6 +224,12 @@ class UsageTracker:
         self._pending[device_id] = (cand, count)
         return confirmed, False
 
+    def confirmed_state(self, device_id: str) -> str | None:
+        """Etat d'usage confirme (idle/in_use/saturated), pour exposition
+        Home Assistant (Sprint 3 A2). None tant qu'aucun releve n'a ete
+        confirme -- jamais un etat invente (C13)."""
+        return self._confirmed.get(device_id)
+
 
 class ManagedDeviceRegistry:
     """Registre des equipements TP-Link declares -- un `TplinkDriver` par
@@ -278,6 +284,12 @@ class ManagedDeviceRegistry:
         self._peer_unreachable_since: dict[str, float] = {}
         self._split_brain_warned: dict[str, bool] = {}
         self._polling_thread: threading.Thread | None = None
+        # Sprint 3 A2 -- dernier resultat de sonde bout-en-bout confirme
+        # (ProbeResult.value : "ok"/"fail"/"leak"), et son horodatage, pour
+        # exposition Home Assistant (C13 -- jamais invente, absent tant
+        # qu'aucune sonde n'a confirme un resultat).
+        self._last_probe_result: dict[str, str] = {}
+        self._last_probe_result_at: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Wiring
@@ -290,6 +302,14 @@ class ManagedDeviceRegistry:
         """Injecte la fonction de publication des boutons Ntfy (voir
         `__init__`). Idempotent, comme `set_event_log`."""
         self._ntfy_send = ntfy_send
+
+    def record_event(self, event_type: str, **data: object) -> None:
+        """Enregistre un evenement via l'event_log de bootstrap, si defini
+        (Sprint 3 A2 -- permet au chemin de commande MQTT de tracer ses
+        refus/actions sans dupliquer le wiring de l'event_log). No-op si
+        `bootstrap()` n'a pas ete appele (ex. tests)."""
+        if self._event_log is not None:
+            self._event_log.record(event_type, **data)
 
     def device_ids(self) -> list[str]:
         return list(self._configs.keys())
@@ -364,6 +384,18 @@ class ManagedDeviceRegistry:
             self._update_readiness_notify(device_id, cfg, readiness, in_use)
             self._update_hop_notify(device_id, cfg, health)
             self._check_probe(device_id, cfg, driver, in_use, now)
+
+            # Sprint 3 A2 -- champs additionnels pour exposition Home
+            # Assistant (C13) : jamais invente, absent/None si jamais
+            # confirme. Ajoutes ici (et non dans `_status_dict`, fonction
+            # pure independante de l'etat du registre) pour que
+            # `_exposed_peer_status` les propage automatiquement -- ils
+            # transitent par le meme JSON que le reste du statut, via
+            # l'endpoint `/api/tplink/<id>` existant.
+            status["usage_state"] = self._usage_tracker.confirmed_state(device_id)
+            status["in_use"] = in_use
+            status["probe_result"] = self._last_probe_result.get(device_id)
+            status["probe_result_at"] = self._last_probe_result_at.get(device_id)
 
             with self._cache_lock:
                 self._status_cache[device_id] = (time.monotonic(), status)
@@ -699,6 +731,12 @@ class ManagedDeviceRegistry:
 
         if result is ProbeResult.UNKNOWN:
             return
+
+        # Sprint 3 A2 -- dernier resultat confirme, expose via get_status()
+        # (C13 : jamais "unknown" invente ici, seuls ok/fail/leak arrivent
+        # a ce point).
+        self._last_probe_result[device_id] = result.value
+        self._last_probe_result_at[device_id] = now
 
         if result is ProbeResult.LEAK:
             if not self._leak_warned.get(device_id, False):

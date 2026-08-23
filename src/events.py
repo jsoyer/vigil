@@ -52,6 +52,12 @@ TPLINK_SPLIT_BRAIN = "tplink_split_brain"
 DATA_QUOTA_WARNING = "data_quota_warning"
 BACKUP_DEGRADED = "backup_degraded"
 BACKUP_READY = "backup_ready"
+# Sprint 3 A2 -- chemin de commande MQTT entrant (C9/C10). Origine "mqtt"
+# portee dans `data["origin"]`, comme "api"/"ntfy" pour tplink_reboot /
+# tplink_reboot_failed (voir src/managed_devices.py). Ce type couvre les
+# refus (non arme, arme expire, payload invalide) -- l'execution reussie ou
+# echouee passe deja par TPLINK_REBOOT / TPLINK_REBOOT_FAILED.
+MQTT_COMMAND_REFUSED = "mqtt_command_refused"
 
 
 class EventLog:
