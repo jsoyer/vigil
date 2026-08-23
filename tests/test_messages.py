@@ -449,8 +449,8 @@ class TestMarkdownDegradable:
         for text in self._all_template_texts():
             assert len(text.encode("utf-8")) <= 4096
 
-    def test_no_leftover_telegram_html_in_source(self):
-        """S2 de ce sprint : purger tout rendu HTML oriente Telegram."""
+    def test_no_leftover_bot_html_in_source(self):
+        """S2 de ce sprint : purger tout rendu HTML oriente bot de chat."""
         import inspect
         from src import messages as m
 

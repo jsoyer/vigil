@@ -759,6 +759,24 @@ def _make_handler_class(
 
             action, token = parts
 
+            import confirm as _confirm
+
+            # Fenetre d'idempotence (~30s, correctif decouvert au test E2E
+            # reel du 2026-08-23) : l'app ntfy iOS envoie ~10 POST identiques
+            # en ~20ms pour un seul appui de bouton. Un rejeu du MEME
+            # jeton+action deja execute avec succes recemment renvoie 200
+            # sans re-executer l'action, sans compter comme un echec du rate
+            # limiter D3 ci-dessous, et sans evenement `confirm_rejected` --
+            # verifie AVANT le rate limiting pour que la rafale ne le
+            # declenche jamais. Un jeton inconnu/expire/mauvaise action
+            # continue de suivre le chemin normal, inchange.
+            is_replay, first_replay = _confirm.check_recent_replay(token, action)
+            if is_replay:
+                if first_replay and event_log is not None:
+                    event_log.record("confirm_replayed", action=action, ip=client_ip)
+                self._respond_json(200, {"ok": True})
+                return
+
             # D3 -- rate limiting : au-dela de N echecs/minute/IP, 429 +
             # evenement `confirm_bruteforce`, sans meme tenter de valider le
             # jeton presente (evite de gaspiller un essai de bruteforce
@@ -772,7 +790,6 @@ def _make_handler_class(
                 self._respond_json(429, {"error": "too many attempts"})
                 return
 
-            import confirm as _confirm
             import managed_devices
 
             success = False
@@ -798,6 +815,11 @@ def _make_handler_class(
                 success = False
 
             if success:
+                # Memorise le succes pour la fenetre d'idempotence -- un
+                # rejeu de CE jeton dans les secondes qui suivent (rafale
+                # ntfy iOS) sera reconnu par check_recent_replay() ci-dessus
+                # au lieu d'echouer.
+                _confirm.record_recent_success(token, action)
                 if event_log is not None:
                     event_log.record("confirm_accepted", action=action, ip=client_ip)
                 self._respond_json(200, {"ok": True})
@@ -851,8 +873,8 @@ def _publish_confirm_actions(
     token: str,
 ) -> bool:
     """Pont vers `notifier._ntfy.send_confirm_actions()` -- injecte dans
-    `managed_devices.registry` en tant que fonction `send` (meme pattern que
-    `send=telegram_bot.send_message` pour `_adapt_for_telegram`), pour que
+    `managed_devices.registry` en tant que fonction `send` (meme principe
+    d'injection que `set_event_log`), pour que
     `managed_devices.py` reste agnostique du canal (jamais d'import direct de
     `_ntfy` la-bas). No-op si Ntfy n'est pas configure. Ne leve jamais."""
     try:
@@ -925,9 +947,9 @@ def start_http_server(
     import managed_devices
 
     managed_devices.bootstrap(event_log)
-    # Ntfy-first S2 : boutons Actions (confirmer/annuler) publies en
-    # parallele du chemin Telegram existant, jamais a sa place -- voir
-    # managed_devices.request_reboot().
+    # Ntfy-first S2 : boutons Actions (confirmer/annuler) publies en plus du
+    # dict retourne par managed_devices.request_reboot() (chemin API/dashboard
+    # inchange), jamais a sa place -- voir managed_devices.request_reboot().
     managed_devices.registry.set_ntfy_send(_publish_confirm_actions)
 
     thread = threading.Thread(

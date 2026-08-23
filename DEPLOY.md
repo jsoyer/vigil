@@ -6,7 +6,7 @@
 - Python 3.11+
 - Accès SSH au USG (clé Ed25519)
 - (optionnel) rclone configuré pour backup UniFi
-- (optionnel) Bot Telegram créé via @BotFather
+- (optionnel) Serveur Ntfy joignable (LAN/Tailscale) pour les notifications et boutons de confirmation
 
 ---
 
@@ -58,9 +58,10 @@ sudo nano /opt/vigil/.env
 USG_IP=192.168.1.1
 USG_USER=maintenance
 
-# Telegram (recommandé, optionnel)
-TELEGRAM_BOT_TOKEN=votre_token
-TELEGRAM_CHAT_ID=votre_chat_id
+# Ntfy (recommandé, optionnel)
+NTFY_URL=http://127.0.0.1:7171
+NTFY_TOPIC=votre_topic_de_site
+NTFY_TOKEN=votre_jeton
 ```
 
 **Configuration recommandée (ajouter)** :
@@ -75,10 +76,6 @@ CLOUDFLARE_RECORD_NAMES=home.example.com
 UNIFI_BACKUP_DIR=/home/pi/docker/unifi-network-server/data/data/backup/autobackup
 UNIFI_BACKUP_RCLONE_DEST=drive:Unifi
 UNIFI_BACKUP_RETENTION_DAYS=30
-
-# Autres canaux de notification (optionnel)
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
 
 # Ntfy (optionnel, alertes self-hosted)
 # NTFY_URL doit pointer vers une adresse interne (loopback ou Tailscale) du
@@ -265,7 +262,7 @@ vers le MR110 depuis cette topologie. En conséquence :
 
 - `API_TOKEN` doit déjà être configuré sur l'instance : sans lui, ni les
   commandes ni la lecture TP-Link par l'API ne sont accessibles (GET et POST
-  répondent `403`). Telegram reste utilisable sans `API_TOKEN`.
+  répondent `403`).
 - Le mot de passe local du MR110 va dans `TPLINK_<n>_PASSWORD` en clair dans
   `/opt/vigil/.env` (chmod 600) -- la librairie vendor n'accepte pas de hash
   pour l'authentification MR. **Limite assumée** : ce mot de passe existe en
@@ -281,7 +278,7 @@ restart du service : un échec de `pip install` annule la mise à jour avant
 tout impact sur l'instance en cours.
 
 Voir `README.md` (section "Lignes de secours TP-Link (4G)") pour la
-déclaration complète des variables, les commandes Telegram et les endpoints
+déclaration complète des variables, le dashboard TP-Link et les endpoints
 API.
 
 ---
@@ -352,8 +349,8 @@ cat /opt/vigil/VERSION
 # /opt/vigil/.env
 USG_IP=192.168.1.1
 USG_USER=maintenance
-TELEGRAM_BOT_TOKEN=xxx
-TELEGRAM_CHAT_ID=xxx
+NTFY_URL=http://127.0.0.1:7171
+NTFY_TOPIC=vigil-dijon
 API_TOKEN=xxx
 INSTANCE_PRIORITY=1
 ```
@@ -364,8 +361,8 @@ INSTANCE_PRIORITY=1
 # /opt/vigil/.env
 USG_IP=192.168.1.1
 USG_USER=maintenance
-TELEGRAM_BOT_TOKEN=xxx
-TELEGRAM_CHAT_ID=xxx
+NTFY_URL=http://100.112.123.103:7171
+NTFY_TOPIC=vigil-dijon
 API_TOKEN=xxx
 INSTANCE_PRIORITY=2
 PEER_IP=192.168.1.10   # IP de la machine primary
@@ -465,20 +462,14 @@ curl http://localhost:9000/api/backup/config > watchdog-config.json
 
 ---
 
-## Via le bot Telegram
+## Boutons de confirmation Ntfy et Dashboard
 
-Envoyer ces commandes au bot depuis votre téléphone :
-
-```
-/status          Etat complet du watchdog
-/pause [min]     Mode surveillance (optionnel: durée en minutes)
-/resume          Reprendre les reboots
-/reboot          Forcer un reboot USG
-/ddns            Forcer une vérification DDNS
-/backup          Lancer un backup UniFi
-/tailscale       Forcer un sync Tailscale
-/help            Aide des commandes
-```
+Les commandes historiquement envoyées à un bot interactif se font désormais
+via le dashboard web (`http://<pi>:9000/dashboard`, jeton `API_TOKEN`) ou
+l'API HTTP directement (voir `README.md`, section « Contrôle à distance »).
+Pour les actions destructives (ex. reboot TP-Link), une notification Ntfy
+avec boutons « Confirmer »/« Annuler » arrive sur le téléphone -- appuyer
+dessus suffit, aucune commande à taper.
 
 ---
 
@@ -497,8 +488,8 @@ Toutes les autres sont optionnelles avec defaults sensibles.
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `TELEGRAM_BOT_TOKEN` | _(vide)_ | Token bot Telegram pour notifications |
-| `TELEGRAM_CHAT_ID` | _(vide)_ | Chat ID destination Telegram |
+| `NTFY_URL` | _(vide)_ | URL serveur Ntfy interne (LAN/Tailscale, jamais Cloudflare) |
+| `NTFY_TOPIC` | _(vide)_ | Topic Ntfy de site (ex: vigil-dijon) |
 | `API_TOKEN` | _(vide)_ | Token d'auth pour endpoints POST (vide = LAN only) |
 | `CLOUDFLARE_API_TOKEN` | _(vide)_ | Token API Cloudflare pour DDNS |
 | `CLOUDFLARE_ZONE_ID` | _(vide)_ | Zone ID Cloudflare |
@@ -554,19 +545,14 @@ sudo ./scripts/setup_ssh.sh
 
 ### Notifications ne fonctionnent pas
 
-**Telegram** :
+**Ntfy** :
 ```bash
-# Tester token
-curl https://api.telegram.org/bot<TOKEN>/getMe
+# Tester la publication
+curl -H "Authorization: Bearer $NTFY_TOKEN" -d "test" "$NTFY_URL/$NTFY_TOPIC"
 
-# Vérifier chat_id
-# Envoyer "/start" au bot et vérifier logs
-```
-
-**Discord/Slack** :
-```bash
-# Tester webhook
-curl -X POST <WEBHOOK_URL> -d '{"content":"test"}' -H "Content-Type: application/json"
+# Vérifier que le serveur est joignable (LAN/Tailscale uniquement -- jamais
+# via le tunnel Cloudflare pour la publication interne)
+curl -v "$NTFY_URL"
 ```
 
 ### DDNS ne met pas à jour

@@ -1,6 +1,7 @@
 """managed_devices.py -- registre des equipements TP-Link MR110 pilotables.
 
-Point d'entree unique des commandes operateur (API + Telegram) sur les
+Point d'entree unique des commandes operateur (API + dashboard + boutons
+d'action Ntfy) sur les
 equipements declares via `TPLINK_<n>_*` (voir config.py). Ce module ne
 construit un `TplinkDriver` que pour un equipement effectivement declare
 (invariant C1 -- import vendor paresseux : `drivers/tplink.py` n'importe
@@ -38,15 +39,6 @@ from notifier import notify
 
 CONFIRM_ACTION_REBOOT = "tplink_reboot"
 DEFAULT_STATUS_CACHE_TTL = 60.0
-
-_HOP_LABELS = {
-    "bridge": "le pont (l'hote qui porte le lien WiFi vers le MR110)",
-    "wireless": "le lien WiFi entre le pont et le MR110",
-    "device": "le MR110 lui-meme",
-    "route": "la route/le NAT vers le MR110 (defaut de configuration, pas une panne)",
-}
-
-_READINESS_LABELS = {"ok": "OK", "degraded": "DEGRADE", "unknown": "INCONNU"}
 
 
 def _default_driver_factory(cfg: TplinkDeviceConfig) -> TplinkDriver:
@@ -157,12 +149,9 @@ class ManagedDeviceRegistry:
         self._status_cache_ttl = status_cache_ttl
         self._event_log = event_log
         # Ntfy-first S2 : fonction `send` injectee pour publier les boutons
-        # Actions (confirmer/annuler) sur une demande de reboot -- meme
-        # principe que `send=telegram_bot.send_message` pour
-        # `_adapt_for_telegram`, mais ici l'injection se fait sur le
-        # registre lui-meme (pas sur un handler individuel) : la publication
-        # doit avoir lieu quel que soit l'origine de la demande (telegram OU
-        # api), pas seulement quand un handler Telegram specifique l'appelle.
+        # Actions (confirmer/annuler) sur une demande de reboot. La
+        # publication doit avoir lieu quel que soit l'origine de la demande
+        # (dashboard OU api), jamais conditionnee a un handler specifique.
         # `None` par defaut = no-op (tests, Ntfy non configure).
         self._ntfy_send = ntfy_send
 
@@ -304,12 +293,12 @@ class ManagedDeviceRegistry:
         )
 
         # Ntfy-first S2 : boutons Actions (confirmer/annuler) publies EN
-        # PLUS du chemin Telegram existant (`origin="telegram"` formate et
-        # envoie son propre message via son handler, inchange), jamais a sa
-        # place. Quelle que soit l'origine de la demande (telegram ou api),
-        # la confirmation devient joignable par bouton. Jamais bloquant :
-        # une erreur de publication ne doit jamais empecher l'emission du
-        # jeton (le chemin Telegram/API JSON reste utilisable).
+        # PLUS du dict retourne par cette methode (chemin API/dashboard
+        # inchange), jamais a sa place. Quelle que soit l'origine de la
+        # demande (dashboard ou api), la confirmation devient joignable par
+        # bouton. Jamais bloquant : une erreur de publication ne doit jamais
+        # empecher l'emission du jeton (le chemin API/dashboard reste
+        # utilisable).
         if self._ntfy_send is not None:
             try:
                 self._ntfy_send(
@@ -394,224 +383,9 @@ def bootstrap(event_log: object | None) -> None:
     """Point d'entree production, appele par `http_server.start_http_server`.
 
     Idempotent : peut etre appele plusieurs fois sans effet de bord --
-    `set_event_log` et `register_lte_handler` sont de simples affectations.
+    `set_event_log` est une simple affectation. Depuis le debranchement du
+    bot interactif historique (Ntfy-first S5), il n'y a plus de handlers a
+    enregistrer ici : le pilotage TP-Link passe par le dashboard et l'API
+    HTTP (`/api/tplink/*`, `/api/confirm/*`).
     """
     registry.set_event_log(event_log)
-    _register_telegram_handlers(registry)
-
-
-def _register_telegram_handlers(target_registry: "ManagedDeviceRegistry") -> None:
-    import telegram_bot
-
-    telegram_bot.register_lte_handler(
-        "", _adapt_for_telegram(_make_handle_lte_all(target_registry))
-    )
-    telegram_bot.register_lte_handler(
-        "status", _adapt_for_telegram(_make_handle_lte_status(target_registry))
-    )
-    telegram_bot.register_lte_handler(
-        "check", _adapt_for_telegram(_make_handle_lte_check(target_registry))
-    )
-    telegram_bot.register_lte_handler(
-        "reboot", _adapt_for_telegram(_make_handle_lte_reboot(target_registry))
-    )
-    telegram_bot.register_lte_handler(
-        "confirm", _adapt_for_telegram(_make_handle_lte_confirm(target_registry))
-    )
-
-    # `/lte <id>` (sans le mot-cle 'status') -- forme raccourcie explicitement
-    # listee par la spec (criteres d'acceptation, 3.7). Un identifiant
-    # d'equipement (index numerique de TPLINK_<n>_*) ne collisionne jamais
-    # avec les mots-cles reserves ci-dessus.
-    for device_id in target_registry.device_ids():
-        telegram_bot.register_lte_handler(
-            device_id,
-            _adapt_for_telegram(_make_handle_lte_bare_id(target_registry, device_id)),
-        )
-
-
-def _adapt_for_telegram(handler: Callable) -> Callable[[str, str, object], None]:
-    """Adapte un handler `(args, chat_id, holder, send)` a la signature
-    `LteHandler` attendue par `telegram_bot.register_lte_handler`
-    (`(args, chat_id, holder) -> None`), en liant `send` a
-    `telegram_bot.send_message`."""
-
-    def wrapped(args: str, chat_id: str, holder: object) -> None:
-        import telegram_bot
-
-        handler(args, chat_id, holder, send=telegram_bot.send_message)
-
-    return wrapped
-
-
-# ---------------------------------------------------------------------------
-# Handlers Telegram -- formatage francais, contexte riche (style existant)
-#
-# Chaque `_make_handle_lte_*` prend un registre en parametre (production ou
-# double de test) et renvoie une fonction `(args, chat_id, holder, send)`
-# directement testable sans dependre de `telegram_bot`.
-# ---------------------------------------------------------------------------
-
-
-def _format_device_line(d: dict) -> str:
-    if not d["reachable"]:
-        hop = d.get("failed_hop")
-        hop_label = (
-            _HOP_LABELS.get(hop, "cause non identifiee") if hop else "cause inconnue"
-        )
-        detail = d.get("detail") or ""
-        return f"- {d['label']} : INJOIGNABLE -- {hop_label}. {detail}".rstrip()
-
-    state_label = _READINESS_LABELS.get(d.get("readiness"), str(d.get("readiness")))
-    parts = [f"- {d['label']} : {state_label}"]
-    if d.get("rsrp") is not None:
-        parts.append(f"RSRP {d['rsrp']}dBm")
-    if d.get("network_type"):
-        parts.append(str(d["network_type"]))
-    if d.get("isp_name"):
-        parts.append(str(d["isp_name"]))
-    line = " | ".join(parts)
-    reasons = d.get("readiness_reasons") or []
-    if reasons:
-        line += "\n  " + " ; ".join(reasons)
-    return line
-
-
-def _make_handle_lte_all(target_registry: ManagedDeviceRegistry) -> Callable:
-    def handler(args: str, chat_id: str, holder: object, send: Callable) -> None:
-        devices = target_registry.list_devices()
-        if not devices:
-            send(chat_id, "Aucun equipement TP-Link declare.")
-            return
-        lines = ["<b>Lignes de secours 4G</b>", ""]
-        lines.extend(_format_device_line(d) for d in devices)
-        send(chat_id, "\n".join(lines))
-
-    return handler
-
-
-def _make_handle_lte_status(target_registry: ManagedDeviceRegistry) -> Callable:
-    def handler(args: str, chat_id: str, holder: object, send: Callable) -> None:
-        device_id = args.strip()
-        status = target_registry.get_status(device_id) if device_id else None
-        if status is None:
-            send(chat_id, f"Equipement TP-Link inconnu : '{device_id}'.")
-            return
-        send(chat_id, _format_device_line(status))
-
-    return handler
-
-
-def _make_handle_lte_bare_id(
-    target_registry: ManagedDeviceRegistry, device_id: str
-) -> Callable:
-    """`/lte <id>` -- raccourci vers le detail d'un equipement, sans le
-    mot-cle 'status'. `device_id` est fige par closure a l'enregistrement
-    (voir `_register_telegram_handlers`) : l'id fait partie de la
-    sous-commande elle-meme, pas des arguments restants."""
-    status_handler = _make_handle_lte_status(target_registry)
-
-    def handler(args: str, chat_id: str, holder: object, send: Callable) -> None:
-        status_handler(device_id, chat_id, holder, send=send)
-
-    return handler
-
-
-def _format_check_result(result: dict) -> str:
-    lines = [f"<b>Sonde bout-en-bout -- {result['label']}</b>", ""]
-    lines.append(
-        f"Attache au reseau 4G (declare par le routeur) : "
-        f"{'OUI' if result['attached'] else 'NON'}"
-    )
-    outcome = result["result"]
-    if outcome == "ok":
-        lines.append(
-            "Data confirmee : OUI -- le lien porte reellement du trafic "
-            "(IP publique differente du site + compteurs en mouvement)."
-        )
-    elif outcome == "fail":
-        lines.append(
-            "Data confirmee : NON -- rien n'est passe sur le lien "
-            "(attache mais pas de trafic ; forfait/APN a verifier)."
-        )
-    elif outcome == "leak":
-        lines.append(
-            "Data confirmee : NON -- impossible de conclure, la sonde est "
-            "ressortie par la fibre (defaut de configuration du chemin de "
-            "test, pas un probleme du secours)."
-        )
-    else:
-        lines.append(
-            "Data confirmee : INCONNU -- le pont ou la commande de sonde "
-            "est injoignable, reessayez plus tard."
-        )
-    return "\n".join(lines)
-
-
-def _make_handle_lte_check(target_registry: ManagedDeviceRegistry) -> Callable:
-    def handler(args: str, chat_id: str, holder: object, send: Callable) -> None:
-        device_id = args.strip()
-        result = target_registry.check(device_id) if device_id else None
-        if result is None:
-            send(chat_id, f"Equipement TP-Link inconnu : '{device_id}'.")
-            return
-        send(chat_id, _format_check_result(result))
-
-    return handler
-
-
-def _make_handle_lte_reboot(target_registry: ManagedDeviceRegistry) -> Callable:
-    def handler(args: str, chat_id: str, holder: object, send: Callable) -> None:
-        device_id = args.strip()
-        result = (
-            target_registry.request_reboot(device_id, origin="telegram")
-            if device_id
-            else None
-        )
-        if result is None:
-            send(chat_id, f"Equipement TP-Link inconnu : '{device_id}'.")
-            return
-        lines = [f"Reboot demande pour {result['label']}.", ""]
-        if result["warning"]:
-            lines.append(f"ATTENTION : {result['warning_reason']}")
-            lines.append("")
-        lines.append(f"Pour confirmer : /lte confirm {result['token']}")
-        lines.append("Jeton a usage unique, expire rapidement.")
-        send(chat_id, "\n".join(lines))
-
-    return handler
-
-
-def _make_handle_lte_confirm(target_registry: ManagedDeviceRegistry) -> Callable:
-    def handler(args: str, chat_id: str, holder: object, send: Callable) -> None:
-        token = args.strip()
-        if not token:
-            send(chat_id, "Jeton manquant. Usage : /lte confirm <jeton>")
-            return
-        result = target_registry.confirm_reboot(token, origin="telegram")
-        if not result.get("executed"):
-            send(
-                chat_id,
-                f"Confirmation refusee : {result.get('error', 'jeton invalide')}",
-            )
-            return
-        if result.get("ok"):
-            send(chat_id, f"Reboot de {result['label']} lance avec succes.")
-        else:
-            label = result.get("label", "l'equipement")
-            send(
-                chat_id,
-                f"Echec du reboot de {label}. Verifiez manuellement sur place.",
-            )
-
-    return handler
-
-
-# Handlers par defaut (production), lies au registre par defaut. Redefinis
-# dynamiquement par `_register_telegram_handlers` a chaque `bootstrap()` --
-# conserves ici pour compatibilite/introspection directe si besoin.
-_handle_lte_all = _make_handle_lte_all(registry)
-_handle_lte_status = _make_handle_lte_status(registry)
-_handle_lte_check = _make_handle_lte_check(registry)
-_handle_lte_reboot = _make_handle_lte_reboot(registry)
-_handle_lte_confirm = _make_handle_lte_confirm(registry)

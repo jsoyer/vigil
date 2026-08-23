@@ -7,12 +7,8 @@ from datetime import datetime
 from notifier._types import Level, NotificationContext, NotificationChannel
 
 from config import (
-    TELEGRAM_MIN_LEVEL,
-    DISCORD_MIN_LEVEL,
-    SLACK_MIN_LEVEL,
     NTFY_MIN_LEVEL,
     SMTP_MIN_LEVEL,
-    PUSHOVER_MIN_LEVEL,
 )
 
 
@@ -37,16 +33,18 @@ def _get_hostname() -> str:
 
 @functools.cache
 def _get_channels() -> tuple[tuple[str, NotificationChannel, str], ...]:
-    """Build channel list once and cache it. Returns tuple for hashability."""
-    from notifier import _telegram, _discord, _slack, _ntfy, _email, _pushover
+    """Build channel list once and cache it. Returns tuple for hashability.
+
+    Ntfy-first (2.2.0) : seuls Ntfy et Email SMTP restent des canaux de
+    notification -- les quatre autres canaux historiques ont ete debranches
+    (PRD Ntfy-first S5, demantelement complet cf. INVARIANTS.md). MQTT/Home
+    Assistant n'a jamais fait partie de ce tuple : c'est un canal de
+    telemetrie separe (mqtt_publisher.py), pas un canal `notify()`."""
+    from notifier import _ntfy, _email
 
     return (
-        ("telegram", _telegram, TELEGRAM_MIN_LEVEL),
-        ("discord", _discord, DISCORD_MIN_LEVEL),
-        ("slack", _slack, SLACK_MIN_LEVEL),
         ("ntfy", _ntfy, NTFY_MIN_LEVEL),
         ("email", _email, SMTP_MIN_LEVEL),
-        ("pushover", _pushover, PUSHOVER_MIN_LEVEL),
     )
 
 

@@ -67,10 +67,13 @@ if [[ ! -f "${ENV_FILE}" ]]; then
     read -rp "  Utilisateur SSH du USG [maintenance] : " INPUT_USG_USER || INPUT_USG_USER=""
     INPUT_USG_USER="${INPUT_USG_USER:-maintenance}"
 
-    read -rp "  Token bot Telegram (vide = skip) : " INPUT_TG_TOKEN || INPUT_TG_TOKEN=""
-    INPUT_TG_CHAT=""
-    if [[ -n "${INPUT_TG_TOKEN}" ]]; then
-        read -rp "  Chat ID Telegram : " INPUT_TG_CHAT || INPUT_TG_CHAT=""
+    read -rp "  URL du serveur Ntfy (ex: http://127.0.0.1:7171, vide = skip) : " INPUT_NTFY_URL || INPUT_NTFY_URL=""
+    INPUT_NTFY_TOPIC=""
+    INPUT_NTFY_TOKEN=""
+    if [[ -n "${INPUT_NTFY_URL}" ]]; then
+        read -rp "  Topic Ntfy du site (ex: vigil-dijon) : " INPUT_NTFY_TOPIC || INPUT_NTFY_TOPIC=""
+        read -rsp "  Jeton Ntfy (Authorization: Bearer, vide = anonyme) : " INPUT_NTFY_TOKEN || INPUT_NTFY_TOKEN=""
+        echo ""
     fi
 
     GENERATED_API_TOKEN=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -78,8 +81,9 @@ if [[ ! -f "${ENV_FILE}" ]]; then
     cat > "${ENV_FILE}" <<ENVEOF
 USG_IP=${INPUT_USG_IP}
 USG_USER=${INPUT_USG_USER}
-TELEGRAM_BOT_TOKEN=${INPUT_TG_TOKEN}
-TELEGRAM_CHAT_ID=${INPUT_TG_CHAT}
+NTFY_URL=${INPUT_NTFY_URL}
+NTFY_TOPIC=${INPUT_NTFY_TOPIC}
+NTFY_TOKEN=${INPUT_NTFY_TOKEN}
 API_TOKEN=${GENERATED_API_TOKEN}
 ENVEOF
 

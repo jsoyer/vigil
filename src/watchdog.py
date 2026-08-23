@@ -8,7 +8,7 @@ Systeme de scoring avec circuit breaker :
 - Max reboots/jour : passe en mode surveillance apres le cap
 - Backoff SSH : ralentit les tentatives SSH en cas d'echec repete
 - Detection ISP : identifie "gateway OK + internet KO" prolonge comme panne ISP
-- Synthese au retablissement : resume de la coupure envoyee par Telegram
+- Synthese au retablissement : resume de la coupure envoyee (Ntfy/Email)
 """
 
 import dataclasses
@@ -74,7 +74,6 @@ from snmp_monitor import read_usg_metrics
 from speedtest import run_speedtest, SPEEDTEST_INTERVAL_CYCLES
 from isp_status import check_isp_status, is_configured as isp_status_configured
 from history import HistoryBuffer
-from telegram_bot import TelegramBot
 from alert_escalation import EscalationTracker
 from multiwan import check_wan_status
 import messages as msg
@@ -303,12 +302,6 @@ def main() -> None:
     # MQTT publisher (optional)
     mqtt = MqttPublisher(state_holder)
     mqtt.start()
-
-    # Telegram bot (optional, uses same token as notifications)
-    telegram_bot = TelegramBot(state_holder)
-    tg_started = telegram_bot.start()
-    if tg_started:
-        logging.debug("Telegram bot demarre")
 
     # Alert escalation + cycle counters
     escalation = EscalationTracker()

@@ -173,19 +173,19 @@ Si un check échoue, le push est bloqué jusqu'à correction.
 
 ---
 
-## Commandes Telegram pour tester
+## Tester les notifications et confirmations
 
-Une fois le watchdog déployé, tu peux contrôler via Telegram :
+Une fois le watchdog déployé, tu peux le contrôler via le dashboard web
+(`http://<pi>:9000/dashboard`) ou l'API :
 
+```bash
+# Publier un test Ntfy (vérifie l'abonnement téléphone)
+curl -H "Authorization: Bearer $NTFY_TOKEN" -d "test" "$NTFY_URL/$NTFY_TOPIC"
 ```
-/status          Etat complet (score, latences, reboots)
-/pause 60        Pause 1 heure (pas de reboot automatique)
-/resume          Reprendre les reboots
-/reboot          Forcer un reboot USG immédiatement
-/ddns            Forcer une vérification DDNS Cloudflare
-/backup          Lancer un backup UniFi
-/help            Aide des commandes
-```
+
+Pour les actions destructives (ex. reboot TP-Link), une notification Ntfy
+avec boutons « Confirmer »/« Annuler » arrive sur le téléphone -- appuyer
+dessus suffit, aucune commande à taper.
 
 ---
 
@@ -232,11 +232,11 @@ Claude :
 
 ---
 
-### "Ajoute le support pour Slack"
+### "Ajoute le support pour un nouveau canal de notification"
 
 Claude :
 1. Crée feature branch `dev`
-2. Ajoute `src/notifier/_slack.py`
+2. Ajoute `src/notifier/_nouveau_canal.py`
 3. Update `src/notifier/_dispatch.py`
 4. Ajoute config vars
 5. Écrit tests
@@ -247,7 +247,7 @@ Claude :
 
 ---
 
-### "Je veux tester la feature Slack avant de l'activer en production"
+### "Je veux tester une nouvelle feature avant de l'activer en production"
 
 Claude :
 1. Pousse un tag dev : `v1.1.0-dev.1`
@@ -337,8 +337,8 @@ A: Oui :
 Aucune commande git requise. Juste parle naturellement :
 
 - "Le watchdog ne démarre pas"
-- "Ajoute le support Slack"
-- "Pourquoi mes notifications Discord ne marchent pas ?"
+- "Ajoute un topic Ntfy supplémentaire"
+- "Pourquoi mes notifications Ntfy ne marchent pas ?"
 - "Je veux un rapport SLA mensuel"
 
 Claude gère tout, crée les issues, développe, teste et déploie.

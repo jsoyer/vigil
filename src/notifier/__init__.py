@@ -1,6 +1,8 @@
 """
 Notification module -- multi-channel alerts for Vigil.
-Supports Telegram, Discord, and Slack. All channels are optional.
+Supports Ntfy (principal, boutons d'action) and Email SMTP. MQTT/Home
+Assistant est un canal de telemetrie separe (mqtt_publisher.py), pas un
+canal notify(). All channels are optional.
 """
 
 from notifier._types import Level, NotificationContext

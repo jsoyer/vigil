@@ -139,8 +139,12 @@ def _reset_confirm_state():
     import confirm
 
     confirm._pending.clear()
+    confirm._recent_success.clear()
+    confirm._recent_success_logged.clear()
     yield
     confirm._pending.clear()
+    confirm._recent_success.clear()
+    confirm._recent_success_logged.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -321,26 +325,100 @@ class TestConfirmEndpointSuccessFlow(_ConfirmEndpointBase):
 
 
 class TestConfirmEndpointReplay(_ConfirmEndpointBase):
-    def test_replayed_token_fails_and_does_not_reboot_twice(self):
+    """Fenetre d'idempotence (~30s, correctif decouvert au test E2E reel du
+    2026-08-23) : l'app ntfy iOS envoie ~10 POST identiques en ~20ms pour un
+    seul appui de bouton. Avant le correctif, 1 requete reussissait et les 9
+    autres echouaient (jeton deja consomme), declenchant quasi a coup sur le
+    rate limiter D3 -- faux `confirm_bruteforce` a chaque appui legitime."""
+
+    def test_replayed_token_within_window_returns_ok_without_reexecuting(self):
         req = self.registry.request_reboot("1", origin="test")
-        first_status, _ = _post(
+        first_status, first_body = _post(
             f"{self.base_url}/api/confirm/tplink_reboot/{req['token']}"
         )
         second_status, second_body = _post(
             f"{self.base_url}/api/confirm/tplink_reboot/{req['token']}"
         )
         assert first_status == 200
-        assert second_status == 404
-        assert second_body == {"error": "unknown or expired"}
-        assert self.driver.reboot_calls == 1
+        assert first_body == {"ok": True}
+        assert second_status == 200
+        assert second_body == {"ok": True}
+        assert self.driver.reboot_calls == 1  # une seule execution reelle
 
-        # `managed_devices.confirm_reboot()` enregistre aussi son propre
-        # evenement metier (`tplink_reboot`) -- inchange, hors perimetre de
-        # ce sprint. On verifie seulement que les evenements systematiques
-        # D7 de l'endpoint sont bien presents, une fois chacun.
         types = [e["type"] for e in self.event_log.get_all()]
         assert types.count("confirm_accepted") == 1
+        assert types.count("confirm_rejected") == 0
+        assert types.count("confirm_replayed") == 1
+
+    def test_replay_burst_of_ten_returns_ok_with_single_execution_and_no_rate_limit(
+        self,
+    ):
+        """Reproduit le bug reel : ~10 POST identiques en rafale pour un
+        seul appui. Doit produire exactement 1 execution et 10 reponses 200,
+        sans compter le moindre echec du rate limiter D3."""
+        req = self.registry.request_reboot("1", origin="test")
+        statuses = []
+        for _ in range(10):
+            status, body = _post(
+                f"{self.base_url}/api/confirm/tplink_reboot/{req['token']}"
+            )
+            statuses.append((status, body))
+
+        assert all(s == 200 and b == {"ok": True} for s, b in statuses)
+        assert self.driver.reboot_calls == 1
+
+        # Une confirmation legitime supplementaire (nouveau jeton) ne doit
+        # jamais etre bloquee par le rate limiter -- preuve que la rafale de
+        # rejeux n'a rien compte comme echec.
+        req2 = self.registry.request_reboot("1", origin="test")
+        status2, body2 = _post(
+            f"{self.base_url}/api/confirm/tplink_reboot/{req2['token']}"
+        )
+        assert status2 == 200
+        assert body2 == {"ok": True}
+        assert self.driver.reboot_calls == 2
+
+    def test_replay_after_idempotency_window_expires_returns_404(self):
+        """Passe la fenetre d'idempotence (~30s) sans attendre reellement :
+        le jeton, deja consomme, redevient un jeton "inconnu" ordinaire --
+        404, compte normalement (meme technique que TestConfirmEndpointExpired
+        pour CONFIRM_TTL)."""
+        import confirm
+
+        req = self.registry.request_reboot("1", origin="test")
+        first_status, _ = _post(
+            f"{self.base_url}/api/confirm/tplink_reboot/{req['token']}"
+        )
+        assert first_status == 200
+
+        token_hash = confirm._hash_token(req["token"])
+        with confirm._recent_lock:
+            entry = confirm._recent_success[token_hash]
+            confirm._recent_success[token_hash] = entry.__class__(
+                action=entry.action, expires_at=0.0
+            )
+
+        second_status, second_body = _post(
+            f"{self.base_url}/api/confirm/tplink_reboot/{req['token']}"
+        )
+        assert second_status == 404
+        assert second_body == {"error": "unknown or expired"}
+        assert self.driver.reboot_calls == 1  # toujours pas de deuxieme reboot
+
+    def test_unknown_token_still_fails_and_counts_as_normal_failure(self):
+        """Un jeton qui n'a jamais existe (jamais dans la fenetre
+        d'idempotence) reste 404 et compte toujours comme un echec normal --
+        le correctif ne doit pas affaiblir le rate limiting sur du
+        bruteforce reel (voir aussi TestConfirmEndpointRateLimit)."""
+        status, body = _post(
+            f"{self.base_url}/api/confirm/tplink_reboot/never-existed"
+        )
+        assert status == 404
+        assert body == {"error": "unknown or expired"}
+
+        types = [e["type"] for e in self.event_log.get_all()]
         assert types.count("confirm_rejected") == 1
+        assert types.count("confirm_replayed") == 0
 
 
 # ---------------------------------------------------------------------------

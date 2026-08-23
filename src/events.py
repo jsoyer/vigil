@@ -35,7 +35,7 @@ ISP_RECOVERY = "isp_recovery"
 PEER_STANDDOWN = "peer_standdown"
 MAX_REBOOTS = "max_reboots"
 # A1 -- equipements TP-Link pilotables (voir src/managed_devices.py). Origine
-# (api|telegram) et device_id portes dans `data`, jamais le mot de passe.
+# (api|ntfy) et device_id portes dans `data`, jamais le mot de passe.
 TPLINK_REBOOT = "tplink_reboot"
 TPLINK_REBOOT_FAILED = "tplink_reboot_failed"
 

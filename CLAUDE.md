@@ -16,10 +16,10 @@ Vigil est un système de surveillance de connexion internet et de redémarrage a
 
 - **Système de scoring** : Pénalités pour défaillances, récupération si rétablissement
 - **Circuit breaker** : Backoff exponentiel, limite quotidienne, détection panne ISP
-- **7 canaux de notification** : Telegram, Discord, Slack, Ntfy, Email SMTP, Pushover, MQTT
+- **3 canaux de notification actifs** : Ntfy (principal, boutons d'action), Email SMTP, MQTT (télémétrie séparée)
 - **Haute disponibilité** : Coordination multi-instance avec failover basé sur priorité
 - **Fonctionnalités avancées** : DDNS Cloudflare, Tailscale sync, Backup UniFi, Speedtest, Prometheus metrics
-- **Telegram Bot** : Commandes interactives (/status, /pause, /resume, /reboot, /ddns, /backup, /help)
+- **Confirmation par capacité** : boutons d'action Ntfy + dashboard pour les décisions opérateur (reboot TP-Link, pause/resume, etc.)
 - **API HTTP complète** : 15+ endpoints pour monitoring et contrôle
 - **Dashboard responsive PWA** : Interface web avec support offline
 - **Auto-updater** : Récupère versions depuis GitHub, valide, déploie, rollback auto
@@ -57,18 +57,13 @@ src/
 ├── snmp_monitor.py           # Lecture métriques USG (CPU, mémoire)
 ├── mqtt_publisher.py         # MQTT / Home Assistant auto-discovery
 ├── alert_escalation.py       # Escalade d'alertes si pas ACK
-├── telegram_bot.py           # Bot Telegram interactif (long-polling)
 ├── messages.py               # Templates messages (tous les canaux)
 ├── notifier/
 │   ├── __init__.py           # Public API: notify(message, level, context)
 │   ├── _types.py             # Level enum + NotificationContext
 │   ├── _dispatch.py          # Dispatch multi-canaux en parallèle
-│   ├── _telegram.py          # Telegram webhook
-│   ├── _discord.py           # Discord webhook
-│   ├── _slack.py             # Slack webhook
 │   ├── _ntfy.py              # Ntfy (self-hosted possible)
-│   ├── _email.py             # Email SMTP (TLS)
-│   └── _pushover.py          # Pushover (mobile push)
+│   └── _email.py             # Email SMTP (TLS)
 └── __init__.py
 
 updater/
@@ -104,7 +99,7 @@ Boucle principale qui :
 7. Enregistre événements
 8. Envoie rapports quotidiens/hebdomadaires
 9. Lance les tâches périodiques (DDNS, Tailscale, Backup, Speedtest)
-10. Gère le Telegram bot + escalade d'alertes
+10. Gère l'escalade d'alertes
 
 #### config.py
 
@@ -120,7 +115,7 @@ Catégories :
 - Circuit breaker : cooldowns, grace, limites
 - SSH backoff : paliers exponentiel
 - ISP detection : durée pattern
-- Notifications (Telegram, Discord, Slack, Ntfy, SMTP, Pushover)
+- Notifications (Ntfy, SMTP)
 - MQTT + Home Assistant
 - DDNS Cloudflare, Tailscale, Backup UniFi
 - Rapports (quotidien, hebdo)
@@ -182,14 +177,11 @@ Ring buffer thread-safe (~100 événements) :
 
 #### notifier/
 
-7 canaux de notification :
-1. Telegram (bot + webhook)
-2. Discord (webhook)
-3. Slack (webhook)
-4. Ntfy (self-hosted ou cloud)
-5. Email SMTP (TLS)
-6. Pushover (mobile)
-7. MQTT (Home Assistant + auto-discovery)
+3 canaux de notification actifs :
+1. Ntfy (self-hosted ou cloud, boutons d'action)
+2. Email SMTP (TLS)
+3. MQTT (Home Assistant + auto-discovery, télémétrie séparée -- pas un
+   canal `notify()`)
 
 Chaque canal :
 - Never raises (failures logged)
@@ -245,11 +237,6 @@ Interface web :
 **alert_escalation.py** : Escalade d'alertes
 - Si CRITICAL non supprimée après N min
 - Re-envoi via canaux prioritaires
-
-**telegram_bot.py** : Bot interactif
-- Long-polling getUpdates
-- Commandes : /status, /pause, /resume, /reboot, /ddns, /backup, /tailscale, /help
-- Affiche contexte riche
 
 #### messages.py
 

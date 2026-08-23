@@ -447,14 +447,14 @@ class TestRequiresConfirmation:
 
         event_log = EventLog(max_events=10, persist_path="/dev/null")
         registry, driver = _make_registry(event_log=event_log)
-        req = registry.request_reboot("1", origin="telegram")
-        result = registry.confirm_reboot(req["token"], origin="telegram")
+        req = registry.request_reboot("1", origin="api")
+        result = registry.confirm_reboot(req["token"], origin="api")
         assert result["ok"] is True
         assert driver.reboot_calls == 1
         events_recorded = event_log.get_all()
         assert len(events_recorded) == 1
         assert events_recorded[0]["type"] == "tplink_reboot"
-        assert events_recorded[0]["data"]["origin"] == "telegram"
+        assert events_recorded[0]["data"]["origin"] == "api"
 
     def test_reboot_failure_traced_as_warning_never_critical(self):
         from events import EventLog
@@ -516,9 +516,9 @@ class TestTrafficWarning:
 
 
 # ---------------------------------------------------------------------------
-# Ntfy-first S2 -- boutons Actions publies EN PLUS du chemin Telegram
-# existant, via une fonction `send` injectee (jamais d'import direct de
-# _ntfy dans ce module).
+# Ntfy-first S2 -- boutons Actions publies EN PLUS du dict retourne par
+# request_reboot() (chemin API/dashboard existant), via une fonction `send`
+# injectee (jamais d'import direct de _ntfy dans ce module).
 # ---------------------------------------------------------------------------
 
 
@@ -548,7 +548,7 @@ class TestNtfySendInjection:
 
     def test_request_reboot_survives_ntfy_send_exception(self):
         """Une erreur de publication Ntfy ne doit jamais empecher l'emission
-        du jeton -- le chemin Telegram/API JSON doit rester utilisable."""
+        du jeton -- le chemin API/dashboard JSON doit rester utilisable."""
 
         def failing_ntfy_send(*args, **kwargs):
             raise RuntimeError("ntfy down")
@@ -568,10 +568,10 @@ class TestNtfySendInjection:
         managed_devices.registry.set_ntfy_send(None)
         assert managed_devices.registry._ntfy_send is None
 
-    def test_telegram_path_unaffected_by_ntfy_injection(self):
-        """Invariant du sprint : le chemin Telegram existant (le dict
-        retourne par request_reboot()) reste identique, que ntfy_send soit
-        injecte ou non."""
+    def test_origin_agnostic_path_unaffected_by_ntfy_injection(self):
+        """Invariant du sprint : le dict retourne par request_reboot()
+        (chemin API/dashboard) reste identique, que ntfy_send soit injecte
+        ou non, quelle que soit l'origine de l'appel."""
         calls = []
 
         def fake_ntfy_send(*args, **kwargs):
@@ -579,7 +579,7 @@ class TestNtfySendInjection:
             return True
 
         registry, _ = _make_registry(ntfy_send=fake_ntfy_send)
-        result = registry.request_reboot("1", origin="telegram")
+        result = registry.request_reboot("1", origin="api")
         assert set(result.keys()) == {
             "token",
             "device_id",
@@ -612,7 +612,7 @@ class TestRebootConfirmLogoutGuaranteedDelegatesToDriver:
 
 
 # ---------------------------------------------------------------------------
-# Bootstrap -- point d'entree production (event_log + handlers Telegram)
+# Bootstrap -- point d'entree production (event_log)
 # ---------------------------------------------------------------------------
 
 
@@ -624,150 +624,6 @@ class TestBootstrap:
         managed_devices.bootstrap(fake_log)
         assert managed_devices.registry._event_log is fake_log
         managed_devices.bootstrap(None)
-
-    def test_bootstrap_registers_telegram_handlers(self):
-        import telegram_bot
-        import managed_devices
-
-        telegram_bot._lte_handlers.clear()
-        managed_devices.bootstrap(None)
-        for key in ("", "status", "check", "reboot", "confirm"):
-            assert key in telegram_bot._lte_handlers
-
-    def test_bootstrap_registers_bare_device_id_shortcut(self):
-        """`/lte <id>` (sans le mot-cle 'status') doit aussi router vers le
-        detail de l'equipement -- forme explicitement listee par la spec
-        (criteres d'acceptation, section 3.7)."""
-        import telegram_bot
-        import managed_devices
-
-        telegram_bot._lte_handlers.clear()
-        registry, _ = _make_registry()  # equipement d'id "1"
-        managed_devices._register_telegram_handlers(registry)
-        assert "1" in telegram_bot._lte_handlers
-
-        # Le handler enregistre est adapte pour telegram_bot (send=_send) ;
-        # on verifie donc via _handle_command bout-en-bout plutot qu'un
-        # appel direct pour capturer le message envoye.
-        import unittest.mock as mock
-
-        with mock.patch("telegram_bot._send") as mock_send:
-            telegram_bot._handle_command("/lte 1", "123", None)
-        msg = mock_send.call_args[0][1]
-        assert "mr110-test" in msg
-
-
-# ---------------------------------------------------------------------------
-# Handlers Telegram -- formatage francais, distinction attache/data
-# ---------------------------------------------------------------------------
-
-
-class TestTelegramHandlers:
-    def setup_method(self):
-        import telegram_bot
-
-        telegram_bot._lte_handlers.clear()
-
-    def teardown_method(self):
-        import telegram_bot
-
-        telegram_bot._lte_handlers.clear()
-
-    def _bind(self, registry):
-        import managed_devices
-
-        managed_devices._handle_lte_all = managed_devices._make_handle_lte_all(registry)
-        managed_devices._handle_lte_status = managed_devices._make_handle_lte_status(
-            registry
-        )
-        managed_devices._handle_lte_check = managed_devices._make_handle_lte_check(
-            registry
-        )
-        managed_devices._handle_lte_reboot = managed_devices._make_handle_lte_reboot(
-            registry
-        )
-        managed_devices._handle_lte_confirm = managed_devices._make_handle_lte_confirm(
-            registry
-        )
-
-    def test_lte_all_lists_devices_by_label(self):
-        import managed_devices
-
-        registry, _ = _make_registry()
-        handler = managed_devices._make_handle_lte_all(registry)
-        sent = []
-        handler("", "123", None, send=lambda chat_id, text: sent.append(text))
-        assert "mr110-test" in sent[0]
-
-    def test_lte_all_empty_registry_is_polite(self):
-        import managed_devices
-
-        registry, _ = _make_registry(devices=[])
-        handler = managed_devices._make_handle_lte_all(registry)
-        sent = []
-        handler("", "123", None, send=lambda chat_id, text: sent.append(text))
-        assert "aucun" in sent[0].lower()
-
-    def test_lte_status_unknown_device_says_so(self):
-        import managed_devices
-
-        registry, _ = _make_registry()
-        handler = managed_devices._make_handle_lte_status(registry)
-        sent = []
-        handler("99", "123", None, send=lambda chat_id, text: sent.append(text))
-        assert "inconnu" in sent[0].lower()
-
-    def test_lte_check_distinguishes_attached_from_data(self):
-        import managed_devices
-
-        driver = _FakeDriver(probe_results=[ProbeResult.FAIL, ProbeResult.FAIL])
-        registry, _ = _make_registry(driver=driver)
-        handler = managed_devices._make_handle_lte_check(registry)
-        sent = []
-        handler("1", "123", None, send=lambda chat_id, text: sent.append(text))
-        text = sent[0].lower()
-        assert "attach" in text
-        assert "data" in text
-
-    def test_lte_check_leak_never_blames_the_backup(self):
-        import managed_devices
-
-        driver = _FakeDriver(probe_results=[ProbeResult.LEAK, ProbeResult.LEAK])
-        registry, _ = _make_registry(driver=driver)
-        handler = managed_devices._make_handle_lte_check(registry)
-        sent = []
-        handler("1", "123", None, send=lambda chat_id, text: sent.append(text))
-        text = sent[0].lower()
-        assert "fibre" in text or "chemin de test" in text
-
-    def test_lte_reboot_then_confirm_flow(self):
-        import managed_devices
-
-        registry, driver = _make_registry()
-        reboot_handler = managed_devices._make_handle_lte_reboot(registry)
-        confirm_handler = managed_devices._make_handle_lte_confirm(registry)
-
-        sent = []
-        reboot_handler("1", "123", None, send=lambda chat_id, text: sent.append(text))
-        assert driver.reboot_calls == 0
-        assert "/lte confirm" in sent[0]
-
-        token = sent[0].split("/lte confirm")[1].strip().split()[0]
-        sent.clear()
-        confirm_handler(
-            token, "123", None, send=lambda chat_id, text: sent.append(text)
-        )
-        assert driver.reboot_calls == 1
-        assert "succes" in sent[0].lower() or "succès" in sent[0].lower()
-
-    def test_lte_confirm_without_token_asks_for_one(self):
-        import managed_devices
-
-        registry, _ = _make_registry()
-        handler = managed_devices._make_handle_lte_confirm(registry)
-        sent = []
-        handler("", "123", None, send=lambda chat_id, text: sent.append(text))
-        assert "jeton" in sent[0].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -788,7 +644,7 @@ class TestMessagesTplinkReboot:
         from messages import tplink_reboot_failed
         from notifier._types import Level
 
-        text, level, ctx = tplink_reboot_failed("mr110-dijon", "telegram")
+        text, level, ctx = tplink_reboot_failed("mr110-dijon", "api")
         assert level == Level.WARNING
         assert level != Level.CRITICAL
 
@@ -817,17 +673,17 @@ class TestRedactSecrets:
 
         data = {
             "TPLINK_1_PASSWORD": "hunter2",
-            "TELEGRAM_BOT_TOKEN": "abc123",
+            "NTFY_TOKEN": "abc123",
             "CLOUDFLARE_API_TOKEN": "xyz",
-            "SLACK_WEBHOOK_URL": "https://hooks.slack.com/secret",
+            "SOME_WEBHOOK_URL": "https://example.com/secret",
             "SOME_KEY": "k",
             "CHECK_INTERVAL": 30,
         }
         redacted = redact_secrets(data)
         assert redacted["TPLINK_1_PASSWORD"] != "hunter2"
-        assert redacted["TELEGRAM_BOT_TOKEN"] != "abc123"
+        assert redacted["NTFY_TOKEN"] != "abc123"
         assert redacted["CLOUDFLARE_API_TOKEN"] != "xyz"
-        assert redacted["SLACK_WEBHOOK_URL"] != "https://hooks.slack.com/secret"
+        assert redacted["SOME_WEBHOOK_URL"] != "https://example.com/secret"
         assert redacted["SOME_KEY"] != "k"
         assert redacted["CHECK_INTERVAL"] == 30
 

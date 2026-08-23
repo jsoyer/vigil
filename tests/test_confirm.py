@@ -20,12 +20,17 @@ _TOKEN_URLSAFE_32_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 @pytest.fixture(autouse=True)
 def _reset_confirm_state():
-    """Isole chaque test : vide le registre de jetons en memoire."""
+    """Isole chaque test : vide le registre de jetons en memoire, ainsi que
+    la fenetre d'idempotence (correctif rejeu, decouvert au test E2E reel)."""
     import confirm
 
     confirm._pending.clear()
+    confirm._recent_success.clear()
+    confirm._recent_success_logged.clear()
     yield
     confirm._pending.clear()
+    confirm._recent_success.clear()
+    confirm._recent_success_logged.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -359,3 +364,96 @@ class TestLoggingNeverExposesToken:
 
         for record in caplog.records:
             assert fake_token not in record.getMessage()
+
+
+# ---------------------------------------------------------------------------
+# Fenetre d'idempotence -- correctif rejeu (decouvert au test E2E reel du
+# 2026-08-23) : l'app ntfy iOS envoie ~10 POST identiques en ~20ms pour un
+# seul appui de bouton. record_recent_success()/check_recent_replay()
+# permettent a l'appelant (http_server.py) de reconnaitre un rejeu sans
+# re-executer l'action ni compter d'echec de rate limiting.
+# ---------------------------------------------------------------------------
+
+
+class TestIdempotencyWindow:
+    def test_unknown_token_is_not_a_replay(self):
+        from confirm import check_recent_replay
+
+        is_replay, first_replay = check_recent_replay("never-recorded", "tplink_reboot")
+        assert is_replay is False
+        assert first_replay is False
+
+    def test_recorded_success_is_recognized_as_replay(self):
+        from confirm import record_recent_success, check_recent_replay
+
+        record_recent_success("tok-abc", "tplink_reboot")
+        is_replay, first_replay = check_recent_replay("tok-abc", "tplink_reboot")
+        assert is_replay is True
+        assert first_replay is True
+
+    def test_burst_of_ten_replays_only_first_is_flagged_first_replay(self):
+        """Reproduit le bug reel : ~10 rejeux en rafale doivent tous etre
+        reconnus comme des rejeux, mais un seul doit valoir `first_replay`
+        (pour ne journaliser confirm_replayed qu'une fois)."""
+        from confirm import record_recent_success, check_recent_replay
+
+        record_recent_success("tok-burst", "tplink_reboot")
+        results = [check_recent_replay("tok-burst", "tplink_reboot") for _ in range(10)]
+        assert all(is_replay for is_replay, _ in results)
+        first_replay_count = sum(1 for _, first in results if first)
+        assert first_replay_count == 1
+        assert results[0] == (True, True)
+        assert all(r == (True, False) for r in results[1:])
+
+    def test_wrong_action_is_not_a_replay(self):
+        from confirm import record_recent_success, check_recent_replay
+
+        record_recent_success("tok-xyz", "tplink_reboot")
+        is_replay, first_replay = check_recent_replay("tok-xyz", "cancel")
+        assert is_replay is False
+        assert first_replay is False
+
+    def test_replay_after_window_expiry_is_not_recognized(self):
+        """Simule l'expiration de la fenetre d'idempotence (~30s) sans
+        attendre reellement -- meme technique que TestPurgeExpired."""
+        from confirm import record_recent_success, check_recent_replay
+
+        record_recent_success("tok-expired", "tplink_reboot", window=-1.0)
+        is_replay, first_replay = check_recent_replay("tok-expired", "tplink_reboot")
+        assert is_replay is False
+        assert first_replay is False
+
+    def test_default_window_is_thirty_seconds(self):
+        import confirm
+
+        assert confirm.IDEMPOTENCY_WINDOW_SECONDS == 30.0
+
+    def test_raw_token_never_stored_in_recent_success(self):
+        """Seule l'empreinte SHA-256 du jeton est memorisee -- jamais le
+        jeton en clair, meme dans cette structure en memoire de courte
+        duree."""
+        from confirm import record_recent_success
+        import confirm as confirm_mod
+
+        token = "super-secret-capability-token"
+        record_recent_success(token, "tplink_reboot")
+        assert token not in confirm_mod._recent_success
+        assert all(token != h for h in confirm_mod._recent_success)
+
+    def test_recording_never_logs_raw_token(self, caplog):
+        from confirm import record_recent_success, check_recent_replay
+
+        token = "another-secret-token"
+        with caplog.at_level(logging.DEBUG):
+            record_recent_success(token, "tplink_reboot")
+            check_recent_replay(token, "tplink_reboot")
+
+        for record in caplog.records:
+            assert token not in record.getMessage()
+
+    def test_empty_token_or_action_is_never_a_replay(self):
+        from confirm import check_recent_replay
+
+        assert check_recent_replay("", "tplink_reboot") == (False, False)
+        assert check_recent_replay("tok", "") == (False, False)
+

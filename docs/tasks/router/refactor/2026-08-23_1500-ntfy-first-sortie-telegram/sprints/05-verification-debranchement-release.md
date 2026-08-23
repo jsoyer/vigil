@@ -187,22 +187,22 @@ forçant le démantèlement.
 
 **Débranchement**
 
-- [ ] `grep -riI "telegram\|pushover\|discord\|slack" src/ tests/ scripts/ updater/ requirements.txt` = **0** (docs historiques exclues)
-- [ ] Les 5 fichiers de canal/bot supprimés ; aucune des 14 variables
+- [x] `grep -riI "telegram\|pushover\|discord\|slack" src/ tests/ scripts/ updater/ requirements.txt` = **0** (docs historiques exclues) -- une exception documentee : `tests/test_ntfy_notifier.py::test_no_reference_to_other_channels` (sprint 1, hors perimetre S5) liste ces mots en dur pour PROUVER leur absence dans `_ntfy.py`, faux positif attendu du grep litteral (voir `docs/session-learnings.md`, entree du 2026-08-23 soir).
+- [x] Les 5 fichiers de canal/bot supprimés ; aucune des 14 variables
       `TELEGRAM_*`/`DISCORD_*`/`SLACK_*`/`PUSHOVER_*` dans `config.py`
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
+- [x] `./scripts/validate.sh` vert, coverage ≥ 80 % (voir preuve d'execution consignee par l'orchestrateur)
 - [ ] Les 4 `.env` de production sans `TELEGRAM_*`, `DISCORD_WEBHOOK_URL`,
       `SLACK_WEBHOOK_URL`, `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`
 - [ ] Les 4 `/health` annoncent `2.2.0` ; publication ntfy réussie visible
       dans les 4 journaux
-- [ ] `docs/RELEASE-NOTES-2.2.0.md` présent et complet (variables retirées,
+- [x] `docs/RELEASE-NOTES-2.2.0.md` présent et complet (variables retirées,
       variables ajoutées, prérequis Tailscale, points de non-retour, rappel
       révocation BotFather à J+7)
-- [ ] `README.md`, `DEPLOY.md`, `CLAUDE.md`, `WORKFLOW.md` à jour (0
+- [x] `README.md`, `DEPLOY.md`, `CLAUDE.md`, `WORKFLOW.md` à jour (0
       occurrence des 4 canaux débranchés hors documents historiques exclus)
 - [ ] `VERSION` = `2.2.0`, tag `v2.2.0` poussé **après** validation des 4
       Pi, `dev` resynchronisée avec `main`
-- [ ] Seuls **Ntfy**, **Email SMTP** et **MQTT** restent comme canaux de
+- [x] Seuls **Ntfy**, **Email SMTP** et **MQTT** restent comme canaux de
       notification actifs (`_get_channels()` de `_dispatch.py` ne contient
       plus que 2 entrées : `ntfy`, `email` — MQTT n'est pas dans ce tuple,
       c'est un canal de télémétrie séparé, invariant § 9 point 2)
