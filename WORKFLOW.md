@@ -1,4 +1,4 @@
-# Workflow de développement — USG Watchdog v1.7.0
+# Workflow de développement — Vigil v2.0.0
 
 Guide pour les non-développeurs qui demandent des changements ou des features.
 
@@ -14,7 +14,7 @@ Tu communiques tes besoins en langage naturel. Claude analyse, développe, teste
 4. **Claude commit** avec référence à l'issue
 5. **L'issue se ferme automatiquement** lors du push
 
-Tu peux voir tout l'historique sur : https://github.com/jsoyer/usg-watchdog/issues
+Tu peux voir tout l'historique sur : https://github.com/jsoyer/vigil/issues
 
 ---
 
@@ -93,13 +93,13 @@ Claude crée un tag dev (ex: `v1.1.0-dev.1`) et te dit comment l'installer :
 
 ```bash
 # Sur le Pi secondaire, modifier .env
-echo "UPDATE_CHANNEL=dev" >> /opt/usg-watchdog/.env
+echo "UPDATE_CHANNEL=dev" >> /opt/vigil/.env
 
 # Forcer la mise à jour
-sudo systemctl start usg-watchdog-updater
+sudo systemctl start vigil-updater
 
 # Logs
-sudo journalctl -u usg-watchdog-updater -f
+sudo journalctl -u vigil-updater -f
 ```
 
 Après test, tu dis "OK pour merger" et c'est promu en production.
@@ -108,7 +108,7 @@ Après test, tu dis "OK pour merger" et c'est promu en production.
 
 ## Comment les mises à jour arrivent sur ta Pi
 
-1. **Timer systemd** : `usg-watchdog-updater` se déclenche à **3h du matin**
+1. **Timer systemd** : `vigil-updater` se déclenche à **3h du matin**
 2. **Check GitHub** : Vérifie s'il y a un nouveau tag `vX.Y.Z`
 3. **Si trouvé** :
    - Télécharge la version
@@ -122,7 +122,7 @@ Après test, tu dis "OK pour merger" et c'est promu en production.
 **Forcer une mise à jour immédiate** :
 
 ```bash
-sudo systemctl start usg-watchdog-updater
+sudo systemctl start vigil-updater
 ```
 
 **Vérifier la version** :

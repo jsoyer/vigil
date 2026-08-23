@@ -13,12 +13,12 @@ labels: bug
 3.
 
 ## Environnement
-- Version USG Watchdog : <!-- cat VERSION -->
+- Version Vigil : <!-- cat VERSION -->
 - Python :
 - OS :
 
 ## Logs
-<!-- Logs pertinents de /var/log/usg-watchdog.log ou journalctl -u usg-watchdog -->
+<!-- Logs pertinents de /var/log/vigil.log ou journalctl -u vigil -->
 
 ```
 coller les logs ici

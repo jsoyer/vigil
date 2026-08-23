@@ -31,7 +31,7 @@ from pathlib import Path
 # Configuration
 # ===================================================================
 
-GITHUB_REPO = os.getenv("UPDATER_GITHUB_REPO", "jsoyer/usg-watchdog")
+GITHUB_REPO = os.getenv("UPDATER_GITHUB_REPO", "jsoyer/vigil")
 UPDATE_CHANNEL = os.getenv("UPDATE_CHANNEL", "stable")  # stable or dev
 INSTALL_DIR = Path(os.getenv("UPDATER_INSTALL_DIR", "/opt/usg-watchdog"))
 SERVICE_NAME = "usg-watchdog"

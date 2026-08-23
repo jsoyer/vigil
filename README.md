@@ -1,8 +1,17 @@
-# USG Watchdog v1.7.0
+# Vigil v2.0.0
 
 Daemon de surveillance de connexion internet et redémarrage automatique du routeur Ubiquiti USG, fonctionnant sur Raspberry Pi ou Linux. Conçu pour les connexions fibre instables avec détection intelligente des pannes ISP, coordination multi-instance et notifications multi-canaux (7 canaux supportés).
 
-**Version de production : v1.7.0**
+**Version de production : v2.0.0**
+
+> **Anciennement USG Watchdog.** Ce projet s'appelait *USG Watchdog* jusqu'à
+> la version 1.8.3. À partir de la 2.0.0 il est renommé **Vigil** — le dépôt
+> GitHub `jsoyer/usg-watchdog` a été renommé `jsoyer/vigil` (une redirection
+> GitHub reste active sur l'ancien nom). Le routeur Ubiquiti surveillé
+> continue d'être désigné "USG" dans la documentation et le code
+> (`src/usg.py`, `USG_IP`, etc.) — seul le nom du logiciel change.
+> Procédure de migration complète : voir `docs/RELEASE-NOTES-2.0.0.md`
+> (ce fichier sera ajouté lors de la finalisation de la version 2.0.0).
 
 ## Table des matières
 
@@ -69,8 +78,8 @@ Un système de **scoring** avec circuit breaker décide automatiquement de redé
 ### 1. Cloner le dépôt
 
 ```bash
-git clone https://github.com/jsoyer/usg-watchdog.git
-cd usg-watchdog
+git clone https://github.com/jsoyer/vigil.git
+cd vigil
 ```
 
 ### 2. Configurer SSH vers le USG
@@ -80,7 +89,7 @@ sudo ./scripts/setup_ssh.sh
 ```
 
 Ce script :
-- Génère une clé Ed25519 dans `/opt/usg-watchdog/.ssh/`
+- Génère une clé Ed25519 dans `/opt/vigil/.ssh/`
 - Capture la clé hôte du USG (known_hosts)
 - Déploie la clé publique sur le USG
 - Teste la connexion sans mot de passe
@@ -88,8 +97,8 @@ Ce script :
 ### 3. Créer le fichier .env
 
 ```bash
-sudo mkdir -p /opt/usg-watchdog
-sudo nano /opt/usg-watchdog/.env
+sudo mkdir -p /opt/vigil
+sudo nano /opt/vigil/.env
 ```
 
 Configuration minimale :
@@ -107,7 +116,7 @@ TELEGRAM_CHAT_ID=987654321
 Sécuriser le fichier :
 
 ```bash
-sudo chmod 600 /opt/usg-watchdog/.env
+sudo chmod 600 /opt/vigil/.env
 ```
 
 ### 4. Déployer
@@ -117,7 +126,7 @@ sudo ./scripts/deploy.sh
 ```
 
 Ce script :
-- Crée l'utilisateur système `usg-watchdog`
+- Crée l'utilisateur système `vigil`
 - Installe les fichiers et dépendances Python
 - Configure le service systemd
 - Démarre le watchdog
@@ -126,10 +135,10 @@ Ce script :
 
 ```bash
 # Status du service
-sudo systemctl status usg-watchdog
+sudo systemctl status vigil
 
 # Logs en temps réel
-sudo journalctl -u usg-watchdog -f
+sudo journalctl -u vigil -f
 
 # Health check
 curl http://localhost:9000/health | python3 -m json.tool
@@ -141,8 +150,8 @@ curl http://localhost:9000/health | python3 -m json.tool
 ### 6. (Recommandé) Installer l'auto-updater
 
 ```bash
-sudo systemctl enable usg-watchdog-updater.timer
-sudo systemctl start usg-watchdog-updater.timer
+sudo systemctl enable vigil-updater.timer
+sudo systemctl start vigil-updater.timer
 ```
 
 Le timer vérifie GitHub à 3h du matin chaque jour. Voir `DEPLOY.md` pour plus de détails.
@@ -151,7 +160,7 @@ Le timer vérifie GitHub à 3h du matin chaque jour. Voir `DEPLOY.md` pour plus 
 
 ## Configuration complète
 
-Tous les paramètres peuvent être surchargés via variables d'environnement dans `/opt/usg-watchdog/.env` :
+Tous les paramètres peuvent être surchargés via variables d'environnement dans `/opt/vigil/.env` :
 
 ### Connexion et ping
 
@@ -159,8 +168,8 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 |----------|--------|-------------|
 | `USG_IP` | `192.168.1.1` | IP du routeur USG (gateway LAN) |
 | `USG_USER` | `ubnt` | User SSH du USG |
-| `USG_SSH_KEY` | `/opt/usg-watchdog/.ssh/usg_ed25519` | Chemin clé SSH privée |
-| `USG_KNOWN_HOSTS` | `/opt/usg-watchdog/.ssh/known_hosts` | Fichier known_hosts |
+| `USG_SSH_KEY` | `/opt/vigil/.ssh/usg_ed25519` | Chemin clé SSH privée |
+| `USG_KNOWN_HOSTS` | `/opt/vigil/.ssh/known_hosts` | Fichier known_hosts |
 | `PING_TIMEOUT` | `3` | Timeout ping en secondes |
 | `SSH_TIMEOUT` | `10` | Timeout connexion SSH en secondes |
 
@@ -253,7 +262,7 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 |----------|--------|-------------|
 | `MQTT_BROKER` | _(vide)_ | Adresse broker MQTT (vide = désactivé) |
 | `MQTT_PORT` | `1883` | Port MQTT |
-| `MQTT_TOPIC_PREFIX` | `usg-watchdog` | Préfixe topics MQTT |
+| `MQTT_TOPIC_PREFIX` | `vigil` | Préfixe topics MQTT |
 | `MQTT_USERNAME` | _(vide)_ | Username MQTT |
 | `MQTT_PASSWORD` | _(vide)_ | Password MQTT |
 | `MQTT_HA_DISCOVERY` | `true` | Envoyer configs auto-discovery Home Assistant |
@@ -325,7 +334,7 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `LOG_LEVEL` | `INFO` | Niveau : DEBUG, INFO, WARNING, ERROR |
-| `LOG_FILE` | `/var/log/usg-watchdog.log` | Chemin fichier log |
+| `LOG_FILE` | `/var/log/vigil.log` | Chemin fichier log |
 
 ---
 
@@ -443,7 +452,7 @@ Requiert : `NTFY_URL`, `NTFY_TOPIC`
 
 ```bash
 NTFY_URL=https://ntfy.sh
-NTFY_TOPIC=usg-watchdog
+NTFY_TOPIC=vigil
 NTFY_MIN_LEVEL=INFO
 ```
 
@@ -484,7 +493,7 @@ Requiert : `MQTT_BROKER`
 ```bash
 MQTT_BROKER=192.168.1.50
 MQTT_PORT=1883
-MQTT_TOPIC_PREFIX=usg-watchdog
+MQTT_TOPIC_PREFIX=vigil
 MQTT_HA_DISCOVERY=true
 ```
 
@@ -1018,7 +1027,7 @@ Endpoint `/api/sla` retourne :
 ## Structure du projet
 
 ```
-usg-watchdog/
+vigil/
 ├── src/
 │   ├── watchdog.py               # Boucle principale + scoring + circuit breaker
 │   ├── config.py                 # Configuration (env vars)
@@ -1059,10 +1068,10 @@ usg-watchdog/
 │   ├── update.py                 # Auto-updater principal
 │   └── preflight.py              # Validation avant deployment
 ├── systemd/
-│   ├── usg-watchdog.service      # Unit systemd (sandboxing)
-│   ├── usg-watchdog.logrotate    # Rotation logs
-│   ├── usg-watchdog-updater.service
-│   └── usg-watchdog-updater.timer
+│   ├── vigil.service      # Unit systemd (sandboxing)
+│   ├── vigil.logrotate    # Rotation logs
+│   ├── vigil-updater.service
+│   └── vigil-updater.timer
 ├── scripts/
 │   ├── setup_ssh.sh              # Setup SSH Ed25519
 │   ├── deploy.sh                 # Installation complète
@@ -1092,16 +1101,16 @@ usg-watchdog/
 ### SSH échoue avec "Connection refused"
 
 1. Vérifier SSH activé sur USG : Settings > Device Authentication
-2. Tester manuellement : `ssh -i /opt/usg-watchdog/.ssh/usg_ed25519 maintenance@192.168.1.1`
+2. Tester manuellement : `ssh -i /opt/vigil/.ssh/usg_ed25519 maintenance@192.168.1.1`
 3. Relancer setup : `sudo ./scripts/setup_ssh.sh`
 4. Vérifier clé publique sur USG : `cat ~/.ssh/authorized_keys`
 
 ### "Peer unreachable" en permanent
 
-1. Vérifier que secondary tourne : `sudo systemctl status usg-watchdog` sur l'autre machine
-2. Vérifier PEER_IP / HTTP_PORT correct dans `/opt/usg-watchdog/.env`
+1. Vérifier que secondary tourne : `sudo systemctl status vigil` sur l'autre machine
+2. Vérifier PEER_IP / HTTP_PORT correct dans `/opt/vigil/.env`
 3. Tester ping : `ping 192.168.1.51`
-4. Consulter logs de secondary : `sudo journalctl -u usg-watchdog -f`
+4. Consulter logs de secondary : `sudo journalctl -u vigil -f`
 5. Vérifier firewall entre les machines
 
 ### Reboots très fréquents
@@ -1114,11 +1123,11 @@ Vérifier :
 
 ### Logs vides ou pas de notifications
 
-1. Vérifier niveau log : `cat /var/log/usg-watchdog.log`
-2. Augmenter verbosité : `echo "LOG_LEVEL=DEBUG" >> /opt/usg-watchdog/.env && sudo systemctl restart usg-watchdog`
+1. Vérifier niveau log : `cat /var/log/vigil.log`
+2. Augmenter verbosité : `echo "LOG_LEVEL=DEBUG" >> /opt/vigil/.env && sudo systemctl restart vigil`
 3. Pour Telegram : tester token/chat_id avec curl
 4. HTTP port disponible ? `sudo netstat -tlnp | grep 9000`
-5. Vérifier permissions fichier log : `sudo ls -l /var/log/usg-watchdog.log`
+5. Vérifier permissions fichier log : `sudo ls -l /var/log/vigil.log`
 
 ### "Divergence detectee" entre instances
 
@@ -1134,9 +1143,9 @@ Solutions :
 
 1. Vérifier port : `curl -v http://192.168.1.50:9000/health`
 2. Vérifier pare-feu : `sudo iptables -L -n | grep 9000`
-3. Vérifier que watchdog tourne : `sudo systemctl status usg-watchdog`
+3. Vérifier que watchdog tourne : `sudo systemctl status vigil`
 4. Vérifier CPU/mémoire : `free -h && uptime`
-5. Vérifier logs du serveur HTTP : `sudo journalctl -u usg-watchdog -f`
+5. Vérifier logs du serveur HTTP : `sudo journalctl -u vigil -f`
 
 ### Notifications non reçues
 
@@ -1161,7 +1170,7 @@ Email :
 
 1. Vérifier configuration : `curl http://localhost:9000/api/config | grep CLOUDFLARE`
 2. Tester manuellement : `curl -X POST -H "Authorization: Bearer TOKEN" http://localhost:9000/api/ddns/update`
-3. Vérifier logs : `sudo journalctl -u usg-watchdog -f | grep -i ddns`
+3. Vérifier logs : `sudo journalctl -u vigil -f | grep -i ddns`
 4. Vérifier token Cloudflare : permissions "Zone.DNS edit"
 5. Vérifier que record A existe
 
@@ -1179,19 +1188,19 @@ Email :
 
 ```bash
 # Statut du service
-sudo systemctl status usg-watchdog
+sudo systemctl status vigil
 
 # Logs temps réel
-sudo journalctl -u usg-watchdog -f
+sudo journalctl -u vigil -f
 
 # Logs complets
-sudo tail -f /var/log/usg-watchdog.log
+sudo tail -f /var/log/vigil.log
 
 # Événements historiques
 curl http://localhost:9000/api/events | python3 -m json.tool
 
 # Redémarrer le watchdog (pas le USG)
-sudo systemctl restart usg-watchdog
+sudo systemctl restart vigil
 
 # Mode surveillance (pas de reboot)
 curl -X POST -H "Authorization: Bearer TOKEN" http://localhost:9000/api/pause
@@ -1212,8 +1221,8 @@ curl http://localhost:9000/api/backup/config > watchdog-backup.json
 curl http://localhost:9000/metrics
 
 # Mode debug
-echo "LOG_LEVEL=DEBUG" >> /opt/usg-watchdog/.env
-sudo systemctl restart usg-watchdog
+echo "LOG_LEVEL=DEBUG" >> /opt/vigil/.env
+sudo systemctl restart vigil
 ```
 
 ---
@@ -1225,8 +1234,8 @@ Le watchdog inclut un système d'auto-mise-à-jour.
 Installation :
 
 ```bash
-sudo systemctl enable usg-watchdog-updater.timer
-sudo systemctl start usg-watchdog-updater.timer
+sudo systemctl enable vigil-updater.timer
+sudo systemctl start vigil-updater.timer
 ```
 
 Le timer se déclenche à **3h du matin** chaque jour.
@@ -1243,7 +1252,7 @@ Processus :
 Forcer une mise à jour immédiate :
 
 ```bash
-sudo systemctl start usg-watchdog-updater
+sudo systemctl start vigil-updater
 ```
 
 Vérifier la version :
@@ -1264,8 +1273,8 @@ curl http://localhost:9000/health | python3 -m json.tool | grep version
 
 ### Permissions
 
-- **Utilisateur dédié** : `usg-watchdog` (non-root, nologin)
-- **Virtualenv isolé** : `/opt/usg-watchdog/venv`
+- **Utilisateur dédié** : `vigil` (non-root, nologin)
+- **Virtualenv isolé** : `/opt/vigil/venv`
 - **SSH dir 700** : Clés privées accessibles uniquement au watchdog
 - **Log file 640** : Logs lisibles par adm seulement
 
@@ -1282,7 +1291,7 @@ curl http://localhost:9000/health | python3 -m json.tool | grep version
 ### Gestion des secrets
 
 - Aucun token/mot de passe hardcodé
-- Variables d'environnement dans `/opt/usg-watchdog/.env` (chmod 600)
+- Variables d'environnement dans `/opt/vigil/.env` (chmod 600)
 - Fichier ignoré par git
 - Jamais de logs d'authentification en clair
 
@@ -1312,7 +1321,7 @@ MIT - voir LICENSE
 
 Pour remonter un bug ou une idée :
 
-1. Créer une issue GitHub : https://github.com/jsoyer/usg-watchdog/issues
+1. Créer une issue GitHub : https://github.com/jsoyer/vigil/issues
 2. Fournir : configuration, logs, étapes de reproduction
 3. Pour les contributions : fork, feature branch, tests, PR
 

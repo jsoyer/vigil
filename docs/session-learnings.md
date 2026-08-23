@@ -1,3 +1,10 @@
+## 2026-08-23 — Renommage USG Watchdog -> Vigil (v2.0.0)
+
+Sprint 1 du grand renommage : dépôt GitHub renommé `jsoyer/vigil` (redirection
+vérifiée), documentation vivante (README, DEPLOY, WORKFLOW, CLAUDE.md,
+template d'issue) mise à jour vers Vigil v2.0.0. Le routeur Ubiquiti reste
+désigné USG (src/usg.py, USG_IP, etc. inchangés).
+
 # Session Learnings — USG Watchdog
 
 Mémoire vivante de session. Survit à `/compact`. Append-only par catégorie.

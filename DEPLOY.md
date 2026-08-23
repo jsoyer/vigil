@@ -1,4 +1,4 @@
-# Guide de déploiement — USG Watchdog v1.7.0
+# Guide de déploiement — Vigil v2.0.0
 
 ## Prérequis
 
@@ -16,8 +16,8 @@
 
 ```bash
 cd /home/pi
-git clone https://github.com/jsoyer/usg-watchdog.git
-cd usg-watchdog
+git clone https://github.com/jsoyer/vigil.git
+cd vigil
 ```
 
 ### 2. Configurer SSH vers le USG
@@ -27,7 +27,7 @@ sudo ./scripts/setup_ssh.sh
 ```
 
 Ce script :
-- Génère une clé Ed25519 dans `/opt/usg-watchdog/.ssh/`
+- Génère une clé Ed25519 dans `/opt/vigil/.ssh/`
 - Capture la clé hôte du USG (known_hosts)
 - Déploie la clé publique sur le USG
 - Teste la connexion sans mot de passe
@@ -35,20 +35,20 @@ Ce script :
 **Note** : Si vous avez une clé existante, vous pouvez sauter cette étape et copier manuellement :
 
 ```bash
-sudo mkdir -p /opt/usg-watchdog/.ssh
-sudo cp ~/.ssh/usg_ed25519 /opt/usg-watchdog/.ssh/
-sudo cp ~/.ssh/usg_ed25519.pub /opt/usg-watchdog/.ssh/
-sudo cp ~/.ssh/known_hosts /opt/usg-watchdog/.ssh/
-sudo chown -R root:root /opt/usg-watchdog/.ssh
-sudo chmod 700 /opt/usg-watchdog/.ssh
-sudo chmod 600 /opt/usg-watchdog/.ssh/usg_ed25519
+sudo mkdir -p /opt/vigil/.ssh
+sudo cp ~/.ssh/usg_ed25519 /opt/vigil/.ssh/
+sudo cp ~/.ssh/usg_ed25519.pub /opt/vigil/.ssh/
+sudo cp ~/.ssh/known_hosts /opt/vigil/.ssh/
+sudo chown -R root:root /opt/vigil/.ssh
+sudo chmod 700 /opt/vigil/.ssh
+sudo chmod 600 /opt/vigil/.ssh/usg_ed25519
 ```
 
 ### 3. Créer le fichier .env
 
 ```bash
-sudo mkdir -p /opt/usg-watchdog
-sudo nano /opt/usg-watchdog/.env
+sudo mkdir -p /opt/vigil
+sudo nano /opt/vigil/.env
 ```
 
 **Configuration minimale** :
@@ -82,7 +82,7 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
 
 # Ntfy (optionnel, alertes self-hosted)
 NTFY_URL=https://ntfy.sh
-NTFY_TOPIC=usg-watchdog
+NTFY_TOPIC=vigil
 
 # MQTT / Home Assistant (optionnel)
 MQTT_BROKER=192.168.1.50
@@ -111,8 +111,8 @@ SMTP_MIN_LEVEL=WARNING
 **Sécuriser le fichier** :
 
 ```bash
-sudo chmod 600 /opt/usg-watchdog/.env
-sudo chown root:root /opt/usg-watchdog/.env
+sudo chmod 600 /opt/vigil/.env
+sudo chown root:root /opt/vigil/.env
 ```
 
 ### 4. Vérifier la configuration (optionnel)
@@ -132,8 +132,8 @@ sudo ./scripts/deploy.sh
 ```
 
 Ce script :
-- Crée l'utilisateur système `usg-watchdog`
-- Installe les fichiers dans `/opt/usg-watchdog/`
+- Crée l'utilisateur système `vigil`
+- Installe les fichiers dans `/opt/vigil/`
 - Crée le virtualenv et installe les dépendances
 - Configure le service systemd avec hardening
 - Démarre le watchdog immédiatement
@@ -142,10 +142,10 @@ Ce script :
 
 ```bash
 # Status du service
-sudo systemctl status usg-watchdog
+sudo systemctl status vigil
 
 # Logs en temps réel
-sudo journalctl -u usg-watchdog -f
+sudo journalctl -u vigil -f
 
 # Health check
 curl http://localhost:9000/health | python3 -m json.tool
@@ -157,14 +157,14 @@ curl http://localhost:9000/health | python3 -m json.tool
 ### 7. (Recommandé) Installer l'auto-updater
 
 ```bash
-sudo systemctl enable usg-watchdog-updater.timer
-sudo systemctl start usg-watchdog-updater.timer
+sudo systemctl enable vigil-updater.timer
+sudo systemctl start vigil-updater.timer
 ```
 
 Vérifier que le timer est actif :
 
 ```bash
-sudo systemctl list-timers | grep usg-watchdog
+sudo systemctl list-timers | grep vigil
 ```
 
 Le timer vérifie GitHub à **3h du matin** chaque jour. Si une nouvelle version (tag vX.Y.Z) est disponible, elle est téléchargée, validée, appliquée et testée automatiquement. En cas d'échec, rollback automatique vers version précédente.
@@ -186,7 +186,7 @@ sudo systemctl disable update-cloudflare-dns.timer 2>/dev/null
 sudo rm -f /etc/systemd/system/update-cloudflare-dns.*
 ```
 
-**Configuration** : Ajouter à `/opt/usg-watchdog/.env` :
+**Configuration** : Ajouter à `/opt/vigil/.env` :
 
 ```bash
 CLOUDFLARE_API_TOKEN=xxx
@@ -204,7 +204,7 @@ sudo crontab -e
 # Commenter/supprimer la ligne du backup
 ```
 
-**Configuration** : Ajouter à `/opt/usg-watchdog/.env` :
+**Configuration** : Ajouter à `/opt/vigil/.env` :
 
 ```bash
 UNIFI_BACKUP_DIR=/path/to/unifi/backups
@@ -223,7 +223,7 @@ sudo systemctl stop tailscale-dnssync.timer 2>/dev/null
 sudo systemctl disable tailscale-dnssync.timer 2>/dev/null
 ```
 
-**Configuration** : Ajouter à `/opt/usg-watchdog/.env` :
+**Configuration** : Ajouter à `/opt/vigil/.env` :
 
 ```bash
 TAILSCALE_API_KEY=tskey-api-xxx
@@ -240,13 +240,13 @@ TAILSCALE_DNS_SUBDOMAIN=ts
 Si l'auto-updater est installé, il suffit d'attendre 3h du matin ou de forcer :
 
 ```bash
-sudo systemctl start usg-watchdog-updater
+sudo systemctl start vigil-updater
 ```
 
 Vérifier les logs :
 
 ```bash
-sudo journalctl -u usg-watchdog-updater -f
+sudo journalctl -u vigil-updater -f
 ```
 
 Attendre le health check final (~30s).
@@ -254,7 +254,7 @@ Attendre le health check final (~30s).
 ### Méthode 2 : Mise à jour manuelle
 
 ```bash
-cd /home/pi/usg-watchdog    # Ou le répertoire du repo
+cd /home/pi/vigil    # Ou le répertoire du repo
 git pull origin main
 sudo ./scripts/deploy.sh
 ```
@@ -270,9 +270,9 @@ sudo ./scripts/deploy.sh
 
 ```bash
 cd /tmp
-wget https://github.com/jsoyer/usg-watchdog/archive/refs/tags/v1.7.0.tar.gz
+wget https://github.com/jsoyer/vigil/archive/refs/tags/v1.7.0.tar.gz
 tar xzf v1.7.0.tar.gz
-cd usg-watchdog-1.7.0
+cd vigil-1.7.0
 
 sudo ./scripts/deploy.sh
 ```
@@ -286,7 +286,7 @@ sudo ./scripts/deploy.sh
 curl -s http://localhost:9000/health | python3 -m json.tool | grep version
 
 # Via le fichier
-cat /opt/usg-watchdog/VERSION
+cat /opt/vigil/VERSION
 ```
 
 ---
@@ -296,7 +296,7 @@ cat /opt/usg-watchdog/VERSION
 ### Machine principale (Primary)
 
 ```bash
-# /opt/usg-watchdog/.env
+# /opt/vigil/.env
 USG_IP=192.168.1.1
 USG_USER=maintenance
 TELEGRAM_BOT_TOKEN=xxx
@@ -308,7 +308,7 @@ INSTANCE_PRIORITY=1
 ### Machine secondaire (Secondary, optionnel pour HA)
 
 ```bash
-# /opt/usg-watchdog/.env
+# /opt/vigil/.env
 USG_IP=192.168.1.1
 USG_USER=maintenance
 TELEGRAM_BOT_TOKEN=xxx
@@ -369,16 +369,16 @@ TAILSCALE_SYNC_INTERVAL=600      # Check toutes les 10 min
 
 ```bash
 # Statut du service
-sudo systemctl status usg-watchdog
+sudo systemctl status vigil
 
 # Logs temps réel
-sudo journalctl -u usg-watchdog -f
+sudo journalctl -u vigil -f
 
 # Redémarrer le watchdog (pas le USG)
-sudo systemctl restart usg-watchdog
+sudo systemctl restart vigil
 
 # Forcer une mise à jour
-sudo systemctl start usg-watchdog-updater
+sudo systemctl start vigil-updater
 
 # Forcer une pause (maintenance réseau)
 curl -X POST -H "Authorization: Bearer VOTRE_TOKEN" \
@@ -477,20 +477,20 @@ Ce script :
 
 ```bash
 # Vérifier les erreurs
-sudo journalctl -u usg-watchdog -n 50
+sudo journalctl -u vigil -n 50
 
 # Vérifier la config
-sudo cat /opt/usg-watchdog/.env
+sudo cat /opt/vigil/.env
 
 # Tester manually
-sudo -u usg-watchdog python3 -m src.watchdog
+sudo -u vigil python3 -m src.watchdog
 ```
 
 ### SSH échoue
 
 ```bash
 # Tester manuellement
-ssh -i /opt/usg-watchdog/.ssh/usg_ed25519 maintenance@192.168.1.1
+ssh -i /opt/vigil/.ssh/usg_ed25519 maintenance@192.168.1.1
 
 # Vérifier clé sur USG
 # SSH sur USG, puis : cat ~/.ssh/authorized_keys
@@ -524,7 +524,7 @@ curl -X POST -H "Authorization: Bearer TOKEN" \
   http://localhost:9000/api/ddns/update
 
 # Vérifier logs
-sudo journalctl -u usg-watchdog -f | grep -i ddns
+sudo journalctl -u vigil -f | grep -i ddns
 
 # Vérifier token Cloudflare (permissions Zone.DNS edit)
 ```
@@ -562,9 +562,9 @@ df -h
 Pour des questions ou bugs :
 
 1. Consulter README.md (documentation complète)
-2. Vérifier les logs : `sudo journalctl -u usg-watchdog -f`
+2. Vérifier les logs : `sudo journalctl -u vigil -f`
 3. Consulter WORKFLOW.md (pour commandes de base)
-4. Créer une issue GitHub : https://github.com/jsoyer/usg-watchdog/issues
+4. Créer une issue GitHub : https://github.com/jsoyer/vigil/issues
 
 ---
 

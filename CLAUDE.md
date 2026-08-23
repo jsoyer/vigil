@@ -1,10 +1,18 @@
-# USG Watchdog v1.7.0 — CLAUDE.md
+# Vigil v2.0.0 — CLAUDE.md
 
-Guide architectural et procédures développement pour USG Watchdog.
+Guide architectural et procédures développement pour Vigil.
+
+> **Anciennement USG Watchdog.** Ce projet s'appelait *USG Watchdog* jusqu'à
+> la version 1.8.3. À partir de la 2.0.0 il est renommé **Vigil** — le dépôt
+> GitHub `jsoyer/usg-watchdog` a été renommé `jsoyer/vigil` (redirection
+> GitHub active sur l'ancien nom). Le routeur Ubiquiti surveillé continue
+> d'être désigné « USG » dans la documentation et le code (`src/usg.py`,
+> `USG_IP`, etc.) — seul le nom du logiciel change. Procédure de migration
+> complète : voir `docs/RELEASE-NOTES-2.0.0.md`.
 
 ## Vue d'ensemble du projet
 
-USG Watchdog est un système de surveillance de connexion internet et de redémarrage automatique du routeur Ubiquiti USG, fonctionnant sur Raspberry Pi ou Linux. Il combine :
+Vigil est un système de surveillance de connexion internet et de redémarrage automatique du routeur Ubiquiti USG, fonctionnant sur Raspberry Pi ou Linux. Il combine :
 
 - **Système de scoring** : Pénalités pour défaillances, récupération si rétablissement
 - **Circuit breaker** : Backoff exponentiel, limite quotidienne, détection panne ISP
@@ -63,10 +71,10 @@ updater/
 └── preflight.py              # Validation syntaxe + imports
 
 systemd/
-├── usg-watchdog.service      # Unit hardening: ProtectSystem, PrivateTmp, CAP_NET_RAW, etc.
-├── usg-watchdog-updater.service
-├── usg-watchdog-updater.timer
-└── usg-watchdog.logrotate
+├── vigil.service              # Unit hardening: ProtectSystem, PrivateTmp, CAP_NET_RAW, etc.
+├── vigil-updater.service
+├── vigil-updater.timer
+└── vigil.logrotate
 
 scripts/
 ├── setup_ssh.sh              # Setup SSH (Ed25519, known_hosts, test)
@@ -164,7 +172,7 @@ Ring buffer thread-safe (~100 événements) :
 - Event : frozen dataclass (ts, type, data)
 - EventLog : thread-safe append + persistence JSON
 - Types : startup, shutdown, reboot, reboot_failed, recovery, isp_outage, isp_recovery, peer_standdown, ssh_backoff, max_reboots, divergence, etc.
-- Persisté à `/var/log/usg-watchdog-events.json`
+- Persisté à `/var/log/vigil-events.json`
 - Rechargé au startup
 
 #### notifier/
@@ -467,15 +475,15 @@ sudo ./scripts/test.sh
 sudo ./scripts/deploy.sh
 
 # Post-deploy
-sudo systemctl status usg-watchdog
-sudo journalctl -u usg-watchdog -f
+sudo systemctl status vigil
+sudo journalctl -u vigil -f
 ```
 
-Service : `/etc/systemd/system/usg-watchdog.service`
-User : `usg-watchdog` (non-root)
-Install : `/opt/usg-watchdog`
-Logs : `/var/log/usg-watchdog.log`
-Logrotate : `/etc/logrotate.d/usg-watchdog`
+Service : `/etc/systemd/system/vigil.service`
+User : `vigil` (non-root)
+Install : `/opt/vigil`
+Logs : `/var/log/vigil.log`
+Logrotate : `/etc/logrotate.d/vigil`
 
 ## Versioning
 
@@ -501,7 +509,7 @@ Auto-updater récupère les tags depuis GitHub (v1.7.0, etc.)
 ## Security Checklist
 
 - [ ] SSH : Ed25519 keys, known_hosts verification, strict rejection
-- [ ] Permissions : user=usg-watchdog, files 600/700
+- [ ] Permissions : user=vigil, files 600/700
 - [ ] Systemd : ProtectSystem, PrivateTmp, NoNewPrivileges, CAP_NET_RAW only
 - [ ] API Token : authentification Bearer si sensible
 - [ ] Secrets : JAMAIS hardcodés, env vars seulement, .env chmod 600
@@ -510,10 +518,10 @@ Auto-updater récupère les tags depuis GitHub (v1.7.0, etc.)
 
 ## File Tree Example
 
-Après déploiement, structure `/opt/usg-watchdog/` :
+Après déploiement, structure `/opt/vigil/` :
 
 ```
-/opt/usg-watchdog/
+/opt/vigil/
 ├── src/                     # Source code
 ├── venv/                    # Python virtualenv
 ├── .ssh/
