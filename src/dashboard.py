@@ -187,6 +187,29 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
 .tplink-item:last-child { border-bottom: none; }
 .tplink-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .tplink-label { font-weight: 600; margin-right: 0.25rem; }
+.tplink-hop-fail { color: #f85149; font-size: 0.8rem; margin-top: 0.3rem; }
+.tplink-signal-block { color: #8b949e; font-size: 0.75rem; margin-top: 0.3rem; }
+.tplink-peer-note { color: #8b949e; font-size: 0.75rem; margin-top: 0.3rem; }
+.tplink-usage-banner {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.tplink-usage-active { background: #58a6ff; color: #000; }
+.tplink-usage-saturated { background: #d29922; color: #000; }
+.tplink-quota-block { color: #8b949e; font-size: 0.8rem; margin-top: 0.3rem; }
+.tplink-quota-bar {
+  width: 100%;
+  max-width: 260px;
+  height: 6px;
+  background: #21262d;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.25rem;
+}
+.tplink-quota-bar-fill { height: 100%; background: #58a6ff; border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -691,6 +714,132 @@ function tplinkFeedbackId(deviceId) {
   return 'tplink-feedback-' + deviceId;
 }
 
+// Quota data (cycle consumption, %, next reset) is not part of the
+// /api/tplink JSON -- it is parsed client-side from the existing /metrics
+// endpoint (Prometheus text format) and merged here by device id.
+var tplinkQuotaByDevice = {};
+
+function tplinkReadinessBadge(readiness) {
+  if (readiness === 'ok') return { cls: 'badge-healthy', text: 'Pret' };
+  if (readiness === 'degraded') return { cls: 'badge-degraded', text: 'Degrade' };
+  return { cls: 'badge-starting', text: 'Inconnu' };
+}
+
+function tplinkHopLabel(hop) {
+  if (hop === 'bridge') {
+    return 'Pont Pi Zero en panne (alimente en PoE : peut venir du Pi, du port switch, du budget PoE ou du cable)';
+  }
+  if (hop === 'wireless') return 'Liaison sans fil Pi Zero - routeur en panne';
+  if (hop === 'device') return 'Routeur injoignable';
+  if (hop === 'route') return 'Route reseau absente ou mal configuree';
+  return '';
+}
+
+function tplinkSignalLine(d) {
+  var fields = [
+    ['RSRP', d.rsrp, 'dBm'],
+    ['RSRQ', d.rsrq, 'dB'],
+    ['SNR', d.snr, 'dB'],
+    ['Reseau', d.network_type, ''],
+    ['SIM', d.sim_status, ''],
+    ['Operateur', d.isp_name, '']
+  ];
+  return fields.filter(function(f) {
+    return f[1] !== null && f[1] !== undefined;
+  }).map(function(f) {
+    return f[0] + ' ' + f[1] + f[2];
+  }).join(' | ');
+}
+
+// Saturation thresholds mirror the backend constants in
+// src/managed_devices.py and src/metrics.py -- these values must stay in
+// sync with those files.
+function tplinkUsageState(d) {
+  var rx = typeof d.rx_speed_bps === 'number' ? d.rx_speed_bps : null;
+  var tx = typeof d.tx_speed_bps === 'number' ? d.tx_speed_bps : null;
+  var clients = typeof d.clients_total === 'number' ? d.clients_total : null;
+  if (rx === null && tx === null && clients === null) return 'unknown';
+  rx = rx || 0; tx = tx || 0; clients = clients || 0;
+  var saturated = rx >= 150000000 * 0.8 || tx >= 50000000 * 0.8 || clients >= 32;
+  if (saturated) return 'saturated';
+  if (rx > 0 || tx > 0 || clients > 0) return 'in_use';
+  return 'idle';
+}
+
+function formatBytes(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + ' MB';
+  return Math.round(n) + ' B';
+}
+
+function parseTplinkQuotaFromMetrics(text) {
+  var byDevice = {};
+  var patterns = {
+    used: /^vigil_tplink_quota_used_bytes\\{([^}]*)\\}\\s+([0-9.eE+-]+)$/,
+    total: /^vigil_tplink_quota_bytes_total\\{([^}]*)\\}\\s+([0-9.eE+-]+)$/,
+    pct: /^vigil_tplink_quota_pct\\{([^}]*)\\}\\s+([0-9.eE+-]+)$/,
+    reset: /^vigil_tplink_quota_reset_info\\{([^}]*)\\}\\s+1$/
+  };
+  function extractDeviceId(labelStr) {
+    var m = labelStr.match(/device="([^"]*)"/);
+    return m ? m[1] : null;
+  }
+  text.split('\\n').forEach(function(line) {
+    var m;
+    if ((m = line.match(patterns.used))) {
+      var id = extractDeviceId(m[1]);
+      if (id) { byDevice[id] = byDevice[id] || {}; byDevice[id].used = parseFloat(m[2]); }
+    } else if ((m = line.match(patterns.total))) {
+      var id2 = extractDeviceId(m[1]);
+      if (id2) { byDevice[id2] = byDevice[id2] || {}; byDevice[id2].total = parseFloat(m[2]); }
+    } else if ((m = line.match(patterns.pct))) {
+      var id3 = extractDeviceId(m[1]);
+      if (id3) { byDevice[id3] = byDevice[id3] || {}; byDevice[id3].pct = parseFloat(m[2]); }
+    } else if ((m = line.match(patterns.reset))) {
+      var id4 = extractDeviceId(m[1]);
+      if (id4) {
+        byDevice[id4] = byDevice[id4] || {};
+        var rm = m[1].match(/next_reset="([^"]*)"/);
+        byDevice[id4].nextReset = rm ? rm[1] : null;
+      }
+    }
+  });
+  return byDevice;
+}
+
+// /metrics is routed in http_server.py do_GET without any _check_auth()
+// call (it is scraped by Prometheus) -- a plain unauthenticated fetch is
+// the correct call here, unlike the /api/* endpoints.
+async function refreshTplinkQuota() {
+  try {
+    var res = await fetch('/metrics');
+    if (!res.ok) return;
+    tplinkQuotaByDevice = parseTplinkQuotaFromMetrics(await res.text());
+  } catch(e) {
+    // Quota display is best-effort -- a metrics fetch/parse failure must
+    // never break the rest of the dashboard.
+  }
+}
+
+function tplinkQuotaBlock(id) {
+  var q = tplinkQuotaByDevice[id];
+  if (!q) return '';
+  var parts = [];
+  if (typeof q.used === 'number') parts.push('Conso ' + formatBytes(q.used));
+  if (typeof q.total === 'number') parts.push('Forfait ' + formatBytes(q.total));
+  if (typeof q.pct === 'number') parts.push(Math.round(q.pct) + '%');
+  var html = '<div class="tplink-quota-block">' + parts.join(' | ');
+  if (typeof q.pct === 'number') {
+    var w = Math.max(0, Math.min(100, q.pct));
+    html += '<div class="tplink-quota-bar"><div class="tplink-quota-bar-fill" style="width: ' + w + '%"></div></div>';
+  }
+  if (q.nextReset) {
+    html += '<div>Prochain reset : ' + q.nextReset + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function renderTplinkList(devices) {
   var container = document.getElementById('tplink-list');
   if (!container) return;
@@ -700,23 +849,46 @@ function renderTplinkList(devices) {
   }
   container.innerHTML = devices.map(function(d) {
     var id = d.id;
-    var reachable = !!d.reachable;
-    var badgeClass = reachable ? 'badge-ok' : 'badge-ko';
-    var badgeText = reachable ? 'OK' : 'KO';
-    return '<li class="tplink-item" id="tplink-item-' + id + '">' +
+    var badge = tplinkReadinessBadge(d.readiness);
+    var html = '<li class="tplink-item" id="tplink-item-' + id + '">' +
       '<div class="tplink-row">' +
       '<span class="tplink-label">' + d.label + '</span>' +
-      '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
-      '<button class="btn" onclick="tplinkCheck(\'' + id + '\')">Verifier</button>' +
-      '<button class="btn btn-danger" onclick="tplinkReboot(\'' + id + '\')">Redemarrer</button>' +
+      '<span class="badge ' + badge.cls + '">' + badge.text + '</span>';
+    var usage = tplinkUsageState(d);
+    if (usage === 'in_use') {
+      html += '<div class="tplink-usage-banner tplink-usage-active">En service</div>';
+    } else if (usage === 'saturated') {
+      html += '<div class="tplink-usage-banner tplink-usage-saturated">Sature</div>';
+    }
+    html += '<button class="btn" onclick="tplinkCheck(\\'' + id + '\\')">Verifier</button>' +
+      '<button class="btn btn-danger" onclick="tplinkReboot(\\'' + id + '\\')">Redemarrer</button>' +
       '<span id="' + tplinkFeedbackId(id) + '" class="btn-feedback"></span>' +
-      '</div>' +
-      '</li>';
+      '</div>';
+    if (d.reachable === false && d.failed_hop) {
+      var hopMsg = tplinkHopLabel(d.failed_hop);
+      if (hopMsg) {
+        html += '<div class="tplink-hop-fail">' + hopMsg + '</div>';
+      }
+    }
+    var signal = tplinkSignalLine(d);
+    if (signal) {
+      html += '<div class="tplink-signal-block">' + signal + '</div>';
+    }
+    html += tplinkQuotaBlock(id);
+    if (d.from_peer) {
+      var age = typeof d.age_seconds === 'number'
+        ? 'age: ' + Math.round(d.age_seconds) + 's'
+        : 'age inconnu';
+      html += '<div class="tplink-peer-note">Donnee du peer (' + age + ')</div>';
+    }
+    html += '</li>';
+    return html;
   }).join('');
 }
 
 async function refreshTplink() {
   if (!getApiToken()) return;
+  await refreshTplinkQuota();
   try {
     var result = await apiRequest('/api/tplink', 'GET');
     renderTplinkList(Array.isArray(result.data) ? result.data : []);
@@ -739,7 +911,7 @@ async function tplinkReboot(deviceId) {
     if (data && data.token) {
       var msg = 'Confirmer le reboot de ' + (data.label || deviceId) + ' ?';
       if (data.warning && data.warning_reason) {
-        msg += '\n' + data.warning_reason;
+        msg += '\\n' + data.warning_reason;
       }
       if (confirm(msg)) {
         await tplinkConfirmReboot(deviceId, data.token);

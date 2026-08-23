@@ -22,6 +22,208 @@ def _configured_notification_channels_count() -> int:
     return count
 
 
+# Seuils de classification d'usage TP-Link -- duplique volontairement
+# managed_devices._classify_usage (lecture seule pour ce sprint, cf.
+# INVARIANTS.md et frontieres du sprint 2 A2). A garder synchronise avec
+# src/managed_devices.py si ces valeurs y changent.
+_CAT4_DOWNLINK_BPS = 150_000_000
+_CAT4_UPLINK_BPS = 50_000_000
+_SATURATION_RATIO = 0.8
+_MAX_CLIENTS = 32
+
+_READINESS_NUMERIC = {"ok": 2, "degraded": 1, "unknown": 0}
+_USAGE_NUMERIC = {"idle": 0, "in_use": 1, "saturated": 2}
+
+
+def _classify_tplink_usage(rx_speed_bps, tx_speed_bps, clients_total) -> str:
+    """Classifie l'usage instantane d'un equipement TP-Link depuis ses
+    metriques MR110. Duplique volontairement managed_devices._classify_usage
+    (lecture seule pour ce sprint) -- champs absents => "unknown", jamais un
+    etat invente."""
+    rx = rx_speed_bps if isinstance(rx_speed_bps, (int, float)) else None
+    tx = tx_speed_bps if isinstance(tx_speed_bps, (int, float)) else None
+    clients = clients_total if isinstance(clients_total, int) else None
+
+    if rx is None and tx is None and clients is None:
+        return "unknown"
+
+    rx = rx or 0
+    tx = tx or 0
+    clients = clients or 0
+
+    saturated = (
+        rx >= _CAT4_DOWNLINK_BPS * _SATURATION_RATIO
+        or tx >= _CAT4_UPLINK_BPS * _SATURATION_RATIO
+        or clients >= _MAX_CLIENTS
+    )
+    if saturated:
+        return "saturated"
+    if rx > 0 or tx > 0 or clients > 0:
+        return "in_use"
+    return "idle"
+
+
+def _escape_label_value(value: object) -> str:
+    """Echappe une valeur de label Prometheus (backslash, guillemet, retour
+    ligne) selon le format d'exposition texte."""
+    text = str(value)
+    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _render_tplink_metrics(gauge) -> None:
+    """Metriques labellisees par equipement TP-Link -- ajoutees a cote des
+    metriques legacy sans label (C4 : jamais de label sur une metrique
+    existante).
+
+    Lecture seule sur managed_devices.py pour ce sprint (import local,
+    meme convention que _configured_notification_channels_count) -- ce
+    module se contente d'appeler l'API publique du registre."""
+    import managed_devices
+
+    try:
+        devices = managed_devices.registry.list_devices()
+    except Exception:
+        # Jamais casser /metrics a cause du sous-systeme TP-Link.
+        return
+
+    for d in devices:
+        device_id = d.get("id")
+        if not device_id:
+            continue
+        device_label = d.get("label") or device_id
+        labels = (
+            f'device="{_escape_label_value(device_id)}",'
+            f'label="{_escape_label_value(device_label)}"'
+        )
+
+        readiness = d.get("readiness")
+        gauge(
+            "vigil_tplink_readiness",
+            "TP-Link device readiness (2=ok, 1=degraded, 0=unknown)",
+            _READINESS_NUMERIC.get(readiness, 0),
+            labels,
+        )
+
+        reachable = d.get("reachable")
+        if reachable is not None:
+            gauge(
+                "vigil_tplink_reachable",
+                "Whether the TP-Link device answered its last health check",
+                int(bool(reachable)),
+                labels,
+            )
+
+        rsrp = d.get("rsrp")
+        if rsrp is not None:
+            gauge("vigil_tplink_rsrp_dbm", "TP-Link RSRP in dBm", rsrp, labels)
+
+        rsrq = d.get("rsrq")
+        if rsrq is not None:
+            gauge("vigil_tplink_rsrq_db", "TP-Link RSRQ in dB", rsrq, labels)
+
+        snr = d.get("snr")
+        if snr is not None:
+            gauge("vigil_tplink_snr_db", "TP-Link SNR in dB", snr, labels)
+
+        rx_speed_bps = d.get("rx_speed_bps")
+        if rx_speed_bps is not None:
+            gauge(
+                "vigil_tplink_rx_bps",
+                "TP-Link download speed in bits per second",
+                rx_speed_bps,
+                labels,
+            )
+
+        tx_speed_bps = d.get("tx_speed_bps")
+        if tx_speed_bps is not None:
+            gauge(
+                "vigil_tplink_tx_bps",
+                "TP-Link upload speed in bits per second",
+                tx_speed_bps,
+                labels,
+            )
+
+        usage = _classify_tplink_usage(
+            rx_speed_bps, tx_speed_bps, d.get("clients_total")
+        )
+        if usage in _USAGE_NUMERIC:
+            gauge(
+                "vigil_tplink_usage_state",
+                "TP-Link usage state (0=idle, 1=in_use, 2=saturated)",
+                _USAGE_NUMERIC[usage],
+                labels,
+            )
+
+        failed_hop = d.get("failed_hop")
+        if reachable is False and failed_hop:
+            gauge(
+                "vigil_tplink_failed_hop",
+                "TP-Link hop responsible for the last reachability failure"
+                " (bridge/wireless/device/route)",
+                1,
+                labels + f',hop="{_escape_label_value(failed_hop)}"',
+            )
+
+        rtt_ms = d.get("rtt_ms")
+        if rtt_ms is not None:
+            gauge(
+                "vigil_tplink_hop_rtt_ms",
+                "RTT to the TP-Link device itself (last hop of the audit path)",
+                round(rtt_ms, 2),
+                labels,
+            )
+
+        quota = None
+        try:
+            quota = managed_devices.registry.quota_status(device_id)
+        except Exception:
+            quota = None
+        if quota is not None:
+            gauge(
+                "vigil_tplink_quota_used_bytes",
+                "TP-Link bytes used in the current billing cycle",
+                quota.get("cycle_bytes_used"),
+                labels,
+            )
+            gauge(
+                "vigil_tplink_quota_bytes_total",
+                "TP-Link billing cycle quota in bytes",
+                quota.get("quota_bytes"),
+                labels,
+            )
+            gauge(
+                "vigil_tplink_quota_pct",
+                "TP-Link billing cycle quota consumed, in percent",
+                quota.get("pct"),
+                labels,
+            )
+            next_reset = quota.get("next_reset")
+            if next_reset:
+                gauge(
+                    "vigil_tplink_quota_reset_info",
+                    "TP-Link next quota reset date (see next_reset label)",
+                    1,
+                    labels + f',next_reset="{_escape_label_value(next_reset)}"',
+                )
+
+        from_peer = bool(d.get("from_peer"))
+        gauge(
+            "vigil_tplink_from_peer",
+            "Whether this instance's TP-Link view comes from its HA peer"
+            " rather than a local poll",
+            int(from_peer),
+            labels,
+        )
+        age_seconds = d.get("age_seconds")
+        if age_seconds is not None:
+            gauge(
+                "vigil_tplink_data_age_seconds",
+                "Age in seconds of the peer-sourced TP-Link data",
+                round(age_seconds, 1),
+                labels,
+            )
+
+
 def render_metrics(state: WatchdogState | None) -> str:
     """Render Prometheus exposition format text from WatchdogState.
 
@@ -142,5 +344,9 @@ def render_metrics(state: WatchdogState | None) -> str:
         "Number of configured notification channels (ntfy/email/mqtt)",
         _configured_notification_channels_count(),
     )
+
+    # TP-Link managed devices (PRD A2 sprint 2) -- ajoutees a cote des
+    # metriques legacy ci-dessus, jamais a la place (C4).
+    _render_tplink_metrics(gauge)
 
     return "\n".join(lines) + "\n"
