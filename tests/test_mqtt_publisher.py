@@ -672,13 +672,38 @@ class TestSendDiscovery:
             patch("mqtt_publisher.MQTT_TOPIC_PREFIX", "usg-watchdog"),
             patch("mqtt_publisher.MQTT_HA_DISCOVERY", True),
         ):
-            from mqtt_publisher import MqttPublisher, _ha_discovery_configs
+            from mqtt_publisher import (
+                MqttPublisher,
+                SITE_ID,
+                TPLINK_DEVICES,
+                _ha_discovery_configs,
+                _tplink_discovery_configs,
+                _usg_discovery_configs,
+                _watchdog_extra_discovery_configs,
+            )
 
             pub = MqttPublisher(MagicMock())
             mock_client = MagicMock()
             pub._client = mock_client
             pub._send_discovery()
-            expected_count = len(_ha_discovery_configs("usg-watchdog"))
+            # _send_discovery publie desormais plus que les 8 capteurs
+            # historiques : les ajouts watchdog (C15/C17) et, si des
+            # equipements TP-Link sont declares, un device par equipement
+            # (C12/C13) plus le device USG du site (C15). Le compte
+            # attendu suit la meme logique conditionnelle que
+            # _send_discovery elle-meme, pour rester correct quels que
+            # soient les TPLINK_* configures dans l'environnement de test.
+            expected_count = len(_ha_discovery_configs("usg-watchdog")) + len(
+                _watchdog_extra_discovery_configs("usg-watchdog")
+            )
+            for cfg in TPLINK_DEVICES:
+                expected_count += len(
+                    _tplink_discovery_configs(
+                        "usg-watchdog", SITE_ID, str(cfg.index), cfg.label
+                    )
+                )
+            if TPLINK_DEVICES:
+                expected_count += len(_usg_discovery_configs("usg-watchdog", SITE_ID))
             assert mock_client.publish.call_count == expected_count
             assert pub._discovery_sent is True
 
@@ -855,3 +880,340 @@ class TestPublishState:
             }
             assert published.get("usg-watchdog/gateway_rtt") == 7.5
             assert published.get("usg-watchdog/internet_rtt") == 20.3
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 A2 -- devices par equipement TP-Link, device USG par site,
+# enrichissement des 8 capteurs existants (C12/C13/C14/C15).
+# ---------------------------------------------------------------------------
+
+
+class TestLegacySensorsUniqueIdStable:
+    """C14 -- l'unique_id des 8 capteurs existants ne bouge pas."""
+
+    def test_legacy_sensors_unique_id_stable(self):
+        from mqtt_publisher import _ha_discovery_configs
+
+        configs = _ha_discovery_configs("vigil", instance_id="dijon_master")
+        unique_ids = {c["payload"]["unique_id"] for c in configs}
+        assert unique_ids == {
+            "vigil_dijon_master_score",
+            "vigil_dijon_master_gateway",
+            "vigil_dijon_master_internet",
+            "vigil_dijon_master_reboots_today",
+            "vigil_dijon_master_status",
+            "vigil_dijon_master_gateway_rtt",
+            "vigil_dijon_master_internet_rtt",
+            "vigil_dijon_master_uptime",
+        }
+
+    def test_legacy_sensors_stay_sensor_platform(self):
+        """C14 -- jamais de conversion sensor -> binary_sensor."""
+        from mqtt_publisher import _ha_discovery_configs
+
+        configs = _ha_discovery_configs("vigil", instance_id="dijon_master")
+        for c in configs:
+            assert c["topic"].startswith("homeassistant/sensor/")
+
+
+class TestLegacySensorsEnriched:
+    """C14 -- device_class/state_class/retain s'ajoutent, additifs seulement."""
+
+    def test_legacy_sensors_enriched(self):
+        from mqtt_publisher import _ha_discovery_configs
+
+        configs = {
+            c["payload"]["unique_id"]: c["payload"]
+            for c in _ha_discovery_configs("vigil", instance_id="dijon_master")
+        }
+        assert configs["vigil_dijon_master_score"]["state_class"] == "measurement"
+        assert configs["vigil_dijon_master_status"]["device_class"] == "enum"
+        assert configs["vigil_dijon_master_gateway"]["device_class"] == "enum"
+        assert configs["vigil_dijon_master_internet"]["device_class"] == "enum"
+        assert (
+            configs["vigil_dijon_master_reboots_today"]["state_class"]
+            == "total_increasing"
+        )
+        assert configs["vigil_dijon_master_gateway_rtt"]["unit_of_measurement"] == "ms"
+        assert configs["vigil_dijon_master_gateway_rtt"]["state_class"] == "measurement"
+        assert configs["vigil_dijon_master_internet_rtt"]["unit_of_measurement"] == "ms"
+        assert configs["vigil_dijon_master_uptime"]["device_class"] == "duration"
+        assert configs["vigil_dijon_master_uptime"]["unit_of_measurement"] == "s"
+
+    def test_legacy_states_published_with_retain(self):
+        state = _make_watchdog_state()
+        holder = MagicMock()
+        holder.state = state
+
+        with patch("mqtt_publisher.MQTT_TOPIC_PREFIX", "vigil"):
+            from mqtt_publisher import MqttPublisher
+
+            pub = MqttPublisher(holder)
+            mock_client = MagicMock()
+            pub._client = mock_client
+            pub._publish_state()
+            for call in mock_client.publish.call_args_list:
+                topic = call[0][0]
+                if topic == "vigil/state":
+                    continue  # topic JSON global, hors perimetre (spec.md 4)
+                assert call.kwargs.get("retain") is True, f"{topic} sans retain"
+
+
+class TestDeviceIdentitySite:
+    """C12/C15 -- l'identite d'un device par equipement (ou USG) est
+    indexee site + equipement, identique vue du master et du slave."""
+
+    def test_device_identity_same_for_master_and_slave(self):
+        from config import _default_site_id
+        from mqtt_publisher import _tplink_device_identity
+
+        site_master = _default_site_id("dijon_master")
+        site_slave = _default_site_id("dijon_slave")
+        assert site_master == site_slave == "dijon"
+        assert _tplink_device_identity(site_master, "1") == _tplink_device_identity(
+            site_slave, "1"
+        )
+
+    def test_usg_device_identity_same_for_master_and_slave(self):
+        from config import _default_site_id
+        from mqtt_publisher import _usg_device_identity
+
+        site_master = _default_site_id("nice_master")
+        site_slave = _default_site_id("nice_slave")
+        assert _usg_device_identity(site_master) == _usg_device_identity(site_slave)
+
+    def test_two_equipments_two_distinct_devices(self):
+        from mqtt_publisher import _tplink_device_identity
+
+        assert _tplink_device_identity("dijon", "1") != _tplink_device_identity(
+            "dijon", "2"
+        )
+
+
+class TestTplinkEntitySetStable:
+    """C13 -- la liste d'entites par equipement est figee, independante des
+    donnees d'un cycle."""
+
+    def test_entity_set_stable_across_calls(self):
+        from mqtt_publisher import _tplink_discovery_configs
+
+        first = _tplink_discovery_configs("vigil", "dijon", "1", "mr110")
+        second = _tplink_discovery_configs("vigil", "dijon", "1", "mr110")
+        keys_first = {c["payload"]["unique_id"] for c in first}
+        keys_second = {c["payload"]["unique_id"] for c in second}
+        assert keys_first == keys_second
+        assert len(keys_first) == len(first)  # tous uniques
+
+    def test_entity_set_includes_command_entities(self):
+        from mqtt_publisher import _tplink_discovery_configs
+
+        configs = _tplink_discovery_configs("vigil", "dijon", "1", "mr110")
+        platforms = {c["topic"].split("/")[1] for c in configs}
+        assert "switch" in platforms
+        assert "button" in platforms
+
+
+class TestUnavailableNotUnpublished:
+    """C13 -- un champ illisible devient 'unavailable', jamais depublie ni
+    publie a zero."""
+
+    def test_missing_fields_yield_none_not_zero(self):
+        from mqtt_publisher import _tplink_entity_value
+
+        empty_status: dict = {}
+        for spec_key in (
+            "readiness",
+            "secours_degrade",
+            "attache",
+            "sonde_resultat",
+            "rsrp",
+            "rtt_routeur",
+            "age_donnee_peer",
+        ):
+            value = _tplink_entity_value(spec_key, empty_status, None)
+            assert value is None, f"{spec_key} devrait etre None, pas {value!r}"
+
+    def test_failed_hop_none_means_aucun_not_unavailable(self):
+        """failed_hop=None dans un statut LU est une valeur connue ('aucun
+        saut en panne'), distincte d'un champ illisible."""
+        from mqtt_publisher import _tplink_entity_value
+
+        status = {"failed_hop": None}
+        assert _tplink_entity_value("saut_panne", status, None) == "aucun"
+
+    def test_failed_hop_absent_is_unavailable(self):
+        from mqtt_publisher import _tplink_entity_value
+
+        assert _tplink_entity_value("saut_panne", {}, None) is None
+
+    def test_usage_state_unknown_is_a_valid_value_not_none(self):
+        """usage_state absent -> 'unknown' est un etat valide de l'enum
+        (idle/in_use/saturated/unknown), pas un champ manquant."""
+        from mqtt_publisher import _tplink_entity_value
+
+        assert _tplink_entity_value("etat_usage", {}, None) == "unknown"
+
+
+class TestSinglePublisher:
+    """C12 -- seule l'instance elue publie les entites d'un equipement."""
+
+    def test_non_elected_instance_publishes_nothing_for_device(self):
+        from mqtt_publisher import MqttPublisher
+
+        holder = MagicMock()
+        holder.state = _make_watchdog_state()
+        pub = MqttPublisher(holder)
+        pub._client = MagicMock()
+
+        with (
+            patch("managed_devices.registry.device_ids", return_value=["1"]),
+            patch(
+                "managed_devices.registry.get_status",
+                return_value={"id": "1", "label": "mr110", "from_peer": True},
+            ),
+            patch("managed_devices.registry.quota_status", return_value=None),
+        ):
+            pub._publish_tplink_devices()
+
+        assert pub._client.publish.call_count == 0
+
+    def test_elected_instance_publishes_device_entities(self):
+        from mqtt_publisher import MqttPublisher
+
+        holder = MagicMock()
+        holder.state = _make_watchdog_state()
+        pub = MqttPublisher(holder)
+        pub._client = MagicMock()
+
+        status = {
+            "id": "1",
+            "label": "mr110",
+            "reachable": True,
+            "readiness": "ok",
+            "failed_hop": None,
+        }
+        with (
+            patch("managed_devices.registry.device_ids", return_value=["1"]),
+            patch("managed_devices.registry.get_status", return_value=status),
+            patch("managed_devices.registry.quota_status", return_value=None),
+        ):
+            pub._publish_tplink_devices()
+
+        assert pub._client.publish.call_count > 0
+
+
+class TestSingleUsgDevice:
+    """C15 -- un seul device USG par site, alimente par l'instance elue."""
+
+    def test_single_usg_device_identity_per_site(self):
+        from mqtt_publisher import _usg_discovery_configs
+
+        configs = _usg_discovery_configs("vigil", "dijon")
+        identifiers = {tuple(c["payload"]["device"]["identifiers"]) for c in configs}
+        assert identifiers == {("vigil_dijon_usg",)}
+
+    def test_usg_line_sensors_stay_sensor_not_binary(self):
+        """C14 -- meme raisonnement applique aux 4 capteurs de ligne
+        recrees : gateway/internet restent des sensor."""
+        from mqtt_publisher import _usg_discovery_configs
+
+        configs = _usg_discovery_configs("vigil", "dijon")
+        for c in configs:
+            assert c["topic"].split("/")[1] == "sensor"
+
+    def test_non_elected_instance_does_not_publish_usg(self):
+        from mqtt_publisher import MqttPublisher
+
+        holder = MagicMock()
+        holder.state = _make_watchdog_state()
+        pub = MqttPublisher(holder)
+        pub._client = MagicMock()
+
+        with (
+            patch("mqtt_publisher.TPLINK_DEVICES", (object(),)),
+            patch(
+                "mqtt_publisher._is_usg_elected",
+                return_value=(False, "peer a priorite"),
+            ),
+        ):
+            pub._publish_usg_device()
+
+        pub._client.publish.assert_not_called()
+
+    def test_elected_instance_publishes_usg(self):
+        from mqtt_publisher import MqttPublisher
+
+        holder = MagicMock()
+        holder.state = _make_watchdog_state()
+        pub = MqttPublisher(holder)
+        pub._client = MagicMock()
+
+        with (
+            patch("mqtt_publisher.TPLINK_DEVICES", (object(),)),
+            patch("mqtt_publisher._is_usg_elected", return_value=(True, "standalone")),
+        ):
+            pub._publish_usg_device()
+
+        assert pub._client.publish.call_count > 0
+
+
+class TestDivergenceSensor:
+    """C15 -- binary_sensor divergence, compense la perte de la double vue."""
+
+    def test_divergence_sensor_on_when_diverging(self):
+        from mqtt_publisher import _watchdog_divergence_state
+
+        state = _make_watchdog_state()
+        with patch("peer.check_divergence", return_value="Divergence detectee\n..."):
+            assert _watchdog_divergence_state(state) == "ON"
+
+    def test_divergence_sensor_off_when_agreeing(self):
+        from mqtt_publisher import _watchdog_divergence_state
+
+        state = _make_watchdog_state()
+        with patch("peer.check_divergence", return_value=None):
+            assert _watchdog_divergence_state(state) == "OFF"
+
+    def test_watchdog_extra_discovery_includes_divergence_and_peer_state(self):
+        from mqtt_publisher import _watchdog_extra_discovery_configs
+
+        configs = _watchdog_extra_discovery_configs("vigil", instance_id="dijon_master")
+        keys = {c["payload"]["unique_id"] for c in configs}
+        assert "vigil_dijon_master_divergence" in keys
+        assert "vigil_dijon_master_peer_state" in keys
+
+    def test_watchdog_extra_stays_on_existing_device(self):
+        """Les nouvelles entites restent sur le device watchdog existant
+        (identifiers inchanges) -- purement additif (C15)."""
+        from mqtt_publisher import _watchdog_extra_discovery_configs
+
+        configs = _watchdog_extra_discovery_configs("vigil", instance_id="dijon_master")
+        for c in configs:
+            assert c["payload"]["device"]["identifiers"] == ["vigil_dijon_master"]
+
+
+class TestHostMetricsC17:
+    """C17 -- metriques hote stdlib, jamais zero si indisponible."""
+
+    def test_cpu_temp_missing_file_returns_none(self):
+        from mqtt_publisher import _read_cpu_temp_c
+
+        assert _read_cpu_temp_c(path="/nonexistent/thermal_zone_xyz") is None
+
+    def test_cpu_temp_parses_millidegrees(self, tmp_path):
+        from mqtt_publisher import _read_cpu_temp_c
+
+        f = tmp_path / "temp"
+        f.write_text("45000")
+        assert _read_cpu_temp_c(path=str(f)) == 45.0
+
+    def test_mem_available_missing_file_returns_none(self):
+        from mqtt_publisher import _read_mem_available_mb
+
+        assert _read_mem_available_mb(path="/nonexistent/meminfo_xyz") is None
+
+    def test_load1_returns_a_float(self):
+        from mqtt_publisher import _read_load1
+
+        value = _read_load1()
+        assert value is None or isinstance(value, float)

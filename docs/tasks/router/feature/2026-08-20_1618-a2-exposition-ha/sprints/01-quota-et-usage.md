@@ -225,25 +225,46 @@ prévue en PRD B, devient donc nécessaire dès maintenant.
 
 ## Critères d'acceptation
 
-- [ ] Conso du cycle, %, jour de reset, **détection de remise à zéro**
-- [ ] Conso persistée, survit à un redémarrage du service
-- [ ] **C20** : fuseau local, mois courts, changement d'heure et reset manqué
-      couverts par des tests dédiés
-- [ ] Trois états d'usage distingués, calibrés Cat 4, avec anti-rebond
-- [ ] Notification **au changement** d'état uniquement
-- [ ] **C18** : niveaux conformes au tableau ; escalade en `CRITICAL` quand
-      l'équipement est en cours d'utilisation
-- [ ] Aucun doublon d'alerte entre master et slave (conséquence de C12)
-- [ ] **C11** : sonde périodique opt-in, désactivée par défaut, **preuve de
-      chemin exigée** ; `LEAK` distingué d'une panne du secours
-- [ ] Lien attaché sans data → `DEGRADED` + `tplink_link_down`, message distinct
-      de « routeur injoignable »
-- [ ] Sonde indéterminée → `internet_ok` à `None`, aucune alerte
-- [ ] Un échec de sonde ne déclenche **jamais** de reboot (C6)
-- [ ] **C12** : une seule instance poll un équipement ; l'autre expose l'état du
-      peer **avec son âge** ; reprise après `PEER_TAKEOVER_DELAY`
-- [ ] Split-brain détecté et alerté
-- [ ] Polling de la cible USG inchangé (les deux instances)
+- [x] Conso du cycle, %, jour de reset, **détection de remise à zéro** —
+      `QuotaStore` (`src/history.py`), accumulation par deltas positifs
+      uniquement, reset de compteur traité comme un nouveau cycle (commit
+      `ace8497`)
+- [x] Conso persistée, survit à un redémarrage du service — persistance
+      atomique via `QuotaStore` (commit `ace8497`)
+- [x] **C20** : fuseau local, mois courts, changement d'heure et reset manqué
+      couverts par des tests dédiés — `tests/test_tplink_quota.py` (157
+      lignes ajoutées, commit `ace8497`)
+- [x] Trois états d'usage distingués, calibrés Cat 4, avec anti-rebond —
+      idle/in_use/saturated, anti-rebond 2 cycles (commit `ace8497`)
+- [x] Notification **au changement** d'état uniquement — niveaux C18 câblés
+      via `notify()` (commit `ace8497`)
+- [x] **C18** : niveaux conformes au tableau ; escalade en `CRITICAL` quand
+      l'équipement est en cours d'utilisation — `in_use=CRITICAL`, escalades
+      conditionnelles (commit `ace8497`)
+- [x] Aucun doublon d'alerte entre master et slave (conséquence de C12) —
+      conditionné à l'élection du poller (commit `ace8497`)
+- [x] **C11** : sonde périodique opt-in, désactivée par défaut, **preuve de
+      chemin exigée** ; `LEAK` distingué d'une panne du secours —
+      `tests/test_tplink_usage.py` (826 lignes ajoutées, commit `ace8497`)
+- [x] Lien attaché sans data → `DEGRADED` + `tplink_link_down`, message distinct
+      de « routeur injoignable » — `src/messages.py` (154 lignes ajoutées,
+      commit `ace8497`)
+- [x] Sonde indéterminée → `internet_ok` à `None`, aucune alerte (commit
+      `ace8497`)
+- [x] Un échec de sonde ne déclenche **jamais** de reboot (C6) (commit
+      `ace8497`)
+- [x] **C12** : une seule instance poll un équipement ; l'autre expose l'état du
+      peer **avec son âge** ; reprise après `PEER_TAKEOVER_DELAY` —
+      `src/peer.py` (109 lignes ajoutées), bridged joignable prioritaire puis
+      `INSTANCE_PRIORITY` (commit `ace8497`)
+- [x] Split-brain détecté et alerté — bug de code mort trouvé et corrigé en
+      route (commit `ace8497`)
+- [x] Polling de la cible USG inchangé (les deux instances) — `src/peer.py`
+      seul modifié pour l'élection, aucun changement à la boucle USG (commit
+      `ace8497`)
+
+**Preuve globale** : 56 nouveaux tests, suite complète à 1152 tests,
+`./scripts/validate.sh` vert (commit `ace8497`).
 - [ ] Messages explicites sur la nature *a posteriori* de la détection
 - [ ] `watchdog.py` et `state.py` **non modifiés**
 - [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %

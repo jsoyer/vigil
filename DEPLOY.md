@@ -283,6 +283,65 @@ API.
 
 ---
 
+## Migration vers 2.3.0 -- Home Assistant (A2)
+
+La 2.3.0 est livrée **automatiquement** aux 4 instances de production (Dijon
+master+slave, Nice master+slave) par l'auto-updater. Elle est **transparente**
+tant qu'aucun équipement TP-Link n'est déclaré et que `MQTT_COMMANDS_ENABLED`
+reste à `false` (défaut) : rendu dashboard, `/metrics` et entités HA
+strictement identiques à avant.
+
+> **Avertissement de sécurité — chemin de commande MQTT (C9)** : activer
+> `MQTT_COMMANDS_ENABLED=true` ouvre une voie de commande entrante capable de
+> déclencher un reboot. **Le broker MQTT doit être authentifié**
+> (`MQTT_USERNAME`/`MQTT_PASSWORD` configurés côté broker et côté instance)
+> avant d'activer cette variable. **Sur un broker anonyme, laissez
+> `MQTT_COMMANDS_ENABLED=false`.** N'activez cette variable que sur **une
+> seule instance par site** — le guardian — jamais sur les deux instances
+> d'un même site.
+
+### Entités Home Assistant recréées -- purge manuelle requise (C15)
+
+Les capteurs de **ligne** USG (`gateway`, `internet`, RTT gateway, RTT
+internet) migrent d'un device par instance (`Watchdog <instance>`) vers un
+device unique **`USG <site>`**, avec de **nouveaux `unique_id`**. Home
+Assistant traite ce changement d'identité comme une recréation d'entité :
+
+- Les **nouvelles** entités apparaissent automatiquement sous le device
+  `USG <site>` dès que l'instance élue publie (aucune action requise).
+- Les **anciennes** entités de ligne (celles qui vivaient sous
+  `Watchdog <instance>`) deviennent **orphelines** : Home Assistant les
+  garde en `unavailable` indéfiniment, avec leur historique. Elles ne se
+  suppriment **pas** toutes seules -- à purger à la main (Paramètres ->
+  Appareils et services -> Entités -> filtrer « indisponible » -> supprimer).
+- Les **8 capteurs par instance** (`score`, `status`, `reboots_today`,
+  `uptime`, RTT gateway/internet, `gateway`, `internet` -- avant migration
+  de la ligne) restent inchangés en `unique_id` : seuls les 4 capteurs de
+  ligne bougent vers le device de site (C14 garantit la stabilité du reste,
+  C15 assume la recréation de la ligne). Ne purgez que les entités de ligne
+  orphelines, pas le device `Watchdog <instance>` entier.
+
+### Nouvelles variables .env par type d'instance
+
+```bash
+# Guardian (accès direct au MR110) -- déclare l'équipement ET les commandes
+TPLINK_1_HOST=192.168.10.1
+TPLINK_1_QUOTA_VOLUME_MB=110000
+TPLINK_1_QUOTA_ALERT_PCT=80
+TPLINK_1_QUOTA_RESET_DAY=27
+MQTT_COMMANDS_ENABLED=true        # guardian uniquement -- voir avertissement ci-dessus
+MQTT_ARM_TIMEOUT=30
+
+# Master/slave (pas de chemin réseau vers le MR110) -- rien à déclarer côté
+# TP-Link ; SITE_ID suffit pour rattacher l'instance au bon device HA de site
+SITE_ID=dijon                     # ou dérivé automatiquement de INSTANCE_ID
+```
+
+Voir `README.md` (section « Home Assistant : entités par équipement ») pour
+le détail des entités et des variables.
+
+---
+
 ## Mettre à jour une installation existante
 
 ### Méthode 1 : Auto-updater (recommandé)

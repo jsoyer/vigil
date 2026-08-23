@@ -526,3 +526,157 @@ def alert_escalation(
     ]
     ctx = NotificationContext(score=score, threshold=threshold, category="escalation")
     return "\n".join(lines), Level.CRITICAL, ctx
+
+
+# ===================================================================
+# TP-Link MR110 -- quota, usage, sonde, election (A2 Sprint 1)
+# ===================================================================
+
+
+def tplink_in_use(label: str) -> tuple[str, Level, NotificationContext | None]:
+    """Le site tourne sur son secours 4G -- CRITICAL (C18) : le lien
+    principal est tombe, le site est sur du Cat 4 facture au volume.
+    Detection a posteriori (signal MR110), pas un evenement de bascule
+    vu directement."""
+    return (
+        f"Le site tourne actuellement sur son secours 4G '{label}' "
+        "(detecte depuis le trafic du routeur -- le lien principal "
+        "semble indisponible).",
+        Level.CRITICAL,
+        NotificationContext(extra={"device": label}, category="alert"),
+    )
+
+
+def tplink_saturated(label: str) -> tuple[str, Level, NotificationContext | None]:
+    """Le secours sert mais plafonne -- WARNING (C18), distinct de "il
+    sert" : information sur la qualite du service, pas sur son
+    existence."""
+    return (
+        f"Le secours 4G '{label}' est en service mais proche de son "
+        "plafond LTE Cat 4 -- il sert mal.",
+        Level.WARNING,
+        NotificationContext(extra={"device": label}, category="alert"),
+    )
+
+
+def tplink_idle(label: str) -> tuple[str, Level, NotificationContext | None]:
+    """Retour a l'inactivite -- INFO (C18)."""
+    return (
+        f"Le secours 4G '{label}' est revenu inactif (plus de trafic).",
+        Level.INFO,
+        NotificationContext(extra={"device": label}, category="ops"),
+    )
+
+
+def tplink_link_down(
+    label: str, in_use: bool
+) -> tuple[str, Level, NotificationContext | None]:
+    """Attache mais la data ne passe plus -- WARNING, CRITICAL si le
+    secours est en cours d'utilisation (escalade conditionnelle C18).
+    Message distinct de "routeur injoignable" : le MR110 repond, sa 4G
+    ne porte plus de trafic -- diagnostic actionnable differemment
+    (forfait, pas deplacement)."""
+    level = Level.CRITICAL if in_use else Level.WARNING
+    suffix = " Le site est actuellement sur ce secours." if in_use else ""
+    return (
+        f"Le MR110 '{label}' repond mais sa 4G ne porte plus de trafic "
+        f"(sonde bout-en-bout en echec).{suffix}",
+        level,
+        NotificationContext(
+            extra={"device": label, "in_use": in_use}, category="alert"
+        ),
+    )
+
+
+def tplink_link_up(label: str) -> tuple[str, Level, NotificationContext | None]:
+    """Retour a la normale de la sonde bout-en-bout -- INFO (C18)."""
+    return (
+        f"Le MR110 '{label}' porte a nouveau du trafic 4G (sonde OK).",
+        Level.INFO,
+        NotificationContext(extra={"device": label}, category="ops"),
+    )
+
+
+def tplink_probe_leak(label: str) -> tuple[str, Level, NotificationContext | None]:
+    """Sonde LEAK -- WARNING (C18) : defaut de configuration du chemin de
+    test, PAS une panne du secours. Taire serait pire : la surveillance
+    du lien est aveugle tant que ca dure (INVARIANTS.md, C11)."""
+    return (
+        f"Sonde bout-en-bout du secours '{label}' : fuite detectee "
+        "(la requete de test sort par la fibre, pas par le secours 4G). "
+        "Defaut de configuration du chemin -- la surveillance du lien "
+        "4G est aveugle tant que ca dure.",
+        Level.WARNING,
+        NotificationContext(extra={"device": label}, category="ops"),
+    )
+
+
+def tplink_hop_failed(
+    label: str, hop: str
+) -> tuple[str, Level, NotificationContext | None]:
+    """Hop.BRIDGE / Hop.ROUTE en echec -- WARNING (C18) : le premier
+    maillon ou la config est en cause, pas forcement le secours."""
+    return (
+        f"Chemin d'audit du secours '{label}' en echec au niveau "
+        f"'{hop}' -- premier maillon ou configuration a verifier.",
+        Level.WARNING,
+        NotificationContext(extra={"device": label, "hop": hop}, category="ops"),
+    )
+
+
+def backup_degraded(
+    label: str, reason: str, in_use: bool
+) -> tuple[str, Level, NotificationContext | None]:
+    """Readiness degradee (SIM, signal) -- WARNING, CRITICAL si en usage
+    (escalade conditionnelle C18)."""
+    level = Level.CRITICAL if in_use else Level.WARNING
+    suffix = " Le site est actuellement sur ce secours." if in_use else ""
+    return (
+        f"Secours 4G '{label}' degrade : {reason}.{suffix}",
+        level,
+        NotificationContext(
+            extra={"device": label, "reason": reason, "in_use": in_use},
+            category="alert",
+        ),
+    )
+
+
+def backup_ready(label: str) -> tuple[str, Level, NotificationContext | None]:
+    """Retour a une readiness OK -- INFO (C18)."""
+    return (
+        f"Secours 4G '{label}' de nouveau pret.",
+        Level.INFO,
+        NotificationContext(extra={"device": label}, category="ops"),
+    )
+
+
+def data_quota_warning(
+    label: str, pct: float, in_use: bool
+) -> tuple[str, Level, NotificationContext | None]:
+    """Seuil de forfait franchi -- WARNING, CRITICAL si en usage
+    (escalade conditionnelle C18) : un secours degrade pendant qu'il sert
+    n'est plus un avertissement."""
+    level = Level.CRITICAL if in_use else Level.WARNING
+    suffix = " Le site est actuellement sur ce secours." if in_use else ""
+    return (
+        f"Forfait data du secours '{label}' a {pct:.0f}% -- le secours a "
+        f"une date de peremption.{suffix}",
+        level,
+        NotificationContext(
+            extra={"device": label, "pct": round(pct, 1), "in_use": in_use},
+            category="alert",
+        ),
+    )
+
+
+def tplink_split_brain(label: str) -> tuple[str, Level, NotificationContext | None]:
+    """Deux instances se croient seules et pollent le meme equipement --
+    WARNING : a traiter, pas une panne du secours lui-meme (meme famille
+    que la divergence deja geree par peer.py)."""
+    return (
+        f"Election du poller en desaccord pour '{label}' : les deux "
+        "instances semblent poller simultanement (partition reseau "
+        "probable, pas une panne du secours).",
+        Level.WARNING,
+        NotificationContext(extra={"device": label}, category="ops"),
+    )

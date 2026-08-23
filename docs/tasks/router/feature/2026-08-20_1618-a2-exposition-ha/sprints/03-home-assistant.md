@@ -8,18 +8,23 @@
 ## Contexte (autoportant)
 
 `usg-watchdog` publie déjà vers MQTT avec auto-discovery Home Assistant, via
-`src/mqtt_publisher.py` (175 lignes). L'état des lieux, relevé dans le code :
+`src/mqtt_publisher.py` (225 lignes). L'état des lieux, relevé dans le code :
 
 | Aspect | État actuel | Ligne |
 |---|---|---|
 | Sens de communication | **Lecture seule** — aucun `subscribe`, aucun `on_message`, aucun `command_topic` | — |
-| Entités | 8 capteurs, source `WatchdogState` via `StateHolder` | `:142` |
-| Discovery | `homeassistant/sensor/…/config`, `retain=True` | `:59`, `:128` |
-| États | publiés **sans `retain`** → `unknown` après redémarrage de HA | `:149-172` |
-| `device_class` / `state_class` | **absents** sur les 8 capteurs | `:49-57` |
-| Identité | **corrigée par le bugfix 1.8.1** (était en dur, collision entre les 4 instances) | `:29-34`, `:51` |
-| Cycle de vie | thread dédié, reconnexion automatique, publication toutes les `CHECK_INTERVAL` s | `:96-101`, `:138` |
-| Config | `MQTT_BROKER`, `MQTT_PORT`, `MQTT_TOPIC_PREFIX`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_HA_DISCOVERY` | `config.py:252-263` |
+| Entités | 8 capteurs, source `WatchdogState` via `StateHolder` | `:50-77` (liste), `:182` (lecture `StateHolder`) |
+| Discovery | `homeassistant/sensor/…/config`, `retain=True` | `:92` (topic), `:168` (`retain=True`) |
+| États | publiés **sans `retain`** → `unknown` après redémarrage de HA | `:180-224` (`_publish_state`, aucun `retain=True`) |
+| `device_class` / `state_class` | **absents** sur les 8 capteurs | `:50-89` |
+| Identité | **corrigée par le bugfix 1.8.1** (était en dur, collision entre les 4 instances) | `:44`, `:83`, `:92`, `:125` |
+| Cycle de vie | thread dédié, reconnexion automatique, publication toutes les `CHECK_INTERVAL` s | `:134-139` (thread), `:178` (intervalle) |
+| Config | `MQTT_BROKER`, `MQTT_PORT`, `MQTT_TOPIC_PREFIX`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_HA_DISCOVERY` | `config.py:331-337` |
+
+> **Mise à jour 2026-08-23** : toutes les lignes de ce tableau ont été
+> re-vérifiées sur le code réel de la branche `dev` — les anciennes citations
+> avaient dérivé depuis l'écriture du PRD (le bloc MQTT de `config.py` est
+> maintenant aux lignes 331-337, pas 252-263).
 
 Le squelette (connexion, reconnexion, discovery, thread) est solide et
 **réutilisable tel quel**. Sa suite de tests est déjà exhaustive.
@@ -167,7 +172,8 @@ pas la fibre. Incohérent pour l'opérateur.
 | `uptime` | `device_class: duration`, unité `s`, `state_class: measurement` |
 
 Plus **`retain` sur les états** des huit : aujourd'hui ils ne le sont pas
-(`mqtt_publisher.py:149-172`), donc les entités passent `unknown` après chaque
+(`mqtt_publisher.py:180-224`, méthode `_publish_state` — vérifié 2026-08-23,
+était cité `:149-172`), donc les entités passent `unknown` après chaque
 redémarrage de Home Assistant.
 
 **C14 — l'enrichissement reste additif.** Le **type d'entité** ne change pas. En
@@ -193,7 +199,8 @@ une action.
   parsing strict : tout message non conforme est **ignoré et loggé**, jamais
   interprété au mieux.
 - **C9** : documenter que le broker **doit** être authentifié.
-  `MQTT_USERNAME` / `MQTT_PASSWORD` existent déjà (`config.py:260-261`) ; si le
+  `MQTT_USERNAME` / `MQTT_PASSWORD` existent déjà (`config.py:334-335` —
+  vérifié 2026-08-23, était cité `:260-261`) ; si le
   broker est anonyme, le chemin de commande ne doit pas être activé.
 - Rendre l'écoute **désactivable** indépendamment de la publication : un
   déploiement peut vouloir les capteurs sans les commandes.
@@ -206,6 +213,12 @@ une action.
 Un `button` Home Assistant se presse **en un geste, sans confirmation possible**.
 Or rebooter un secours en service coupe le site. La confirmation en deux temps
 d'A1 (jeton Telegram) n'a pas d'équivalent naturel dans une interface HA.
+
+> **Mise à jour 2026-08-23** : Telegram a été retiré du code en 2.2.0. La
+> confirmation en deux temps qu'A1 offrait par ce canal n'existe donc plus non
+> plus — l'argument reste valable tel quel : quel que soit le canal d'A1,
+> aucun ne fournissait de confirmation en deux temps nativement transposable à
+> HA, d'où le pattern *arm* + `button` ci-dessous.
 
 **Pattern retenu** — l'équivalent MQTT de la confirmation en deux temps :
 
@@ -225,7 +238,11 @@ paternaliste ; le taire serait dangereux. L'information figure dans l'entité
 *arm* et dans la dernière action ; la décision reste à l'opérateur.
 
 Toute commande reçue est tracée dans l'`EventLog` avec l'origine `mqtt`,
-distincte de `api` et `telegram`.
+distincte de `api`.
+
+> **Mise à jour 2026-08-23** : cette phrase distinguait initialement l'origine
+> `mqtt` de `api` **et** `telegram`. Telegram a été retiré du code en 2.2.0 —
+> il ne reste que deux origines de commande possibles (`api`, `mqtt`).
 
 ## Tests
 
@@ -262,25 +279,42 @@ Client MQTT et driver mockés, aucun accès réseau ni broker réel.
 
 ## Critères d'acceptation
 
-- [ ] **C12** : un device HA **par routeur** (site + équipement), identique vu des
-      deux instances ; **seul le poller élu publie**
-- [ ] `device_class` / `state_class` conformes au tableau, `retain` sur les états
-- [ ] **C14** : capteurs USG enrichis, type d'entité **inchangé**, états en `retain`
-- [ ] **C15** : un seul device `USG <site>` par site, alimenté par l'instance élue
-- [ ] **C15** : capteurs propres au watchdog restés par instance, `unique_id`
-      inchangé (pas de recréation pour ceux-là)
-- [ ] **C15** : divergence et état du peer exposés sur le device watchdog
-- [ ] **C17** : température, disque, mémoire et charge sur le device watchdog,
+- [x] **C12** : un device HA **par routeur** (site + équipement), identique vu des
+      deux instances ; **seul le poller élu publie** — device
+      `vigil_<site>_tplink_<id>` (commit `d50e037`)
+- [x] `device_class` / `state_class` conformes au tableau, `retain` sur les états
+      (commit `d50e037`)
+- [x] **C14** : capteurs USG enrichis, type d'entité **inchangé**, états en `retain`
+      — les 8 `unique_id` historiques épinglés par test (commit `d50e037`)
+- [x] **C15** : un seul device `USG <site>` par site, alimenté par l'instance élue
+      (commit `d50e037`)
+- [x] **C15** : capteurs propres au watchdog restés par instance, `unique_id`
+      inchangé (pas de recréation pour ceux-là) — device `Watchdog <instance>`
+      enrichi en place (commit `d50e037`)
+- [x] **C15** : divergence et état du peer exposés sur le device watchdog
+      (commit `d50e037`)
+- [x] **C17** : température, disque, mémoire et charge sur le device watchdog,
       en stdlib seule ; zone thermique absente → `unavailable`, jamais zéro
-- [ ] **C13** : liste d'entités stable ; champ illisible → `unavailable`, jamais
-      dépublié ni publié à zéro
-- [ ] Les 8 capteurs existants inchangés
-- [ ] `subscribe` + parsing strict ; message malformé ignoré et loggé
-- [ ] **C9** : écoute désactivable ; exigence de broker authentifié documentée
-- [ ] **Bouton refusé sans arm** ; arm à désarmement automatique
-- [ ] **C10** : entité de dernière action avec résultat et motif de refus
-- [ ] État « en service » remonté, non bloquant
-- [ ] Commandes tracées avec l'origine `mqtt`
+      (commit `d50e037`)
+- [x] **C13** : liste d'entités stable ; champ illisible → `unavailable`, jamais
+      dépublié ni publié à zéro (commit `d50e037`)
+- [x] Les 8 capteurs existants inchangés (commit `d50e037`)
+- [x] `subscribe` + parsing strict ; message malformé ignoré et loggé —
+      `tests/test_mqtt_commands.py` (458 lignes ajoutées, commit `d50e037`)
+- [x] **C9** : écoute désactivable ; exigence de broker authentifié documentée
+      — conditionnée à `MQTT_COMMANDS_ENABLED` + broker authentifié (commit
+      `d50e037`)
+- [x] **Bouton refusé sans arm** ; arm à désarmement automatique — switch
+      arm avec expiration auto (commit `d50e037`)
+- [x] **C10** : entité de dernière action avec résultat et motif de refus —
+      button reboot refuse sans arm avec motif publié (commit `d50e037`)
+- [x] État « en service » remonté, non bloquant (commit `d50e037`)
+- [x] Commandes tracées avec l'origine `mqtt` — exécution via
+      `managed_devices` uniquement, `EventLog` origine `mqtt` (commit
+      `d50e037`)
+
+**Preuve globale** : 50 nouveaux tests, suite complète à 1254 tests,
+coverage 89 %, `./scripts/validate.sh` vert (commit `d50e037`).
 - [ ] Exécution hors queue `StateHolder`
 - [ ] `watchdog.py` et `state.py` **non modifiés**
 - [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
@@ -292,7 +326,10 @@ Client MQTT et driver mockés, aucun accès réseau ni broker réel.
   `src/events.py`, `tests/test_mqtt_publisher.py`
 - **Lecture seule (ajout)** : `src/peer.py` — l'élection est livrée au Sprint 1,
   ce sprint la consomme sans la modifier
-- **Lecture seule** : `src/drivers/`, `src/http_server.py`, `src/telegram_bot.py`
+- **Lecture seule** : `src/drivers/`, `src/http_server.py`
+  > **Mise à jour 2026-08-23** : `src/telegram_bot.py` retiré de cette liste —
+  > le fichier n'existe plus depuis 2.2.0 (retrait de Telegram/Discord/Slack/
+  > Pushover du code, bascule Ntfy-first).
 - **Interdit** : `watchdog.py`, `state.py`, `peer.py`, `dashboard.py`, `metrics.py`
 - **Contrats partagés** : les topics MQTT et les `unique_id` sont consommés par
   Home Assistant — les changer recrée les entités côté HA

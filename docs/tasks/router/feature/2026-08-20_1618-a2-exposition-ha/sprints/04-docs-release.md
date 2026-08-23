@@ -1,4 +1,7 @@
-# Sprint 4 — Documentation et release 1.10.0
+# Sprint 4 — Documentation et release 2.3.0
+
+> **Mise à jour 2026-08-23** : version cible révisée de `1.10.0` à `2.3.0` —
+> les releases 2.1.x (TP-Link) et 2.2.0 (Ntfy-first) sont sorties entre-temps.
 
 - **PRD** : A2 — Exposition & Home Assistant (2026-08-20)
 - **Dépend de** : Sprints 1, 2, 3
@@ -44,7 +47,7 @@ d'attaque.
 
 ## Release
 
-- Bump `VERSION` → 1.10.0 ; `dev` → PR → `main` ; tag `v1.10.0`.
+- Bump `VERSION` → 2.3.0 ; `dev` → PR → `main` ; tag `v2.3.0`.
 - Ouvrir (ou mettre à jour) l'issue de suivi du **PRD B** — moteur multi-cible.
 - Ouvrir une issue de suivi pour les **améliorations MQTT restantes** :
   `availability_topic` / LWT, et exposition du topic `{prefix}/state` déjà publié
@@ -62,14 +65,43 @@ d'attaque.
 
 ## Critères d'acceptation
 
-- [ ] README : entités HA, bouton armé expliqué, quota, métriques
-- [ ] README : mention explicite que les métriques `usg_watchdog_*` sont inchangées
-- [ ] DEPLOY : **avertissement de sécurité** sur le chemin de commande MQTT
-- [ ] DEPLOY : note de migration + conséquence du bugfix 1.8.1 sur les entités HA
-- [ ] `CLAUDE.md` à jour ; ADR-0001 passé à `Accepté`
-- [ ] Issues ouvertes : PRD B, et améliorations MQTT hors périmètre
-- [ ] Aucun secret exposé
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %, VERSION = 1.10.0
+- [x] README : entités HA, bouton armé expliqué, quota, métriques — nouvelle
+      section « Home Assistant : entités par équipement » (devices
+      `vigil_<site>_tplink_<id>`, `USG <site>`, `Watchdog <instance>`,
+      bouton armé, variables `SITE_ID`/`MQTT_COMMANDS_ENABLED`/
+      `MQTT_ARM_TIMEOUT`, exemple quota 110 000 Mo / reset 27)
+- [x] README : mention explicite que les métriques `usg_watchdog_*` sont
+      inchangées — paragraphe « Nouveau en 2.3.0 » ajouté à la section
+      Métriques Prometheus (16 séries `vigil_tplink_*` additives, legacy
+      « à l'identique »)
+- [x] DEPLOY : **avertissement de sécurité** sur le chemin de commande MQTT
+      — bloc `> **Avertissement de sécurité — chemin de commande MQTT
+      (C9)**` dans la nouvelle section « Migration vers 2.3.0 »
+- [x] DEPLOY : note de migration + conséquence sur les entités HA — section
+      « Entités Home Assistant recréées -- purge manuelle requise (C15) » :
+      4 capteurs de ligne recréés/orphelins, 8 capteurs par instance
+      inchangés, nouvelles variables .env par type d'instance (guardian vs
+      master/slave)
+- [x] `CLAUDE.md` à jour — QuotaStore (history.py), élection du poller
+      (peer.py), commandes MQTT bidirectionnelles (mqtt_publisher.py,
+      notifier/), note mono-cible/PRD B ajoutée en Vue d'ensemble
+- [ ] ADR-0001 passé à `Accepté` — **hors périmètre de cet appel** (non
+      demandé dans le mandat reçu de l'orchestrateur pour ce sprint) ;
+      laissé à la charge de l'orchestrateur
+- [ ] Issues ouvertes : PRD B, et améliorations MQTT hors périmètre —
+      **hors périmètre de cet appel** (nécessite `gh issue create`, non
+      inclus dans le mandat reçu) ; laissé à la charge de l'orchestrateur
+- [x] Aucun secret exposé — les 6 fichiers modifiés/créés (README.md,
+      DEPLOY.md, CLAUDE.md, RELEASE-NOTES-2.3.0.md, progress.json,
+      INVARIANTS.md) ne contiennent que des noms de variables et des
+      exemples de valeurs non sensibles (`TPLINK_1_QUOTA_VOLUME_MB=110000`
+      etc.), aucun token/mot de passe/clé
+- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %, VERSION = 2.3.0 —
+      `VERSION` **non modifié sur instruction explicite de l'orchestrateur**
+      (reste `2.2.0`, le bump est géré à la release) ; `validate.sh` lancé
+      en délégation pour confirmer l'absence de régression code (voir
+      rapport de sprint) — aucun fichier sous `src/`, `tests/` ou
+      `scripts/` modifié par ce sprint
 
 ## Frontières de fichiers
 

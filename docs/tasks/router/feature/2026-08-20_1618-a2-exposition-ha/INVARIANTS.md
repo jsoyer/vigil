@@ -169,14 +169,26 @@ pas le nôtre.
   `WatchdogState` inchangés depuis la 1.8.
 - **Invariants** : c'est ce qui maintient le risque de régression USG au plus
   bas jusqu'au PRD B, où le refactor sera jugé sur ses propres mérites.
-- **Verify** : `git diff --quiet $(git describe --tags --abbrev=0 --match 'v1.8*') -- src/watchdog.py src/state.py`
+- **Verify** : `git diff --quiet v2.2.0 -- src/watchdog.py src/state.py`
+  > **Mise à jour 2026-08-23** : cette commande ancrait initialement sur
+  > `$(git describe --tags --abbrev=0 --match 'v1.8*')`, résolu à `v1.8.3`.
+  > Périmé : la 2.2.0 (bascule Ntfy-first) est sortie depuis et n'a pas
+  > touché `watchdog.py`/`state.py` non plus. `v2.2.0` est la base réelle
+  > pré-A2 — ancrer dessus directement plutôt que sur un pattern glissant
+  > qui se périmera de nouveau à la prochaine release.
 - **Fix** : sortir le changement d'A2 et le remonter.
 
 ## Aucune action destructive automatique (C6, maintenu)
 
 - **Owner** : `src/mqtt_publisher.py`, `src/managed_devices.py`
-- **Preconditions** : A2 ajoute une **troisième** voie de commande (après l'API
-  et Telegram).
+- **Preconditions** : A2 ajoute une **deuxième** voie de commande (après
+  l'API).
+  > **Mise à jour 2026-08-23** : cet invariant disait initialement « troisième
+  > voie de commande (après l'API et Telegram) ». C'est faux depuis 2.2.0 :
+  > Telegram (comme Discord, Slack et Pushover) a été **retiré du code**
+  > (bascule Ntfy-first), et `src/telegram_bot.py` n'existe plus. MQTT devient
+  > donc la **deuxième** voie de commande entrante du projet, pas la
+  > troisième. Conservé pour mémoire, ne reflète plus l'état actuel.
 - **Postconditions** : le reboot reste déclenché uniquement par une action
   opérateur explicite et gardée, tracée dans l'`EventLog` avec l'origine `mqtt`.
 - **Invariants** : rebooter un secours **pendant qu'il porte le trafic**
@@ -205,7 +217,7 @@ pas le nôtre.
 - **Preconditions** : un déploiement existant n'a aucune variable `TPLINK_*`.
 - **Postconditions** : dashboard, `/metrics` et entités HA strictement
   identiques à avant.
-- **Invariants** : les 4 instances reçoivent la 1.10.0 automatiquement. Rien ne
+- **Invariants** : les 4 instances reçoivent la 2.3.0 automatiquement. Rien ne
   doit bouger tant qu'un humain n'a pas déclaré un équipement, site par site.
 - **Verify** : `python3 -m pytest tests/ -k "no_tplink_configured" -q`
 - **Fix** : conditionner strictement tout rendu et toute publication à la

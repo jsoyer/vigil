@@ -410,9 +410,7 @@ class TestConfirmEndpointReplay(_ConfirmEndpointBase):
         d'idempotence) reste 404 et compte toujours comme un echec normal --
         le correctif ne doit pas affaiblir le rate limiting sur du
         bruteforce reel (voir aussi TestConfirmEndpointRateLimit)."""
-        status, body = _post(
-            f"{self.base_url}/api/confirm/tplink_reboot/never-existed"
-        )
+        status, body = _post(f"{self.base_url}/api/confirm/tplink_reboot/never-existed")
         assert status == 404
         assert body == {"error": "unknown or expired"}
 

@@ -24,6 +24,8 @@ Vigil est un système de surveillance de connexion internet et de redémarrage a
 - **Dashboard responsive PWA** : Interface web avec support offline
 - **Auto-updater** : Récupère versions depuis GitHub, valide, déploie, rollback auto
 
+Le moteur de surveillance central (scoring, circuit breaker, `watchdog.py`/`state.py`) reste mono-cible (mono-USG) à travers A2 -- A1 et A2 ajoutent seulement l'exposition, la gestion et l'intégration HA du TP-Link en périphérie, sans toucher à la boucle centrale. Un moteur multi-cibles est envisagé séparément (PRD B).
+
 ## Architecture
 
 ### Structure des fichiers
@@ -46,7 +48,7 @@ src/
 ├── dashboard.py              # HTML dashboard intégré (zéro dépendances)
 ├── pwa.py                    # PWA manifest.json + service worker (offline)
 ├── report.py                 # Rapports quotidiens/hebdomadaires
-├── history.py                # Historique persisté (metriques + événements)
+├── history.py                # Historique persisté (metriques + événements) + QuotaStore (A2) : suivi quota data TP-Link, cumul par deltas positifs uniquement, calendar-cycle aware (survit aux resets de compteur au reboot)
 ├── diagnostics.py            # Traceroute + SNMP monitoring
 ├── metrics.py                # Prometheus exposition format (/metrics)
 ├── ddns_cloudflare.py        # DDNS Cloudflare (remplace script shell)
@@ -55,7 +57,7 @@ src/
 ├── multiwan.py               # Multi-WAN detection (failover)
 ├── speedtest.py              # Speedtest intégré (100KB download)
 ├── snmp_monitor.py           # Lecture métriques USG (CPU, mémoire)
-├── mqtt_publisher.py         # MQTT / Home Assistant auto-discovery
+├── mqtt_publisher.py         # MQTT / Home Assistant auto-discovery + commandes entrantes (A2) : switch arm, button reboot, sensor last_action, gated MQTT_COMMANDS_ENABLED, broker authentifié requis
 ├── alert_escalation.py       # Escalade d'alertes si pas ACK
 ├── messages.py               # Templates messages (tous les canaux)
 ├── notifier/
@@ -165,6 +167,7 @@ Coordination HA :
 - `should_reboot()` → decision logic (primary vs secondary)
 - Failover logic : secondary attend PEER_TAKEOVER_DELAY avant prendre relais
 - Divergence detection : alerte si écart score > 6
+- Élection du poller TP-Link (A2) : l'instance en mode `bridged` avec un chemin joignable est priorisée, sinon fallback sur `INSTANCE_PRIORITY` ; l'instance non élue lit l'état du peer au lieu de poller elle-même ; le split-brain (deux instances qui s'élisent toutes les deux) est détecté et notifié -- réutilise le mécanisme de priorité peer existant, ce n'est pas une seconde implémentation de failover
 
 #### events.py
 
@@ -181,7 +184,9 @@ Ring buffer thread-safe (~100 événements) :
 1. Ntfy (self-hosted ou cloud, boutons d'action)
 2. Email SMTP (TLS)
 3. MQTT (Home Assistant + auto-discovery, télémétrie séparée -- pas un
-   canal `notify()`)
+   canal `notify()` ; devenu bidirectionnel en A2 : publie toujours l'état
+   et le discovery, mais s'abonne aussi aux commandes entrantes quand
+   MQTT_COMMANDS_ENABLED est actif)
 
 Chaque canal :
 - Never raises (failures logged)

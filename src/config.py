@@ -323,6 +323,38 @@ INSTANCE_ID: str = _normalize_instance_id(
     _get_env("INSTANCE_ID", default=socket.gethostname())
 )
 
+
+# Suffixes de role connus (les 4 instances de production : dijon/nice x
+# master/slave). Utilise pour deriver un identifiant de SITE par defaut a
+# partir de l'INSTANCE_ID -- deux instances d'un meme site (master+slave)
+# doivent produire le meme SITE_ID pour partager un seul device Home
+# Assistant par equipement physique (C12/C15, Sprint 3 A2).
+_ROLE_SUFFIXES: tuple[str, ...] = ("_master", "_slave", "_primary", "_secondary")
+
+
+def _default_site_id(instance_id: str) -> str:
+    """Derive un identifiant de site depuis un INSTANCE_ID deja normalise,
+    en retirant un suffixe de role connu en fin de chaine. Retombe sur
+    l'INSTANCE_ID complet si aucun suffixe connu n'est trouve (deploiement
+    standalone, un seul watchdog par site) -- jamais de chaine vide."""
+    for suffix in _ROLE_SUFFIXES:
+        if instance_id.endswith(suffix):
+            stripped = instance_id[: -len(suffix)]
+            if stripped:
+                return stripped
+    return instance_id
+
+
+# Identifiant de site (regroupe les instances master/slave d'un meme site
+# et l'equipement physique -- TP-Link ou USG -- qu'elles partagent). Defaut :
+# INSTANCE_ID prive de son suffixe de role connu, pour qu'un deploiement
+# existant (sans variable SITE_ID) obtienne malgre tout un identifiant de
+# site coherent entre les deux instances d'un site, sans configuration
+# manuelle (meme philosophie que INSTANCE_ID -- voir _normalize_instance_id).
+SITE_ID: str = _normalize_instance_id(
+    _get_env("SITE_ID", default=_default_site_id(INSTANCE_ID))
+)
+
 # ---------------------------------------------
 # MQTT / HOME ASSISTANT (optionnel)
 # ---------------------------------------------
@@ -339,6 +371,39 @@ MQTT_HA_DISCOVERY: bool = os.getenv("MQTT_HA_DISCOVERY", "true").lower() in (
     "1",
     "yes",
 )
+
+# ---------------------------------------------
+# MQTT -- CHEMIN DE COMMANDE ENTRANT (Sprint 3 A2, C9)
+# ---------------------------------------------
+#
+# C9 : le `subscribe` MQTT introduit ici est la premiere surface d'attaque
+# entrante du projet -- quiconque publie sur le broker peut declencher une
+# action si l'ecoute est active. EXIGENCE NON VERIFIEE AU DEMARRAGE (pas de
+# validation croisee bloquante ici, volontairement -- un deploiement de test
+# local sur broker anonyme ne doit pas etre empeche de demarrer) : le
+# broker MQTT **doit** etre authentifie (MQTT_USERNAME/MQTT_PASSWORD
+# renseignes) avant d'activer MQTT_COMMANDS_ENABLED. C'est a l'operateur de
+# le garantir -- voir README/DEPLOY pour la procedure. Le code cote
+# publisher (mqtt_publisher.py) refuse neanmoins de s'abonner si
+# MQTT_COMMANDS_ENABLED=true mais MQTT_USERNAME est vide (defense en
+# profondeur, jamais une garantie a elle seule : un broker peut exiger un
+# mot de passe uniquement cote serveur, invisible d'ici).
+
+# Active l'ecoute des topics de commande (switch armer + button reboot).
+# Desactivable independamment de la publication (MQTT_HA_DISCOVERY) : un
+# deploiement peut vouloir les capteurs sans le chemin de commande.
+MQTT_COMMANDS_ENABLED: bool = os.getenv("MQTT_COMMANDS_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
+# Delai (secondes) avant desarmement automatique de l'entite "armer le
+# reboot" -- equivalent MQTT de la confirmation en deux temps (A1 utilisait
+# un jeton Telegram, retire en 2.2.0). Court par defaut : le geste d'armer
+# puis presser le bouton doit rester un seul enchainement operateur, pas une
+# fenetre ouverte toute la journee.
+MQTT_ARM_TIMEOUT: int = _get_int_env("MQTT_ARM_TIMEOUT", default=30, minimum=5)
 
 # ---------------------------------------------
 # DDNS CLOUDFLARE (optionnel)
@@ -492,6 +557,11 @@ class TplinkDeviceConfig:
     rsrp_min: int
     rsrq_min: int
     snr_min: int
+    quota_volume_mb: int | None = None
+    quota_alert_pct: int = 80
+    quota_reset_day: int = 1
+    probe_enabled: bool = False
+    probe_interval: int = 3600
 
 
 def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
@@ -536,6 +606,40 @@ def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
         # src/drivers/tplink.py (readiness()) pour la justification complete.
         snr_min = _get_int_env(f"TPLINK_{index}_SNR_MIN", default=-100, minimum=-200)
 
+        quota_volume_raw = os.getenv(f"TPLINK_{index}_QUOTA_VOLUME_MB", "")
+        quota_volume_mb: int | None = None
+        if quota_volume_raw:
+            try:
+                parsed = int(quota_volume_raw)
+                if parsed > 0:
+                    quota_volume_mb = parsed
+                else:
+                    logging.warning(
+                        "TPLINK_%d_QUOTA_VOLUME_MB invalide (%s), quota desactive",
+                        index,
+                        quota_volume_raw,
+                    )
+            except ValueError:
+                logging.warning(
+                    "TPLINK_%d_QUOTA_VOLUME_MB invalide (%s), quota desactive",
+                    index,
+                    quota_volume_raw,
+                )
+
+        quota_alert_pct = _get_int_env(
+            f"TPLINK_{index}_QUOTA_ALERT_PCT", default=80, minimum=1
+        )
+        quota_reset_day = _get_int_env(
+            f"TPLINK_{index}_QUOTA_RESET_DAY", default=1, minimum=1
+        )
+
+        probe_enabled = _get_env(
+            f"TPLINK_{index}_PROBE_ENABLED", default="false"
+        ).strip().lower() in ("1", "true", "yes", "on")
+        probe_interval = _get_int_env(
+            f"TPLINK_{index}_PROBE_INTERVAL", default=3600, minimum=60
+        )
+
         devices.append(
             TplinkDeviceConfig(
                 index=index,
@@ -547,6 +651,11 @@ def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
                 rsrp_min=rsrp_min,
                 rsrq_min=rsrq_min,
                 snr_min=snr_min,
+                quota_volume_mb=quota_volume_mb,
+                quota_alert_pct=quota_alert_pct,
+                quota_reset_day=quota_reset_day,
+                probe_enabled=probe_enabled,
+                probe_interval=probe_interval,
             )
         )
         index += 1

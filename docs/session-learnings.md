@@ -56,6 +56,14 @@ désigné USG (src/usg.py, USG_IP, etc. inchangés).
 
 # Session Learnings — Vigil (ex-USG Watchdog)
 
+## Rollout 2.3.0 — valeurs quota fournies par l'utilisateur (2026-08-23)
+
+Les deux SIM Free (Dijon et Nice) : **110 Go / mois, reset le 27**.
+A injecter au rollout dans les .env des guardians :
+`TPLINK_1_QUOTA_VOLUME_MB=110000`, `TPLINK_1_QUOTA_RESET_DAY=27`
+(seuil d'alerte : defaut du code). Verifier le nom exact des variables
+contre config.py (Sprint 1 A2) au moment de l'injection.
+
 ## Ship Pipeline State — A1 LIVRÉ EN PRODUCTION (2026-08-23, soir)
 
 - **2.1.0 (A1 pilotage TP-Link)** : PR #43 dev→main mergée, tag v2.1.0,

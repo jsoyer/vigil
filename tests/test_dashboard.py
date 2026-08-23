@@ -247,3 +247,106 @@ class TestDashboardTplinkSection:
         """The confirm step must forward the token received from the
         reboot request, as required by /api/tplink/<id>/reboot/confirm."""
         assert "token" in DASHBOARD_HTML
+
+
+@pytest.mark.unit
+class TestDashboardTplinkDeviceCard:
+    """Sprint 2 (A2) -- per-device equipment card: readiness badge, failed
+    hop, 4G signal block, usage banner, peer/age note, quota block from
+    /metrics."""
+
+    def test_readiness_badge_helper_and_labels(self):
+        assert "function tplinkReadinessBadge(" in DASHBOARD_HTML
+        assert "badge-healthy" in DASHBOARD_HTML
+        assert "badge-degraded" in DASHBOARD_HTML
+        assert "badge-starting" in DASHBOARD_HTML
+        assert "'Pret'" in DASHBOARD_HTML
+        assert "'Degrade'" in DASHBOARD_HTML
+        assert "'Inconnu'" in DASHBOARD_HTML
+
+    def test_failed_hop_labels_present(self):
+        assert "function tplinkHopLabel(" in DASHBOARD_HTML
+        assert "Pont Pi Zero en panne" in DASHBOARD_HTML
+        assert "Liaison sans fil Pi Zero - routeur en panne" in DASHBOARD_HTML
+        assert "Routeur injoignable" in DASHBOARD_HTML
+        assert "Route reseau absente ou mal configuree" in DASHBOARD_HTML
+
+    def test_bridge_failure_message_stays_cautious_about_poe(self):
+        """Spec: on a bridge failure, stay cautious about the cause -- the
+        Pi Zero is PoE-powered, so the fault can be the Pi, the switch
+        port, the PoE budget or the cable."""
+        bridge_msg_start = DASHBOARD_HTML.index("Pont Pi Zero en panne")
+        bridge_msg = DASHBOARD_HTML[bridge_msg_start : bridge_msg_start + 120]
+        assert "PoE" in bridge_msg
+
+    def test_usage_banner_states_distinct(self):
+        """'En service' and 'Sature' must be visually AND textually
+        distinct: each text is paired with its own CSS class."""
+        assert (
+            'class="tplink-usage-banner tplink-usage-active">En service<'
+            in DASHBOARD_HTML
+        )
+        assert (
+            'class="tplink-usage-banner tplink-usage-saturated">Sature<'
+            in DASHBOARD_HTML
+        )
+
+    def test_usage_state_classifier_mirrors_backend_thresholds(self):
+        assert "function tplinkUsageState(" in DASHBOARD_HTML
+        assert "150000000" in DASHBOARD_HTML
+        assert "50000000" in DASHBOARD_HTML
+        assert "'saturated'" in DASHBOARD_HTML
+        assert "'in_use'" in DASHBOARD_HTML
+
+    def test_quota_block_identifiers_present(self):
+        assert "tplink-quota-bar" in DASHBOARD_HTML
+        assert "tplink-quota-bar-fill" in DASHBOARD_HTML
+        assert "function parseTplinkQuotaFromMetrics(" in DASHBOARD_HTML
+        assert "vigil_tplink_quota_used_bytes" in DASHBOARD_HTML
+        assert "vigil_tplink_quota_bytes_total" in DASHBOARD_HTML
+        assert "vigil_tplink_quota_pct" in DASHBOARD_HTML
+        assert "vigil_tplink_quota_reset_info" in DASHBOARD_HTML
+        assert "Prochain reset" in DASHBOARD_HTML
+
+    def test_quota_fetched_from_metrics_without_auth(self):
+        """/metrics is routed in http_server.py do_GET without any
+        _check_auth() call -- a plain unauthenticated fetch is correct."""
+        assert "fetch('/metrics')" in DASHBOARD_HTML
+
+    def test_signal_block_fields_present(self):
+        assert "function tplinkSignalLine(" in DASHBOARD_HTML
+        assert "'RSRP'" in DASHBOARD_HTML
+        assert "'RSRQ'" in DASHBOARD_HTML
+        assert "'SNR'" in DASHBOARD_HTML
+        assert "'Reseau'" in DASHBOARD_HTML
+        assert "'SIM'" in DASHBOARD_HTML
+        assert "'Operateur'" in DASHBOARD_HTML
+        assert "tplink-signal-block" in DASHBOARD_HTML
+
+    def test_peer_data_age_note_present(self):
+        assert "from_peer" in DASHBOARD_HTML
+        assert "age_seconds" in DASHBOARD_HTML
+        assert "tplink-peer-note" in DASHBOARD_HTML
+        assert "Donnee du peer" in DASHBOARD_HTML
+
+    def test_tplink_onclick_handlers_js_escaped(self):
+        """Regression: DASHBOARD_HTML is a non-raw Python string, so JS
+        \\' escapes must be written \\\\' in the source -- otherwise Python
+        eats the backslash and the served JS is a SyntaxError."""
+        assert "tplinkCheck(\\''" in DASHBOARD_HTML
+        assert "tplinkReboot(\\''" in DASHBOARD_HTML
+        assert "msg += '\\n'" in DASHBOARD_HTML
+
+    def test_empty_state_branch_byte_identical(self):
+        """Non-negotiable acceptance criterion: 'aucun equipement declare
+        -> rendu strictement inchange'. The early-return branch of
+        renderTplinkList() must stay byte-for-byte identical to the
+        pre-sprint original."""
+        original = (
+            "  if (!devices || !devices.length) {\n"
+            '    container.innerHTML = \'<li><span class="event-data">'
+            "Aucun equipement TP-Link configure</span></li>';\n"
+            "    return;\n"
+            "  }\n"
+        )
+        assert original in DASHBOARD_HTML

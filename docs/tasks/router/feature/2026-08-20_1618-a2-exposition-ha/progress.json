@@ -2,7 +2,7 @@
   "prd": "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/spec.md",
   "name": "a2-exposition-ha",
   "created": "2026-08-20",
-  "target_version": "1.10.0",
+  "target_version": "2.3.0",
   "branch": "dev",
   "status": "planned",
   "depends_on_prd": "docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/spec.md",
@@ -34,7 +34,8 @@
       "id": 1,
       "title": "Quota, detection d'usage, election du poller (C12)",
       "spec": "sprints/01-quota-et-usage.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["ace8497"],
       "depends_on": [],
       "risk": "high",
       "isolation": "worktree",
@@ -67,7 +68,8 @@
       "id": 2,
       "title": "Dashboard + Prometheus",
       "spec": "sprints/02-dashboard-prometheus.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["f23f6fb"],
       "depends_on": [
         1
       ],
@@ -97,7 +99,8 @@
       "id": 3,
       "title": "Home Assistant : capteurs par equipement + bouton arme",
       "spec": "sprints/03-home-assistant.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["d50e037"],
       "depends_on": [
         1,
         2
@@ -116,8 +119,7 @@
       ],
       "files_read_only": [
         "src/drivers/",
-        "src/http_server.py",
-        "src/telegram_bot.py"
+        "src/http_server.py"
       ],
       "forbidden": [
         "src/watchdog.py",
@@ -126,16 +128,18 @@
         "src/dashboard.py",
         "src/metrics.py"
       ],
-      "notes": "Ouvre le premier chemin de commande ENTRANT du projet (subscribe MQTT). Surface d'attaque nouvelle : broker authentifie exige, entite arm obligatoire. Device HA indexe sur site + equipement (C12), publie par le seul poller elu. Liste d'entites figee d'apres le spike (C13). Inclut la mise a niveau additive des 8 capteurs USG existants (device_class / state_class / retain, unique_id et type inchanges - C14). Inclut C15 : un seul device USG par site (capteurs de ligne sur un device par site publie par l'instance elue, capteurs du watchdog par instance) + binary_sensor divergence en compensation. Inclut C17 : metriques de l'hote (temperature, disque, memoire, charge) en stdlib seule.",
+      "notes": "Ouvre le premier chemin de commande ENTRANT du projet (subscribe MQTT). Surface d'attaque nouvelle : broker authentifie exige, entite arm obligatoire. Device HA indexe sur site + equipement (C12), publie par le seul poller elu. Liste d'entites figee d'apres le spike (C13). Inclut la mise a niveau additive des 8 capteurs USG existants (device_class / state_class / retain, unique_id et type inchanges - C14). Inclut C15 : un seul device USG par site (capteurs de ligne sur un device par site publie par l'instance elue, capteurs du watchdog par instance) + binary_sensor divergence en compensation. Inclut C17 : metriques de l'hote (temperature, disque, memoire, charge) en stdlib seule. MAJ 2026-08-23 : src/telegram_bot.py retire de files_read_only -- le fichier n'existe plus depuis 2.2.0 (retrait de Telegram/Discord/Slack/Pushover du code, bascule Ntfy-first). MQTT est donc la DEUXIEME voie de commande entrante (apres l'API), pas la troisieme.",
       "shared_contracts": [
         "topics MQTT et unique_id consommes par Home Assistant"
       ]
     },
     {
       "id": 4,
-      "title": "Docs + release 1.10.0",
+      "title": "Docs + release 2.3.0",
       "spec": "sprints/04-docs-release.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["(ce sprint)"],
+      "notes_execution": "Perimetre reduit sur instruction explicite de l'orchestrateur : README.md, DEPLOY.md, CLAUDE.md, docs/RELEASE-NOTES-2.3.0.md (nouveau), progress.json et INVARIANTS.md (Verify perime corrige : ancrage v1.8.3-glissant -> v2.2.0). VERSION, tag v2.3.0, PR dev->main, statut ADR-0001 et ouverture des issues de suivi (PRD B, backlog MQTT) restent a la charge de l'orchestrateur -- non touches ici. Aucun commit cree par ce sprint.",
       "depends_on": [
         1,
         2,
@@ -143,16 +147,24 @@
       ],
       "risk": "low",
       "isolation": "worktree",
-      "files_to_create": [],
+      "files_to_create": [
+        "docs/RELEASE-NOTES-2.3.0.md"
+      ],
       "files_to_modify": [
         "README.md",
         "DEPLOY.md",
         "CLAUDE.md",
-        "VERSION",
-        "docs/adr/0001-multi-vendor-router-monitoring.md"
+        "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/progress.json",
+        "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/INVARIANTS.md"
       ],
       "files_read_only": [
-        "src/"
+        "src/",
+        "tests/",
+        "scripts/"
+      ],
+      "files_not_touched_deferred_to_orchestrator": [
+        "VERSION",
+        "docs/adr/0001-multi-vendor-router-monitoring.md"
       ]
     }
   ]
