@@ -778,6 +778,17 @@ compatibilité : c'est la condition du rollback.**
 
 ## 12. Questions ouvertes
 
+> **DÉCISIONS UTILISATEUR (2026-08-23 soir)** — les 8 questions sont tranchées :
+> Q1 plafond de reboots **global au site** ; Q2 **jamais** de seconde cible
+> PRIMARY (hypothèse verrouillée) ; Q3 flag `VIGIL_ENGINE=legacy` conservé
+> **jusqu'en 2.6.0** ; Q4 fenêtre mixte : **négociation `from_dict`** (reco
+> suivie) ; Q5 `check_connectivity()` **reste publique** ; Q5bis identité
+> PRIMARY figée **`"usg"`** ; Q6 (B2) alerte readiness = **WARNING immédiat +
+> rappel périodique quotidien sur vigil-ops** tant que dégradé ; Q7
+> numérotation confirmée A2=2.3.0, B1=2.4.0, B2=2.5.0 ; Q8 dérive doc A1/A2 :
+> traitée le 2026-08-23 (rafraîchissement des dossiers). Le texte des
+> questions ci-dessous est conservé pour l'historique du raisonnement.
+
 - **Q1 — Plafond de reboots quotidien : par cible ou global au site ?**
   C25 tranche par défaut pour **global à l'instance** (ce qu'il protège est un
   risque de site). Sans effet en 2.4.0, mais **la structure de données se décide
