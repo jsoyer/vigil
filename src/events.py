@@ -46,8 +46,13 @@ class EventLog:
     def __init__(
         self,
         max_events: int = 50,
+        # /var/lib/vigil est cree par systemd (StateDirectory=vigil) et
+        # inscriptible par le service -- l'ecriture atomique (.tmp + rename)
+        # exige un REPERTOIRE inscriptible, ce que /var/log ne fournit pas
+        # sous ProtectSystem=strict (cause racine du bug historique de
+        # persistance des evenements).
         persist_path: str = _resolve_install_path(
-            "/var/log/vigil-events.json", "/var/log/usg-watchdog-events.json"
+            "/var/lib/vigil/events.json", "/var/log/usg-watchdog-events.json"
         ),
         persist_interval: int = 3600,
     ) -> None:

@@ -27,7 +27,7 @@ notifications, HA, API — identiques à la 1.8.3.
 | Updater | `usg-watchdog-updater.{service,timer}` | `vigil-updater.{service,timer}` |
 | Utilisateur système | `usg-watchdog` | `vigil` (nouveau compte, jamais `usermod -l`) |
 | Log | `/var/log/usg-watchdog.log` | `/var/log/vigil.log` |
-| Événements persistés | `/var/log/usg-watchdog-events.json` (**jamais fonctionnel** : absent des `ReadWritePaths`) | `/var/log/vigil-events.json` (fix inclus : créé par `deploy.sh`, autorisé par le unit) |
+| Événements persistés | `/var/log/usg-watchdog-events.json` (**jamais fonctionnel** : l'écriture atomique `.tmp` + `rename` exige un répertoire inscriptible, interdit par `ProtectSystem=strict`) | `/var/lib/vigil/events.json` (fix inclus : `StateDirectory=vigil` dans le unit) |
 | Défaut `MQTT_TOPIC_PREFIX` | `usg-watchdog` | `vigil` (les 4 instances de prod ont des préfixes explicites `vigil/<site>-<role>`) |
 | Métriques Prometheus | `usg_watchdog_*` (19 séries) | `vigil_*` — **bascule sèche** (décision du 2026-08-23) |
 

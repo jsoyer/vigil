@@ -152,11 +152,13 @@ ssh <HOST> journalctl -u vigil -n 80 --no-pager
 `/opt/usg-watchdog` ; aucune trace d'erreur Python (traceback).
 
 ```
-ssh <HOST> ls -l /var/log/vigil.log /var/log/vigil-events.json
+ssh <HOST> ls -l /var/log/vigil.log /var/lib/vigil/events.json
 ```
-→ les deux fichiers existent, taille non nulle, propriétaire `vigil:vigil`
+→ les deux fichiers existent, taille non nulle (events.json : apres le premier evenement persiste), propriétaire `vigil:vigil`
 (ou `vigil:adm` selon le logrotate) — **c'est le test direct du fix du bug
-latent `ReadWritePaths`** posé au sprint 2 : si `vigil-events.json` est absent
+latent de persistance des événements** (fix final : `StateDirectory=vigil`,
+posé pendant la migration du Pi cobaye — l'écriture atomique exige un
+répertoire inscriptible) : si `events.json` est absent
 ou vide après un cycle de fonctionnement, le fix n'est pas effectif, ne pas
 continuer.
 
@@ -352,5 +354,5 @@ ssh <HOST> sudo userdel usg-watchdog   # en dernier, apres verification find -xd
       bascule sèche des métriques)
 - [ ] `VERSION` = `2.0.0`, tag annoté `v2.0.0` poussé **après** la validation
       des 4 Pi (jamais avant), `dev` resynchronisée
-- [ ] `/var/log/vigil-events.json` non vide sur les 4 Pi (vérification finale
+- [ ] `/var/lib/vigil/events.json` non vide sur les 4 Pi (vérification finale
       du fix `ReadWritePaths` en conditions réelles)

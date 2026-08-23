@@ -33,7 +33,11 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=tmpfs
 ReadOnlyPaths=/opt/vigil
-ReadWritePaths=/var/log/vigil.log -/var/log/vigil-events.json
+ReadWritePaths=/var/log/vigil.log
+# Repertoire d'etat inscriptible (/var/lib/vigil) : requis par la
+# persistance des evenements (ecriture atomique .tmp + rename, qui
+# necessite un repertoire inscriptible, pas seulement un fichier).
+StateDirectory=vigil
 # Backup UniFi : acces lecture au repertoire autobackup (UNIFI_BACKUP_DIR)
 # Prefixe '-' : ignore si le repertoire n'existe pas (instance backup sans UniFi)
 BindReadOnlyPaths=-/home/pi/docker/prod/unifi-network-server/data/data/backup/autobackup

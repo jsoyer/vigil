@@ -199,16 +199,10 @@ install -m 640 -o "${SERVICE_USER}" -g adm /dev/null /var/log/vigil.log 2>/dev/n
     chown "${SERVICE_USER}:adm" /var/log/vigil.log
     chmod 640 /var/log/vigil.log
 }
-# Fichier d'evenements : doit exister avant le demarrage (ReadWritePaths ne
-# rend inscriptible qu'un chemin existant ; le service ne peut pas le creer
-# lui-meme sous ProtectSystem=strict).
-if [[ ! -f /var/log/vigil-events.json ]]; then
-    install -m 640 -o "${SERVICE_USER}" -g adm /dev/null /var/log/vigil-events.json 2>/dev/null || {
-        touch /var/log/vigil-events.json
-        chown "${SERVICE_USER}:adm" /var/log/vigil-events.json
-        chmod 640 /var/log/vigil-events.json
-    }
-fi
+# Repertoire d'etat des evenements : cree par systemd (StateDirectory=vigil)
+# au demarrage du service ; on le pre-cree ici pour les executions hors
+# systemd (mode dev, tests manuels).
+install -d -m 750 -o "${SERVICE_USER}" -g "${SERVICE_USER}" /var/lib/vigil 2>/dev/null || true
 log_success "Fichier de log cree : /var/log/vigil.log"
 
 # --- Logrotate ---------------------------------------------------------------
