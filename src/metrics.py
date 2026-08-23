@@ -22,34 +22,34 @@ def render_metrics(state: WatchdogState | None) -> str:
         lines.append(f"{name} {value}")
 
     if state is None:
-        gauge("usg_watchdog_up", "Whether the watchdog is running", 0)
+        gauge("vigil_up", "Whether the watchdog is running", 0)
         return "\n".join(lines) + "\n"
 
     # Watchdog status
-    gauge("usg_watchdog_up", "Whether the watchdog is running", 1)
+    gauge("vigil_up", "Whether the watchdog is running", 1)
     gauge(
-        "usg_watchdog_uptime_seconds",
+        "vigil_uptime_seconds",
         "Watchdog uptime in seconds",
         int(state.uptime_seconds),
     )
 
     # Scoring
-    gauge("usg_watchdog_failure_score", "Current failure score", state.failure_score)
-    gauge("usg_watchdog_score_threshold", "Score threshold for reboot", state.threshold)
+    gauge("vigil_failure_score", "Current failure score", state.failure_score)
+    gauge("vigil_score_threshold", "Score threshold for reboot", state.threshold)
 
     # Connectivity
     gauge(
-        "usg_watchdog_gateway_up",
+        "vigil_gateway_up",
         "Whether the gateway responds to ping",
         int(state.gateway_ok),
     )
     gauge(
-        "usg_watchdog_internet_targets_up",
+        "vigil_internet_targets_up",
         "Number of internet targets responding",
         state.internet_ok_count,
     )
     gauge(
-        "usg_watchdog_internet_targets_total",
+        "vigil_internet_targets_total",
         "Total number of internet targets",
         state.internet_total,
     )
@@ -57,57 +57,57 @@ def render_metrics(state: WatchdogState | None) -> str:
     # Latency
     if state.gateway_rtt_ms is not None:
         gauge(
-            "usg_watchdog_gateway_rtt_ms",
+            "vigil_gateway_rtt_ms",
             "Gateway ping RTT in milliseconds",
             round(state.gateway_rtt_ms, 2),
         )
     if state.internet_avg_rtt_ms is not None:
         gauge(
-            "usg_watchdog_internet_avg_rtt_ms",
+            "vigil_internet_avg_rtt_ms",
             "Average internet ping RTT in milliseconds",
             round(state.internet_avg_rtt_ms, 2),
         )
     gauge(
-        "usg_watchdog_latency_degraded",
+        "vigil_latency_degraded",
         "Whether latency is above degradation threshold",
         int(state.latency_degraded),
     )
 
     # Reboots
     counter(
-        "usg_watchdog_reboots_total",
+        "vigil_reboots_total",
         "Total consecutive reboots without recovery",
         state.consecutive_reboots,
     )
-    gauge("usg_watchdog_reboots_today", "Number of reboots today", state.reboots_today)
+    gauge("vigil_reboots_today", "Number of reboots today", state.reboots_today)
     gauge(
-        "usg_watchdog_surveillance_mode",
+        "vigil_surveillance_mode",
         "Whether surveillance-only mode is active",
         int(state.surveillance_only),
     )
 
     # ISP
     gauge(
-        "usg_watchdog_isp_outage",
+        "vigil_isp_outage",
         "Whether an ISP outage is detected",
         int(state.isp_outage_detected),
     )
 
     # SSH
     gauge(
-        "usg_watchdog_ssh_failures",
+        "vigil_ssh_failures",
         "Consecutive SSH failures",
         state.consecutive_ssh_failures,
     )
 
     # Peer
     peer_up = 1 if state.peer_status in ("healthy", "degraded", "critical") else 0
-    gauge("usg_watchdog_peer_up", "Whether the peer instance is reachable", peer_up)
-    gauge("usg_watchdog_peer_score", "Peer failure score", state.peer_score)
+    gauge("vigil_peer_up", "Whether the peer instance is reachable", peer_up)
+    gauge("vigil_peer_score", "Peer failure score", state.peer_score)
 
     # Instance info
     gauge(
-        "usg_watchdog_instance_priority",
+        "vigil_instance_priority",
         "Instance priority (1=primary)",
         state.instance_priority,
     )

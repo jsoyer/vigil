@@ -438,7 +438,7 @@ class TestGetStaticRoutes:
         status, ct, body = _get_raw(f"{self.base_url}/metrics")
         assert status == 200
         assert "text/plain" in ct
-        assert "usg_watchdog_up" in body
+        assert "vigil_up" in body
 
     def test_metrics_with_state(self):
         from src.state import WatchdogState
@@ -446,13 +446,13 @@ class TestGetStaticRoutes:
         self.holder.state = WatchdogState(failure_score=3, reboots_today=1)
         status, ct, body = _get_raw(f"{self.base_url}/metrics")
         assert status == 200
-        assert "usg_watchdog_failure_score" in body
-        assert "usg_watchdog_reboots_today" in body
+        assert "vigil_failure_score" in body
+        assert "vigil_reboots_today" in body
 
     def test_metrics_no_state_shows_down(self):
         status, ct, body = _get_raw(f"{self.base_url}/metrics")
         assert status == 200
-        assert "usg_watchdog_up 0" in body
+        assert "vigil_up 0" in body
 
 
 # ---------------------------------------------------------------------------
