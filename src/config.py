@@ -283,7 +283,7 @@ def _normalize_instance_id(raw: str) -> str:
     est volontairement ASCII-only, et les unique_id / topics MQTT ne
     doivent contenir que des caracteres ASCII), les '_' consecutifs sont
     collapses puis retires en debut/fin. Si le resultat est vide, retombe
-    sur 'usg_watchdog' pour garantir un identifiant toujours non vide.
+    sur 'vigil' pour garantir un identifiant toujours non vide.
 
     Limite connue et acceptee : deux hostnames qui ne different que par
     leur separateur (ex: "pi-dijon" et "pi_dijon", ou "site.master" et
@@ -297,7 +297,7 @@ def _normalize_instance_id(raw: str) -> str:
     while "__" in normalized:
         normalized = normalized.replace("__", "_")
     normalized = normalized.strip("_")
-    return normalized or "usg_watchdog"
+    return normalized or "vigil"
 
 
 # Identifiant unique de cette instance (site + role), utilise pour distinguer

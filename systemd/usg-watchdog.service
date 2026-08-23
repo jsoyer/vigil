@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=usg-watchdog
 Group=usg-watchdog
-WorkingDirectory=/opt/usg-watchdog/src
+WorkingDirectory=/opt/usg-watchdog/current/src
 
-ExecStart=/opt/usg-watchdog/venv/bin/python /opt/usg-watchdog/src/watchdog.py
+ExecStart=/opt/usg-watchdog/venv/bin/python /opt/usg-watchdog/current/src/watchdog.py
 
 # Restart on crash
 Restart=always

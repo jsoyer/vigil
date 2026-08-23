@@ -107,7 +107,7 @@ class TestHaDiscoveryConfigs:
 
         configs = _ha_discovery_configs("usg-watchdog", instance_id="testhost")
         for c in configs:
-            assert c["topic"].startswith("homeassistant/sensor/usg_watchdog_testhost/")
+            assert c["topic"].startswith("homeassistant/sensor/vigil_testhost/")
 
     def test_payload_has_device(self):
         from mqtt_publisher import _ha_discovery_configs
@@ -115,8 +115,8 @@ class TestHaDiscoveryConfigs:
         configs = _ha_discovery_configs("usg-watchdog", instance_id="testhost")
         for c in configs:
             assert "device" in c["payload"]
-            assert c["payload"]["device"]["name"] == "USG Watchdog testhost"
-            assert c["payload"]["device"]["identifiers"] == ["usg_watchdog_testhost"]
+            assert c["payload"]["device"]["name"] == "Vigil testhost"
+            assert c["payload"]["device"]["identifiers"] == ["vigil_testhost"]
 
     def test_payload_unique_ids_are_distinct(self):
         from mqtt_publisher import _ha_discovery_configs
@@ -149,14 +149,14 @@ class TestHaDiscoveryConfigs:
 
         configs = _ha_discovery_configs("usg-watchdog", instance_id="testhost")
         ids = [c["payload"]["unique_id"] for c in configs]
-        assert "usg_watchdog_testhost_score" in ids
+        assert "vigil_testhost_score" in ids
 
     def test_status_sensor_exists(self):
         from mqtt_publisher import _ha_discovery_configs
 
         configs = _ha_discovery_configs("usg-watchdog", instance_id="testhost")
         ids = [c["payload"]["unique_id"] for c in configs]
-        assert "usg_watchdog_testhost_status" in ids
+        assert "vigil_testhost_status" in ids
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +237,12 @@ class TestInstanceIdDefaultAndNormalization:
     def test_empty_normalizes_to_fallback(self):
         from config import _normalize_instance_id
 
-        assert _normalize_instance_id("") == "usg_watchdog"
+        assert _normalize_instance_id("") == "vigil"
 
     def test_only_special_chars_normalizes_to_fallback(self):
         from config import _normalize_instance_id
 
-        assert _normalize_instance_id("---") == "usg_watchdog"
+        assert _normalize_instance_id("---") == "vigil"
 
     def test_accented_hostname_normalizes_to_ascii_only(self):
         """Les lettres accentuees (non-ASCII) doivent devenir '_', pas
@@ -292,7 +292,7 @@ class TestClientIdPerInstance:
             pub = MqttPublisher(MagicMock())
             pub.start()
             _, kwargs = mock_paho.Client.call_args
-            assert kwargs["client_id"] == "usg-watchdog-dijon_master"
+            assert kwargs["client_id"] == "vigil-dijon_master"
 
     def test_two_instances_get_distinct_client_id_strings_cheap_check(self):
         """Verification bon marche que les chaines de client_id different.
@@ -337,8 +337,8 @@ class TestClientIdPerInstance:
         client_id_a = mock_paho_a.Client.call_args.kwargs["client_id"]
         client_id_b = mock_paho_b.Client.call_args.kwargs["client_id"]
         assert client_id_a != client_id_b
-        assert client_id_a == "usg-watchdog-dijon_master"
-        assert client_id_b == "usg-watchdog-nice_master"
+        assert client_id_a == "vigil-dijon_master"
+        assert client_id_b == "vigil-nice_master"
 
 
 class TestTwoInstancesConnectSimultaneouslyWithoutEviction:

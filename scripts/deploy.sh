@@ -105,25 +105,54 @@ else
     log_info "Utilisateur ${SERVICE_USER} existe deja"
 fi
 
-# --- Copy files (atomic) -----------------------------------------------------
+# --- Copy files (releases + symlink 'current', meme layout que l'updater) ---
 log_info "Copie des fichiers vers ${INSTALL_DIR}..."
-install -d -m 750 "${INSTALL_DIR}" "${INSTALL_DIR}/src"
+install -d -m 750 "${INSTALL_DIR}" "${INSTALL_DIR}/releases"
 
 if [[ -d "${INSTALL_DIR}/.ssh" ]]; then
     log_info "Dossier .ssh existant conserve"
 fi
 
-# Atomic copy: stage in temp dir, then swap
-STAGE_DIR="${INSTALL_DIR}/src.new.$$"
-cp -r "${REPO_DIR}/src/." "${STAGE_DIR}/"
-cp "${REPO_DIR}/requirements.txt" "${INSTALL_DIR}/"
-cp "${REPO_DIR}/VERSION" "${INSTALL_DIR}/" 2>/dev/null || true
-if [[ -d "${INSTALL_DIR}/src" ]]; then
-    mv "${INSTALL_DIR}/src" "${INSTALL_DIR}/src.old.$$"
+# Migration ponctuelle du layout a plat (${INSTALL_DIR}/src) vers le layout
+# releases -- l'ancien layout est deplace, jamais supprime (rollback de
+# dernier recours).
+if [[ -d "${INSTALL_DIR}/src" && ! -L "${INSTALL_DIR}/src" ]]; then
+    if [[ -e "${INSTALL_DIR}/src.flat-backup" ]]; then
+        log_info "Ancien layout a plat deja sauvegarde : ${INSTALL_DIR}/src.flat-backup (conserve tel quel)"
+    else
+        log_info "Ancien layout a plat detecte (${INSTALL_DIR}/src) -- deplacement vers ${INSTALL_DIR}/src.flat-backup"
+        mv "${INSTALL_DIR}/src" "${INSTALL_DIR}/src.flat-backup"
+        log_success "Layout a plat sauvegarde : ${INSTALL_DIR}/src.flat-backup"
+    fi
 fi
-mv "${STAGE_DIR}" "${INSTALL_DIR}/src"
-rm -rf "${INSTALL_DIR}/src.old.$$" 2>/dev/null || true
-log_success "Fichiers copies"
+
+DEPLOY_VERSION="$(cat "${REPO_DIR}/VERSION" 2>/dev/null || echo "0.0.0")"
+RELEASE_DIR="${INSTALL_DIR}/releases/v${DEPLOY_VERSION}"
+
+# Stage la release dans un dossier temporaire avant de la publier (au moins
+# src/ + VERSION, meme structure minimale que celle extraite par l'updater).
+STAGE_DIR="${INSTALL_DIR}/releases/.stage.$$"
+install -d -m 750 "${STAGE_DIR}/src"
+cp -r "${REPO_DIR}/src/." "${STAGE_DIR}/src/"
+cp "${REPO_DIR}/VERSION" "${STAGE_DIR}/VERSION" 2>/dev/null || echo "${DEPLOY_VERSION}" > "${STAGE_DIR}/VERSION"
+cp "${REPO_DIR}/requirements.txt" "${INSTALL_DIR}/requirements.txt"
+
+if [[ -d "${RELEASE_DIR}" ]]; then
+    log_info "Release v${DEPLOY_VERSION} deja presente -- remplacement"
+    rm -rf "${RELEASE_DIR}"
+fi
+mv "${STAGE_DIR}" "${RELEASE_DIR}"
+log_success "Release v${DEPLOY_VERSION} installee : ${RELEASE_DIR}"
+
+# Bascule atomique du symlink 'current' -- meme mecanisme que
+# updater/update.py::apply_update() (nouveau lien temporaire puis rename
+# atomique par-dessus l'ancien).
+CURRENT_LINK="${INSTALL_DIR}/current"
+NEW_LINK="${INSTALL_DIR}/current.new"
+rm -f "${NEW_LINK}"
+ln -s "${RELEASE_DIR}" "${NEW_LINK}"
+mv -T "${NEW_LINK}" "${CURRENT_LINK}"
+log_success "Symlink mis a jour : current -> releases/v${DEPLOY_VERSION}"
 
 # --- Virtualenv (idempotent) -------------------------------------------------
 if [[ ! -d "${INSTALL_DIR}/venv" ]]; then

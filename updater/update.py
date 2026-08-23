@@ -78,12 +78,14 @@ def parse_version(v: str) -> tuple[int, ...]:
 def is_stable_tag(tag_name: str) -> bool:
     """Check if a tag matches the stable channel (vX.Y.Z, no suffix)."""
     import re
+
     return bool(re.match(r"^v\d+\.\d+\.\d+$", tag_name))
 
 
 def is_dev_tag(tag_name: str) -> bool:
     """Check if a tag matches the dev channel (vX.Y.Z-dev.N or -rc.N)."""
     import re
+
     return bool(re.match(r"^v\d+\.\d+\.\d+-(dev|rc)\.\d+$", tag_name))
 
 
@@ -95,10 +97,13 @@ def is_dev_tag(tag_name: str) -> bool:
 def fetch_tags() -> list[dict]:
     """Fetch tags from GitHub API."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/tags?per_page=20"
-    req = urllib.request.Request(url, headers={
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "usg-watchdog-updater",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "usg-watchdog-updater",
+        },
+    )
 
     # Add auth token if available
     token = os.getenv("GITHUB_TOKEN", "")
@@ -131,9 +136,12 @@ def find_latest_tag(tags: list[dict]) -> dict | None:
 def download_tarball(tag_name: str, dest: Path) -> bool:
     """Download the source tarball for a given tag."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/tarball/{tag_name}"
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "usg-watchdog-updater",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "usg-watchdog-updater",
+        },
+    )
     token = os.getenv("GITHUB_TOKEN", "")
     if token:
         req.add_header("Authorization", f"token {token}")
@@ -171,7 +179,7 @@ def extract_tarball(tarball: Path, dest: Path) -> bool:
                 # Strip the prefix directory
                 if "/" not in member.name:
                     continue
-                member.name = member.name[len(prefix) + 1:]
+                member.name = member.name[len(prefix) + 1 :]
                 if not member.name:
                     continue
                 # Path traversal protection
@@ -200,7 +208,8 @@ def validate_syntax(staged_src: Path) -> bool:
     for py_file in py_files:
         result = subprocess.run(
             [sys.executable, "-m", "py_compile", str(py_file)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             log.error("Erreur syntaxe %s : %s", py_file.name, result.stderr)
@@ -213,8 +222,13 @@ def validate_syntax(staged_src: Path) -> bool:
 def validate_imports(staged_src: Path) -> bool:
     """Validate that core modules can be imported."""
     result = subprocess.run(
-        [sys.executable, "-c", "import watchdog; import config; import connectivity; import usg"],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-c",
+            "import watchdog; import config; import connectivity; import usg",
+        ],
+        capture_output=True,
+        text=True,
         env={**os.environ, "PYTHONPATH": str(staged_src)},
     )
     if result.returncode != 0:
@@ -235,9 +249,18 @@ def validate_tests(staged_dir: Path) -> bool:
         return True
 
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", str(staged_tests), "-x", "-q",
-         "--timeout=120", "--tb=line"],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(staged_tests),
+            "-x",
+            "-q",
+            "--timeout=120",
+            "--tb=line",
+        ],
+        capture_output=True,
+        text=True,
         env={**os.environ, "PYTHONPATH": str(staged_src)},
         timeout=180,
     )
@@ -282,7 +305,8 @@ def restart_service() -> bool:
     """Restart the watchdog service."""
     result = subprocess.run(
         ["systemctl", "restart", SERVICE_NAME],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         log.error("Echec restart service : %s", result.stderr)
@@ -292,16 +316,36 @@ def restart_service() -> bool:
     return True
 
 
-def health_check() -> bool:
-    """Wait for the watchdog to become healthy after restart."""
+def health_check(target_version: str) -> bool:
+    """Wait for the watchdog to become healthy after restart.
+
+    Compare aussi le champ 'version' du JSON /health a la version cible de
+    la mise a jour : un mismatch signifie que le service redemarre sert
+    encore l'ancien code (layout casse, symlink 'current' non lu par le
+    unit systemd, etc.) -- c'est traite comme un echec de mise a jour au
+    meme titre qu'un statut non healthy (rollback + notification).
+    """
     deadline = time.time() + HEALTH_CHECK_TIMEOUT
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(HEALTH_CHECK_URL, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 status = data.get("status", "")
+                reported_version = data.get("version", "")
                 if status in ("healthy", "degraded"):
-                    log.info("Health check OK : status=%s", status)
+                    if reported_version != target_version:
+                        log.error(
+                            "Health check : version annoncee '%s' != version cible '%s' "
+                            "-- le service redemarre ne sert pas le code attendu",
+                            reported_version,
+                            target_version,
+                        )
+                        return False
+                    log.info(
+                        "Health check OK : status=%s version=%s",
+                        status,
+                        reported_version,
+                    )
                     return True
                 log.info("Health check : status=%s (attente...)", status)
         except Exception:
@@ -357,9 +401,9 @@ def prune_old_releases() -> None:
 def notify_watchdog(message: str) -> None:
     """Send a notification via the watchdog's HTTP API (if available)."""
     try:
-        # Use the events API to record the update event
-        url = "http://localhost:9000/api/events"  # just for logging
-        # The notification will be sent by the watchdog on next startup
+        # Le suivi se fait via l'API /api/events du watchdog (endpoint
+        # informatif ici) -- la notification effective sera envoyee par le
+        # watchdog lui-meme au prochain demarrage.
         log.info("Notification : %s", message)
     except Exception:
         pass
@@ -388,7 +432,9 @@ def main() -> int:
                 data = json.loads(resp.read().decode("utf-8"))
                 status = data.get("status", "")
                 if status not in ("healthy", "degraded"):
-                    log.warning("Watchdog non healthy (status=%s) -- MAJ reportee", status)
+                    log.warning(
+                        "Watchdog non healthy (status=%s) -- MAJ reportee", status
+                    )
                     return 0
         except Exception:
             log.warning("Watchdog injoignable -- MAJ reportee")
@@ -419,12 +465,16 @@ def main() -> int:
     log.info("Mise a jour disponible : %s -> %s", current, latest_version)
 
     if check_only:
-        print(json.dumps({
-            "available": True,
-            "current": current,
-            "latest": latest_version,
-            "tag": latest_name,
-        }))
+        print(
+            json.dumps(
+                {
+                    "available": True,
+                    "current": current,
+                    "latest": latest_version,
+                    "tag": latest_name,
+                }
+            )
+        )
         return 0
 
     # ===== Stage =====
@@ -474,7 +524,7 @@ def main() -> int:
             return 1
 
         # Health check
-        if not health_check():
+        if not health_check(latest_version):
             log.error("Health check echoue -- rollback vers v%s", current)
             rollback(current)
             return 1

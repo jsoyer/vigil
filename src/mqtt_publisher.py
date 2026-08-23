@@ -41,9 +41,9 @@ def _ha_discovery_configs(prefix: str, instance_id: str | None = None) -> list[d
         instance_id = INSTANCE_ID
 
     device = {
-        "identifiers": [f"usg_watchdog_{instance_id}"],
-        "name": f"USG Watchdog {instance_id}",
-        "model": "USG Watchdog",
+        "identifiers": [f"vigil_{instance_id}"],
+        "name": f"Vigil {instance_id}",
+        "model": "Vigil",
         "manufacturer": "jsoyer",
     }
 
@@ -80,7 +80,7 @@ def _ha_discovery_configs(prefix: str, instance_id: str | None = None) -> list[d
     for sensor_id, name, icon, unit, state_topic in sensors:
         payload: dict = {
             "name": name,
-            "unique_id": f"usg_watchdog_{instance_id}_{sensor_id}",
+            "unique_id": f"vigil_{instance_id}_{sensor_id}",
             "state_topic": state_topic,
             "icon": icon,
             "device": device,
@@ -89,7 +89,7 @@ def _ha_discovery_configs(prefix: str, instance_id: str | None = None) -> list[d
             payload["unit_of_measurement"] = unit
         configs.append(
             {
-                "topic": f"{HA_DISCOVERY_PREFIX}/sensor/usg_watchdog_{instance_id}/{sensor_id}/config",
+                "topic": f"{HA_DISCOVERY_PREFIX}/sensor/vigil_{instance_id}/{sensor_id}/config",
                 "payload": payload,
             }
         )
@@ -122,7 +122,7 @@ class MqttPublisher:
 
         try:
             self._client = paho_mqtt.Client(
-                client_id=f"usg-watchdog-{INSTANCE_ID}", protocol=paho_mqtt.MQTTv311
+                client_id=f"vigil-{INSTANCE_ID}", protocol=paho_mqtt.MQTTv311
             )
             if MQTT_USERNAME:
                 self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
