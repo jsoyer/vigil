@@ -35,6 +35,11 @@ src/
 ├── state.py                  # WatchdogState immutable + StateHolder + queue commandes
 ├── connectivity.py           # check_connectivity() + ping gateway + internet
 ├── usg.py                    # reboot_usg() via SSH paramiko
+├── drivers/                  # Contrats + implementations RouterDriver (A1, MR110 TP-Link)
+│   ├── _base.py               # Contrat RouterDriver (Protocol) : Hop, Readiness, dataclasses (C1: aucun import vendor)
+│   └── tplink.py               # TplinkDriver -- sonde etagee MR110, import tplinkrouterc6u paresseux (C1)
+├── managed_devices.py         # Registre des equipements TP-Link pilotables (verrou session, cache, confirmation)
+├── confirm.py                 # Jetons de confirmation generiques pour actions destructives (usage unique, TTL court)
 ├── events.py                 # EventLog ring buffer + persistence JSON
 ├── http_server.py            # API HTTP + endpoints JSON + dashboard
 ├── peer.py                   # Coordination multi-instance (failover logic)

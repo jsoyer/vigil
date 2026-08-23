@@ -35,6 +35,15 @@ def check_imports() -> bool:
         import watchdog  # noqa: F401
         import usg  # noqa: F401
 
+        # A1 -- drivers/ et managed_devices.py doivent rester importables
+        # sans tplinkrouterc6u installee (invariant C1, import vendor
+        # paresseux : la lib n'est importee que dans le corps de
+        # TplinkDriver._import_tplinkrouterc6u(), jamais au niveau module).
+        # Un preflight qui echouerait ici sur une instance sans equipement
+        # TP-Link declare bloquerait le demarrage du service a tort.
+        import drivers  # noqa: F401
+        import managed_devices  # noqa: F401
+
         return True
     except Exception as e:
         print(f"PREFLIGHT FAIL: Import error: {e}", file=sys.stderr)

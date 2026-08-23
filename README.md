@@ -942,6 +942,60 @@ curl -X POST -H "Authorization: Bearer TOKEN" \
   http://localhost:9000/api/maintenance
 ```
 
+### Lignes de secours TP-Link (4G)
+
+Pilotage optionnel d'un ou plusieurs routeurs 4G TP-Link (MR110 validé,
+`tplinkrouterc6u`) utilisés comme secours. **Aucun équipement déclaré =
+comportement strictement identique aux versions précédentes** : aucun driver
+n'est instancié, aucune dépendance TP-Link n'est sollicitée.
+
+**Déclaration** (par instance, numérotation `TPLINK_<n>_*` contiguë à partir
+de 1 — exemple pour un guardian avec le MR110 en accès direct) :
+
+```bash
+# /opt/vigil/.env
+TPLINK_1_HOST=192.168.10.1
+TPLINK_1_PASSWORD=motdepasse_local_du_mr110
+TPLINK_1_LABEL=mr110-dijon
+TPLINK_1_MODE=bridged            # bridged: cet hôte a un lien direct au MR110
+                                  # remote : le MR110 est joint via un pont SSH
+                                  #          (TPLINK_1_BRIDGE_HOST requis)
+TPLINK_1_RSRP_MIN=-110           # dBm, défaut -110
+TPLINK_1_RSRQ_MIN=-20            # dB, défaut -20
+TPLINK_1_SNR_MIN=-100            # unité firmware, défaut -100 -- voir
+                                  # docs/spikes/2026-08-23-mr110-compat.md
+```
+
+**Commandes Telegram** (`/lte`) :
+
+```
+/lte                  Etat de tous les équipements déclarés (readiness,
+                       signal, réseau, saut en panne si problème)
+/lte <id>              Détail d'un équipement
+/lte check <id>         Sonde de bout en bout à la demande (non destructive)
+/lte reboot <id>         Demande de redémarrage -- renvoie un jeton
+/lte confirm <jeton>      Confirme et exécute l'action en attente
+```
+
+**Endpoints API** (`/api/tplink/*`) :
+
+- `GET /api/tplink` -- équipements déclarés + dernier état connu
+- `GET /api/tplink/<id>` -- santé, saut en panne, readiness, métriques 4G
+- `POST /api/tplink/<id>/refresh` -- force une lecture, ignore le cache
+- `POST /api/tplink/<id>/check` -- sonde de bout en bout, non destructive
+- `POST /api/tplink/<id>/reboot` -- demande de redémarrage, renvoie un jeton
+- `POST /api/tplink/<id>/reboot/confirm` -- confirme et exécute
+
+**`API_TOKEN` est obligatoire dès qu'un équipement est déclaré** : sans lui,
+les `GET /api/tplink/*` répondent aussi `403`, pas seulement les `POST` --
+divergence volontaire avec le reste de l'API (ces réponses exposent état SIM,
+opérateur, IP WAN et consommation). Telegram reste utilisable sans
+`API_TOKEN`.
+
+**Périmètre A1** : management manuel uniquement (état, sonde à la demande,
+reboot confirmé). Pas de bascule automatique du trafic vers le secours, pas
+de commandes SMS/USSD en A1. Voir A2 pour l'exposition Home Assistant.
+
 ---
 
 ## Coordination haute disponibilité
