@@ -128,16 +128,25 @@ Dans `src/config.py` : le fallback de `_normalize_instance_id()` (chaîne vide
 
 ## Critères d'acceptation
 
-- [ ] `systemd/usg-watchdog.service` pointe sur `current/src` (WorkingDirectory + ExecStart)
-- [ ] `deploy.sh` installe en `releases/vX/` + symlink `current`, migre le layout à plat en backup
-- [ ] L'updater échoue (rollback + alerte) si `/health` n'annonce pas la version cible après restart (tests)
-- [ ] Identité MQTT entièrement `vigil_*` / `vigil-{instance}` ; tests adaptés et verts
-- [ ] Fallback d'instance vide = `vigil`
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
-- [ ] `docs/RELEASE-NOTES-1.8.2.md` avec les 3 points de migration
-- [ ] `VERSION` = 1.8.2 (bump en commit séparé, tag manuel annoté — cf. pièges `release.sh` dans session-learnings)
+- [x] `systemd/usg-watchdog.service` pointe sur `current/src` (WorkingDirectory + ExecStart)
+- [x] `deploy.sh` installe en `releases/vX/` + symlink `current`, migre le layout à plat en backup
+- [x] L'updater échoue (rollback + alerte) si `/health` n'annonce pas la version cible après restart (tests)
+- [x] Identité MQTT entièrement `vigil_*` / `vigil-{instance}` ; tests adaptés et verts
+- [x] Fallback d'instance vide = `vigil`
+- [x] `./scripts/validate.sh` vert, coverage ≥ 80 % (836 tests, 92 %)
+- [x] `docs/RELEASE-NOTES-1.8.2.md` avec les 3 points de migration
+- [x] `VERSION` = 1.8.2 (bump en commit séparé, tag manuel annoté — cf. pièges `release.sh` dans session-learnings)
 
 ## Issues
 
+- **Résolu (2026-08-23)** — livré et déployé sur les 4 Pi (dijon-master,
+  dijon-slave, nice-master/penelope, nice-slave), tous vérifiés `/health` =
+  1.8.2, MQTT connecté (rc=0), discovery HA envoyée sous l'identité `vigil`.
+- **Découvert au déploiement** : `paho-mqtt` absent de `requirements.txt` —
+  les 4 venvs ne l'avaient pas, MQTT silencieusement désactivé (warning au
+  démarrage). Corrigé : installé manuellement sur les 4 Pi (épinglé 1.6.1,
+  l'API de callbacks v1 du code est incompatible paho-mqtt 2.x) + ajouté au
+  `requirements.txt` en post-release (pas de nouveau tag : l'updater ne fait
+  pas de pip install, seul `deploy.sh` lit requirements.txt depuis le clone).
 - (ouvert) `scripts/release.sh` toujours inutilisable (double bump, `git tag -s`
   sans clé GPG) — hors périmètre ici, tag manuel comme pour 1.8.1.

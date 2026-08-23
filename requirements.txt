@@ -1,1 +1,5 @@
 paramiko==3.5.0
+# Epingle en 1.x : mqtt_publisher.py utilise l'API de callbacks v1
+# (Client(client_id=...), on_connect a 4 arguments) -- paho-mqtt 2.x
+# casse cette signature (CallbackAPIVersion obligatoire).
+paho-mqtt==1.6.1

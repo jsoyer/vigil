@@ -21,11 +21,52 @@ migration.
 
 ---
 
-## Ship Pipeline State
+## Ship Pipeline State — 1.8.2 (2026-08-23)
+
+- **Version** : 1.8.2 (unit systemd → `current/src`, deploy.sh → layout releases,
+  updater vérifie la version de `/health`, identité MQTT `vigil`)
+- `main`, `dev`, tag annoté `v1.8.2` : poussés (commits `7634444` + `1eeba8c`)
+- **FLOTTE COMPLÈTE DÉPLOYÉE (2026-08-23)** — les 4 Pi vérifiés en 1.8.2,
+  healthy, layouts à plat sauvegardés en `src.flat-backup` :
+  | Pi | Rôle | Login SSH |
+  |---|---|---|
+  | bbh-network (local) | dijon-master | — |
+  | bbh-dij-guardian | dijon-slave | dietpi |
+  | bbh-nce-guardian | nice-slave | dietpi |
+  | penelope | nice-master | pi |
+- Accès flotte : clé dédiée `~/.ssh/id_ed25519_fleet` + entrées `~/.ssh/config`
+  (guardians = user `dietpi`, penelope = user `pi`), sudo NOPASSWD partout,
+  repos clonés dans `~/github/usg-watchdog` sur chaque Pi
+- Piège rencontré : une commande SSH avec `cd` en tête a été réécrite (hook rtk)
+  et le `cd` perdu → utiliser `git -C` / variables plutôt qu'un `cd` initial
+- **MQTT ACTIVÉ sur les 4 (2026-08-23)** : brokers 192.168.1.51 (HA Dijon) /
+  192.168.3.51 (HA Nice), user `vigil`, INSTANCE_ID et prefixes
+  `vigil/<site>-<role>` posés, les 4 loggent « MQTT connecte (rc=0) » +
+  « discovery envoye »
+- **Restant côté utilisateur** : purge des entités HA `usg_watchdog*`
+  orphelines dans les 2 HA ; vérifier les ACL Mosquitto (écriture `vigil/#`
+  ET `homeassistant/#`)
+
+### `DEPENDENCY` — paho-mqtt absent de requirements.txt (découvert au déploiement)
+
+MQTT ne démarrait sur aucun Pi : `paho-mqtt` n'a jamais été dans
+`requirements.txt` (seul paramiko y figure), et `mqtt_publisher.py` dégrade en
+silence (warning + désactivation). Corrigé : pip install sur les 4 venvs +
+ajout au requirements.txt. **Épinglé `paho-mqtt==1.6.1`** : le code utilise
+l'API de callbacks v1 (`Client(client_id=...)`, `on_connect` à 4 arguments),
+paho-mqtt 2.x exige `CallbackAPIVersion` et casse la signature.
+
+**Leçon** : un module optionnel qui dégrade en silence (try/except ImportError)
+doit être vérifié dans les journaux après activation — le service reste
+healthy alors que la fonctionnalité est morte.
+
+## Ship Pipeline State — 1.8.1 (archivé)
 
 - **Date** : 2026-08-21
 - **Version** : 1.8.1
-- **Phase atteinte** : **LIVRÉ** — `main`, `dev` et le tag `v1.8.1` poussés
+- **Phase atteinte** : **LIVRÉ** — `main`, `dev` et le tag `v1.8.1` poussés.
+  **Post-mortem** : jamais exécutée en production (unit systemd sur layout à
+  plat, cf. tâche 1.8.2) — corrigé par la 1.8.2.
 
 | Étape | État |
 |---|---|
