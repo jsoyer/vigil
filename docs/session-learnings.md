@@ -56,6 +56,27 @@ désigné USG (src/usg.py, USG_IP, etc. inchangés).
 
 # Session Learnings — Vigil (ex-USG Watchdog)
 
+## 🏁 CLÔTURE DU PLAN GLOBAL (2026-08-24, ~01:30) — TOUT EST LIVRÉ
+
+Flotte 4/4 en **2.3.1**, saine, silencieuse, vérifiée. En une journée :
+1.8.1 → 2.3.1 = **11 releases**, 4 PRD exécutés (renommage Vigil, A1
+TP-Link, Ntfy-first, A2 exposition HA), 1 PRD rédigé et décidé (B1,
+2.4.0, gate from_dict en préalable), 1262 tests (vs 831 au départ).
+
+Bugs de production trouvés PAR la vérification en réel (jamais par les
+tests) : no-op updater depuis avril, persistance events (StateDirectory),
+wlan0 en dur, rafale iOS x10 sur les boutons (idempotence), AF_NETLINK
+sous sandbox, in_use permanent sur bruit de gestion, rclone.conf non
+migré, JS dashboard cassé par échappement, split-brain en code mort,
+auth dashboard absente. **Leçon maîtresse : vérifier en réel après
+CHAQUE ship — 10 bugs sur 10 étaient invisibles aux suites vertes.**
+
+Reste (hors plan, consigné) : purge HA C15 par l'utilisateur (capteurs
+de ligne orphelins), purge J+7 usg-watchdog (>= 2026-08-30 sur demande),
+révocation BotFather, Grafana réimport, duplicata usage_traffic_floor
+par équipement non honoré par la gauge Prometheus (défaut module —
+accepté), B1 au prochain go.
+
 ## Rollout 2.3.0 — valeurs quota fournies par l'utilisateur (2026-08-23)
 
 Les deux SIM Free (Dijon et Nice) : **110 Go / mois, reset le 27**.
