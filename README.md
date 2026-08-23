@@ -235,6 +235,9 @@ Tous les paramètres peuvent être surchargés via variables d'environnement dan
 | `MQTT_USERNAME` | _(vide)_ | Username MQTT |
 | `MQTT_PASSWORD` | _(vide)_ | Password MQTT |
 | `MQTT_HA_DISCOVERY` | `true` | Envoyer configs auto-discovery Home Assistant |
+| `SITE_ID` | _(dérivé de `INSTANCE_ID`)_ | Identifiant de site (Dijon/Nice) — regroupe les devices HA « par site » (USG, TP-Link) |
+| `MQTT_COMMANDS_ENABLED` | `false` | Active l'écoute des commandes MQTT entrantes (switch arm + button reboot) — **broker authentifié obligatoire**, voir avertissement dans la section « Home Assistant : entités par équipement » |
+| `MQTT_ARM_TIMEOUT` | `30` | Durée en secondes avant désarmement automatique du bouton reboot (minimum 5) |
 
 ### Escalade d'alertes (optionnel)
 
@@ -817,6 +820,12 @@ Métriques disponibles :
 - `usg_watchdog_reboots_total` - Total reboots
 - `usg_watchdog_latency_degraded` - Alerte dégradation latence
 
+**Nouveau en 2.3.0** : 16 séries `vigil_tplink_*` labellisées `device`/`label`
+(signal 4G, quota, débit, usage, readiness...) pour chaque équipement TP-Link
+déclaré. **Purement additif** : les métriques `usg_watchdog_*` ci-dessus
+restent émises **sans label**, à l'identique — vos dashboards Grafana et
+règles d'alerte existants n'ont rien à changer.
+
 ### Escalade d'alertes
 
 Si une alerte critique n'est pas supprimée après N minutes, ré-envoie via les canaux prioritaires.
@@ -883,7 +892,77 @@ opérateur, IP WAN et consommation).
 
 **Périmètre A1** : management manuel uniquement (état, sonde à la demande,
 reboot confirmé). Pas de bascule automatique du trafic vers le secours, pas
-de commandes SMS/USSD en A1. Voir A2 pour l'exposition Home Assistant.
+de commandes SMS/USSD en A1. Voir « Home Assistant : entités par équipement » ci-dessous pour l'exposition Home Assistant et le chemin de commande MQTT.
+
+### Home Assistant : entités par équipement
+
+A2 publie l'intégration Home Assistant complète depuis les mêmes 4 instances,
+avec auto-discovery MQTT retenue (`retain`). Trois familles de devices,
+strictement séparées :
+
+- **`vigil_<site>_tplink_<id>`** — un device par équipement TP-Link déclaré
+  (21 entités) : disponibilité, indicateurs 4G (RSRP, RSRQ, SNR, type réseau,
+  opérateur, état SIM), conso/quota/pourcentage/date de reset, débits,
+  état d'usage, résultat de sonde, diagnostic. Publié uniquement par
+  l'instance élue (poller, voir « Coordination haute disponibilité ») —
+  jamais par les deux instances d'un même site à la fois.
+- **`USG <site>`** — un device par site (pas par instance) pour les 4
+  capteurs de **ligne** USG (`gateway`, `internet`, RTT gateway, RTT
+  internet), alimenté par l'instance élue. Cette déduplication a un coût :
+  la comparaison des deux vues master/slave, qui servait à repérer un
+  désaccord, disparaît du device de ligne. Elle est compensée par un
+  `binary_sensor` de divergence exposé sur le device watchdog (voir
+  ci-dessous) — un état de ligne qui diffère entre instances est un
+  symptôme, pas un affichage redondant.
+- **`Watchdog <instance>`** — un device par instance (Dijon-master,
+  Dijon-slave, Nice-master, Nice-slave) pour les capteurs propres au
+  watchdog : les 8 historiques (`score`, `gateway`, `internet`,
+  `reboots_today`, `status`, RTT gateway/internet, `uptime` — enrichis en
+  `device_class`/`state_class` mais **`unique_id` et type d'entité
+  inchangés**, aucune recréation), plus 7 nouveaux : divergence, état du
+  peer (avec âge), et les métriques hôte (température CPU, disque libre,
+  disque utilisé %, mémoire disponible, charge — stdlib seule, sans
+  dépendance).
+
+**Le bouton armé** : `switch` *Armer le reboot* + `button` *Reboot* +
+`sensor` *Dernière action*, sur le device de l'équipement TP-Link. Le
+reboot est **refusé** tant que le switch arm n'est pas actif — l'appuyer
+sans armer au préalable est un no-op **volontaire**, pas un bug : le
+capteur *Dernière action* publie systématiquement un résultat (`ok` ou
+`refused`) avec son **motif**, y compris sur un refus, pour qu'un opérateur
+ne presse jamais le bouton en boucle sans retour. Le switch arm se
+désarme automatiquement après `MQTT_ARM_TIMEOUT` secondes (défaut 30 s)
+s'il n'est pas utilisé.
+
+**Variables** :
+
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `SITE_ID` | dérivé de `INSTANCE_ID` | Regroupe les devices « par site » (USG, TP-Link) — dérivé en retirant les suffixes `_master`/`_slave`/`_primary`/`_secondary` |
+| `MQTT_COMMANDS_ENABLED` | `false` | Active l'écoute des commandes entrantes (switch arm + button reboot) |
+| `MQTT_ARM_TIMEOUT` | `30` (min 5) | Secondes avant désarmement automatique |
+
+> **Avertissement de sécurité (C9)** : activer `MQTT_COMMANDS_ENABLED` ouvre
+> une voie de commande entrante capable de déclencher un reboot — la
+> deuxième voie de commande entrante du projet, après l'API HTTP.
+> Quiconque peut publier sur le broker peut déclencher une action.
+> **N'activez `MQTT_COMMANDS_ENABLED` que sur un broker authentifié**
+> (`MQTT_USERNAME`/`MQTT_PASSWORD` configurés) — sur un broker anonyme,
+> laissez l'écoute désactivée.
+
+> **Recommandation opérateur** : n'activez `MQTT_COMMANDS_ENABLED` que sur
+> **une seule instance par site** — le **guardian** (l'instance qui porte
+> le lien direct vers le MR110, voir « Lignes de secours TP-Link »
+> ci-dessus). Armer les deux instances d'un même site multiplie
+> inutilement la surface de commande sans bénéfice fonctionnel.
+
+**Quota data** (exemple, forfait 110 Go / mois avec reset le 27 du mois) :
+
+```bash
+TPLINK_1_QUOTA_VOLUME_MB=110000
+TPLINK_1_QUOTA_ALERT_PCT=80          # défaut 80
+TPLINK_1_QUOTA_RESET_DAY=27          # défaut 1
+```
 
 ---
 

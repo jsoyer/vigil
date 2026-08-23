@@ -169,7 +169,13 @@ pas le nôtre.
   `WatchdogState` inchangés depuis la 1.8.
 - **Invariants** : c'est ce qui maintient le risque de régression USG au plus
   bas jusqu'au PRD B, où le refactor sera jugé sur ses propres mérites.
-- **Verify** : `git diff --quiet $(git describe --tags --abbrev=0 --match 'v1.8*') -- src/watchdog.py src/state.py`
+- **Verify** : `git diff --quiet v2.2.0 -- src/watchdog.py src/state.py`
+  > **Mise à jour 2026-08-23** : cette commande ancrait initialement sur
+  > `$(git describe --tags --abbrev=0 --match 'v1.8*')`, résolu à `v1.8.3`.
+  > Périmé : la 2.2.0 (bascule Ntfy-first) est sortie depuis et n'a pas
+  > touché `watchdog.py`/`state.py` non plus. `v2.2.0` est la base réelle
+  > pré-A2 — ancrer dessus directement plutôt que sur un pattern glissant
+  > qui se périmera de nouveau à la prochaine release.
 - **Fix** : sortir le changement d'A2 et le remonter.
 
 ## Aucune action destructive automatique (C6, maintenu)

@@ -61,14 +61,26 @@ Rendre l'état des équipements lisible d'un coup d'œil, et historisable.
 
 ## Critères d'acceptation
 
-- [ ] Carte par équipement : badge readiness, saut en panne, bloc 4G, bloc quota
-- [ ] Bandeau d'usage, avec « en service » et « saturé » distincts
-- [ ] Dashboard sans équipement déclaré : rendu inchangé
-- [ ] **C4 vérifié métrique par métrique** : legacy sans label toujours présent
-- [ ] Métriques labellisées ajoutées
-- [ ] Zéro dépendance JS externe, responsive, dark mode conservés
-- [ ] `watchdog.py` et `state.py` **non modifiés**
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
+- [x] Carte par équipement : badge readiness, saut en panne, bloc 4G, bloc quota
+      — `src/dashboard.py` (192 lignes ajoutées, commit `f23f6fb`)
+- [x] Bandeau d'usage, avec « en service » et « saturé » distincts (commit
+      `f23f6fb`)
+- [x] Dashboard sans équipement déclaré : rendu inchangé — testé
+      byte-identique (commit `f23f6fb`) ; fix au passage d'échappements
+      Python non-raw qui cassaient silencieusement le JS TP-Link de 2.2.0
+      (test de régression ajouté)
+- [x] **C4 vérifié métrique par métrique** : legacy sans label toujours présent
+      — 20 tests `legacy_unlabeled`, un par série existante (commit
+      `f23f6fb`)
+- [x] Métriques labellisées ajoutées — 16 séries `vigil_tplink_*` labellisées
+      `device`/`label`, purement additives (`src/metrics.py`, 206 lignes
+      ajoutées, commit `f23f6fb`)
+- [x] Zéro dépendance JS externe, responsive, dark mode conservés (commit
+      `f23f6fb`)
+- [x] `watchdog.py` et `state.py` **non modifiés** — `git diff --quiet
+      v2.2.0 -- src/watchdog.py src/state.py` exit 0
+- [x] `./scripts/validate.sh` vert, coverage ≥ 80 % — 52 nouveaux tests,
+      suite complète à 1204 tests, coverage 89 % (commit `f23f6fb`)
 
 ## Frontières de fichiers
 

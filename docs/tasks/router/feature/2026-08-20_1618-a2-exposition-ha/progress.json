@@ -34,7 +34,8 @@
       "id": 1,
       "title": "Quota, detection d'usage, election du poller (C12)",
       "spec": "sprints/01-quota-et-usage.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["ace8497"],
       "depends_on": [],
       "risk": "high",
       "isolation": "worktree",
@@ -67,7 +68,8 @@
       "id": 2,
       "title": "Dashboard + Prometheus",
       "spec": "sprints/02-dashboard-prometheus.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["f23f6fb"],
       "depends_on": [
         1
       ],
@@ -97,7 +99,8 @@
       "id": 3,
       "title": "Home Assistant : capteurs par equipement + bouton arme",
       "spec": "sprints/03-home-assistant.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["d50e037"],
       "depends_on": [
         1,
         2
@@ -134,7 +137,9 @@
       "id": 4,
       "title": "Docs + release 2.3.0",
       "spec": "sprints/04-docs-release.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["(ce sprint)"],
+      "notes_execution": "Perimetre reduit sur instruction explicite de l'orchestrateur : README.md, DEPLOY.md, CLAUDE.md, docs/RELEASE-NOTES-2.3.0.md (nouveau), progress.json et INVARIANTS.md (Verify perime corrige : ancrage v1.8.3-glissant -> v2.2.0). VERSION, tag v2.3.0, PR dev->main, statut ADR-0001 et ouverture des issues de suivi (PRD B, backlog MQTT) restent a la charge de l'orchestrateur -- non touches ici. Aucun commit cree par ce sprint.",
       "depends_on": [
         1,
         2,
@@ -142,16 +147,24 @@
       ],
       "risk": "low",
       "isolation": "worktree",
-      "files_to_create": [],
+      "files_to_create": [
+        "docs/RELEASE-NOTES-2.3.0.md"
+      ],
       "files_to_modify": [
         "README.md",
         "DEPLOY.md",
         "CLAUDE.md",
-        "VERSION",
-        "docs/adr/0001-multi-vendor-router-monitoring.md"
+        "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/progress.json",
+        "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/INVARIANTS.md"
       ],
       "files_read_only": [
-        "src/"
+        "src/",
+        "tests/",
+        "scripts/"
+      ],
+      "files_not_touched_deferred_to_orchestrator": [
+        "VERSION",
+        "docs/adr/0001-multi-vendor-router-monitoring.md"
       ]
     }
   ]

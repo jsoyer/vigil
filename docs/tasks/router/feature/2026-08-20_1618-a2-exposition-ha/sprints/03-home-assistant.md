@@ -279,25 +279,42 @@ Client MQTT et driver mockés, aucun accès réseau ni broker réel.
 
 ## Critères d'acceptation
 
-- [ ] **C12** : un device HA **par routeur** (site + équipement), identique vu des
-      deux instances ; **seul le poller élu publie**
-- [ ] `device_class` / `state_class` conformes au tableau, `retain` sur les états
-- [ ] **C14** : capteurs USG enrichis, type d'entité **inchangé**, états en `retain`
-- [ ] **C15** : un seul device `USG <site>` par site, alimenté par l'instance élue
-- [ ] **C15** : capteurs propres au watchdog restés par instance, `unique_id`
-      inchangé (pas de recréation pour ceux-là)
-- [ ] **C15** : divergence et état du peer exposés sur le device watchdog
-- [ ] **C17** : température, disque, mémoire et charge sur le device watchdog,
+- [x] **C12** : un device HA **par routeur** (site + équipement), identique vu des
+      deux instances ; **seul le poller élu publie** — device
+      `vigil_<site>_tplink_<id>` (commit `d50e037`)
+- [x] `device_class` / `state_class` conformes au tableau, `retain` sur les états
+      (commit `d50e037`)
+- [x] **C14** : capteurs USG enrichis, type d'entité **inchangé**, états en `retain`
+      — les 8 `unique_id` historiques épinglés par test (commit `d50e037`)
+- [x] **C15** : un seul device `USG <site>` par site, alimenté par l'instance élue
+      (commit `d50e037`)
+- [x] **C15** : capteurs propres au watchdog restés par instance, `unique_id`
+      inchangé (pas de recréation pour ceux-là) — device `Watchdog <instance>`
+      enrichi en place (commit `d50e037`)
+- [x] **C15** : divergence et état du peer exposés sur le device watchdog
+      (commit `d50e037`)
+- [x] **C17** : température, disque, mémoire et charge sur le device watchdog,
       en stdlib seule ; zone thermique absente → `unavailable`, jamais zéro
-- [ ] **C13** : liste d'entités stable ; champ illisible → `unavailable`, jamais
-      dépublié ni publié à zéro
-- [ ] Les 8 capteurs existants inchangés
-- [ ] `subscribe` + parsing strict ; message malformé ignoré et loggé
-- [ ] **C9** : écoute désactivable ; exigence de broker authentifié documentée
-- [ ] **Bouton refusé sans arm** ; arm à désarmement automatique
-- [ ] **C10** : entité de dernière action avec résultat et motif de refus
-- [ ] État « en service » remonté, non bloquant
-- [ ] Commandes tracées avec l'origine `mqtt`
+      (commit `d50e037`)
+- [x] **C13** : liste d'entités stable ; champ illisible → `unavailable`, jamais
+      dépublié ni publié à zéro (commit `d50e037`)
+- [x] Les 8 capteurs existants inchangés (commit `d50e037`)
+- [x] `subscribe` + parsing strict ; message malformé ignoré et loggé —
+      `tests/test_mqtt_commands.py` (458 lignes ajoutées, commit `d50e037`)
+- [x] **C9** : écoute désactivable ; exigence de broker authentifié documentée
+      — conditionnée à `MQTT_COMMANDS_ENABLED` + broker authentifié (commit
+      `d50e037`)
+- [x] **Bouton refusé sans arm** ; arm à désarmement automatique — switch
+      arm avec expiration auto (commit `d50e037`)
+- [x] **C10** : entité de dernière action avec résultat et motif de refus —
+      button reboot refuse sans arm avec motif publié (commit `d50e037`)
+- [x] État « en service » remonté, non bloquant (commit `d50e037`)
+- [x] Commandes tracées avec l'origine `mqtt` — exécution via
+      `managed_devices` uniquement, `EventLog` origine `mqtt` (commit
+      `d50e037`)
+
+**Preuve globale** : 50 nouveaux tests, suite complète à 1254 tests,
+coverage 89 %, `./scripts/validate.sh` vert (commit `d50e037`).
 - [ ] Exécution hors queue `StateHolder`
 - [ ] `watchdog.py` et `state.py` **non modifiés**
 - [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
