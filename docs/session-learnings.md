@@ -7,6 +7,31 @@ désigné USG (src/usg.py, USG_IP, etc. inchangés).
 
 # Session Learnings — Vigil (ex-USG Watchdog)
 
+## Ship Pipeline State — A1 LIVRÉ EN PRODUCTION (2026-08-23, soir)
+
+- **2.1.0 (A1 pilotage TP-Link)** : PR #43 dev→main mergée, tag v2.1.0,
+  flotte auto-mise-à-jour — première install auto de dépendance
+  (tplinkrouterc6u) ET premier auto-update de l'updater, tous deux prouvés
+  dans les journaux des 4 Pi.
+- **MR110 déclarés sur les guardians** (TPLINK_1_* dans .env, mode bridged) :
+  driver lit les vraies données (Free, CGNAT, signal, compteurs), API
+  fail-closed vérifiée (401/403 sans token).
+- **2.1.1 (bugfix trouvé par la vérif en réel)** : l'étage bridge de la
+  sonde interrogeait wlan0 en dur (faux négatif) et posait un veto sur
+  reachable. Fix : ip route get générique + bridge devient signal de
+  diagnostic. Flotte en 2.1.1, les deux MR110 : « chemin d'audit sain »,
+  reachable=true, RTT ~10-19 ms.
+- **Leçon Anti-Goodhart confirmée** : 1049 tests mockés verts n'avaient pas
+  vu le bug wlan0 — seule la vérification post-déploiement contre le vrai
+  matériel l'a révélé. Toujours vérifier en réel après un ship.
+- **PRD Ntfy 2.2.0 (option B, sortie de Telegram)** : rédigé, corrigé d'une
+  hallucination (fausse corruption de requirements.txt — démentie par git),
+  committé sur dev. EN ATTENTE DE RELECTURE UTILISATEUR (7 questions).
+  Bug réel confirmé au passage : dashboard sans header Authorization →
+  403 en prod sur pause/resume/reboot (prérequis S3 du PRD Ntfy).
+- Reste du plan : 2.2.0 Ntfy (après relecture) → 2.3.0 A2 exposition HA →
+  PRD B. Et purge J+7 des vestiges usg-watchdog (≥ 2026-08-30, sur demande).
+
 ## Ship Pipeline State — plan global (2026-08-23, après-midi)
 
 - **2.0.1 livrée** : les 3 micro-dettes (auto-update updater, tar filter,
