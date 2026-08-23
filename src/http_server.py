@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from events import EventLog
@@ -97,6 +97,8 @@ def _make_handler_class(
                     self._handle_metrics()
                 elif self.path == "/api/report":
                     self._handle_report()
+                elif self.path == "/api/tplink" or self.path.startswith("/api/tplink/"):
+                    self._handle_tplink_get()
                 else:
                     self._respond_json(404, {"error": "not found"})
             except Exception:
@@ -138,6 +140,8 @@ def _make_handler_class(
                     self._handle_post_maintenance()
                 elif self.path == "/api/config/reload":
                     self._handle_config_reload()
+                elif self.path.startswith("/api/tplink/"):
+                    self._handle_tplink_post()
                 else:
                     self._respond_json(404, {"error": "not found"})
             except Exception:
@@ -560,6 +564,112 @@ def _make_handler_class(
             )
             self._respond_json(200, report)
 
+        # ------------------------------------------------------------------
+        # /api/tplink/* -- equipements TP-Link pilotables (A1, Sprint 3).
+        #
+        # C19 (critique) : authentifie aussi les GET -- divergence assumee
+        # avec /api/state et /api/events qui restent ouverts. Fail closed :
+        # API_TOKEN absent => 403 partout, meme sans equipement declare
+        # (_check_auth() le garantit deja, reutilise ici tel quel).
+        # ------------------------------------------------------------------
+
+        def _tplink_path_parts(self) -> list[str]:
+            path = self.path.split("?", 1)[0]
+            return [p for p in path.split("/") if p]
+
+        def _handle_tplink_get(self) -> None:
+            if not self._check_auth():
+                return
+            import managed_devices
+
+            parts = self._tplink_path_parts()
+            # ['api', 'tplink'] | ['api','tplink','<id>'] | ['api','tplink','<id>','status']
+            if len(parts) == 2:
+                self._respond_json(200, managed_devices.registry.list_devices())
+                return
+            if len(parts) == 3 or (len(parts) == 4 and parts[3] == "status"):
+                device_id = parts[2]
+                status = managed_devices.registry.get_status(device_id)
+                if status is None:
+                    self._respond_json(404, {"error": "equipement inconnu"})
+                    return
+                self._respond_json(200, status)
+                return
+            self._respond_json(404, {"error": "not found"})
+
+        def _read_json_body(self, max_bytes: int = 8192) -> dict:
+            try:
+                content_length = min(
+                    int(self.headers.get("Content-Length", 0)), max_bytes
+                )
+                raw = (
+                    self.rfile.read(content_length).decode("utf-8")
+                    if content_length > 0
+                    else "{}"
+                )
+                data = json.loads(raw)
+                return data if isinstance(data, dict) else {}
+            except (json.JSONDecodeError, ValueError, TypeError):
+                return {}
+
+        def _handle_tplink_post(self) -> None:
+            # Auth deja verifiee par do_POST (_check_auth appelle avant tout
+            # dispatch) -- meme garantie fail-closed que les GET ci-dessus.
+            import managed_devices
+
+            parts = self._tplink_path_parts()
+            if len(parts) == 4 and parts[3] == "check":
+                device_id = parts[2]
+                result = managed_devices.registry.check(device_id)
+                if result is None:
+                    self._respond_json(404, {"error": "equipement inconnu"})
+                    return
+                self._respond_json(200, result)
+                return
+
+            if len(parts) == 4 and parts[3] == "reboot":
+                device_id = parts[2]
+                result = managed_devices.registry.request_reboot(
+                    device_id, origin="api"
+                )
+                if result is None:
+                    self._respond_json(404, {"error": "equipement inconnu"})
+                    return
+                self._respond_json(
+                    400,
+                    {
+                        "error": "confirmation requise",
+                        "token": result["token"],
+                        "label": result["label"],
+                        "warning": result["warning"],
+                        "warning_reason": result["warning_reason"],
+                        "confirm_endpoint": f"/api/tplink/{device_id}/reboot/confirm",
+                        "confirm_body": {"token": result["token"]},
+                    },
+                )
+                return
+
+            if len(parts) == 5 and parts[3] == "reboot" and parts[4] == "confirm":
+                device_id = parts[2]
+                body = self._read_json_body()
+                token = str(body.get("token", "")).strip()
+                if not token:
+                    self._respond_json(
+                        400,
+                        {
+                            "error": 'corps attendu : {"token": "<jeton recu via POST /reboot>"}'
+                        },
+                    )
+                    return
+                result = managed_devices.registry.confirm_reboot(
+                    token, origin="api", expected_device_id=device_id
+                )
+                status_code = 200 if result.get("executed") else 400
+                self._respond_json(status_code, result)
+                return
+
+            self._respond_json(404, {"error": "not found"})
+
         def _respond_text(self, content_type: str, text: str) -> None:
             body = text.encode("utf-8")
             self.send_response(200)
@@ -606,6 +716,15 @@ def start_http_server(
             e,
         )
         return None
+
+    # Wiring des equipements TP-Link pilotables (A1, Sprint 3) : l'event_log
+    # de production est deja disponible ici (passe par watchdog.py) --
+    # c'est le seul point d'entree qui permet de le relier au registre sans
+    # toucher a watchdog.py (INTOUCHABLE, voir INVARIANTS.md). Idempotent,
+    # ne construit aucun driver (C1) tant qu'aucun equipement n'est declare.
+    import managed_devices
+
+    managed_devices.bootstrap(event_log)
 
     thread = threading.Thread(
         target=server.serve_forever,

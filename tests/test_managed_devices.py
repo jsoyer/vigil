@@ -1,0 +1,828 @@
+"""Tests pour src/managed_devices.py -- registre des equipements TP-Link
+pilotables (A1, Sprint 3).
+
+Driver entierement double (aucun `TplinkDriver` reel, aucun acces reseau) :
+`_FakeDriver` expose la meme surface que `RouterDriver` avec des compteurs
+d'appels et des retours controlables, pour verifier precisement le cache
+(C5's voisin), le verrou par equipement (C5), le simple reessai sur refus de
+session, et l'invariant C6 (aucune action destructive automatique / sans
+confirmation).
+
+Voir docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/
+sprints/03-commandes-management.md et INVARIANTS.md du meme dossier.
+"""
+
+import sys
+import os
+import threading
+import time
+
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from drivers._base import Hop, Readiness, RouterHealth, RouterMetrics, RouterReadiness
+from drivers.tplink import ProbeResult
+
+
+class _FakeDriver:
+    """Double de TplinkDriver -- surface RouterDriver, entierement scriptable."""
+
+    vendor = "tplink"
+
+    def __init__(
+        self,
+        label: str = "mr110-test",
+        health_result: RouterHealth | None = None,
+        readiness_result: RouterReadiness | None = None,
+        metrics_result: RouterMetrics | None = None,
+        probe_results=None,  # liste consommee dans l'ordre, dernier repete
+        reboot_results=None,  # liste consommee dans l'ordre, dernier repete
+    ) -> None:
+        self.label = label
+        self._health_result = health_result or RouterHealth(
+            reachable=True, internet_ok=None, rtt_ms=12.0, failed_hop=None, detail="ok"
+        )
+        self._readiness_result = readiness_result or RouterReadiness(
+            state=Readiness.OK, reasons=()
+        )
+        self._metrics_result = metrics_result or RouterMetrics(
+            rsrp=-95,
+            rsrq=-12,
+            snr=-20,
+            network_type="LTE",
+            isp_name="Free",
+            rx_speed_bps=0,
+            tx_speed_bps=0,
+            clients_total=0,
+        )
+        self._probe_results = list(probe_results or [ProbeResult.OK])
+        self._reboot_results = list(
+            reboot_results if reboot_results is not None else [True]
+        )
+
+        self.health_calls = 0
+        self.readiness_calls = 0
+        self.metrics_calls = 0
+        self.probe_calls = 0
+        self.reboot_calls = 0
+        self.test_connection_calls = 0
+
+        self._call_log: list[tuple[str, float]] = []
+        self._sleep_on_call = 0.0
+
+    def _record(self, name: str) -> None:
+        if self._sleep_on_call:
+            start = time.monotonic()
+            time.sleep(self._sleep_on_call)
+            self._call_log.append((f"{name}:start", start))
+            self._call_log.append((f"{name}:end", time.monotonic()))
+
+    def health(self) -> RouterHealth:
+        self.health_calls += 1
+        self._record("health")
+        return self._health_result
+
+    def readiness(self) -> RouterReadiness:
+        self.readiness_calls += 1
+        return self._readiness_result
+
+    def metrics(self) -> RouterMetrics:
+        self.metrics_calls += 1
+        return self._metrics_result
+
+    def probe_end_to_end(self) -> ProbeResult:
+        self.probe_calls += 1
+        idx = min(self.probe_calls - 1, len(self._probe_results) - 1)
+        return self._probe_results[idx]
+
+    def reboot(self) -> bool:
+        self.reboot_calls += 1
+        self._record("reboot")
+        idx = min(self.reboot_calls - 1, len(self._reboot_results) - 1)
+        return self._reboot_results[idx]
+
+    def test_connection(self) -> bool:
+        self.test_connection_calls += 1
+        return True
+
+
+def _make_config(index: int = 1, label: str = "mr110-test"):
+    from config import TplinkDeviceConfig
+
+    return TplinkDeviceConfig(
+        index=index,
+        label=label,
+        host="192.168.10.1",
+        password="s3cr3t-pwd",
+        mode="bridged",
+        bridge_host="",
+        rsrp_min=-110,
+        rsrq_min=-20,
+        snr_min=-100,
+    )
+
+
+def _make_registry(driver: _FakeDriver | None = None, devices=None, **kwargs):
+    from managed_devices import ManagedDeviceRegistry
+
+    driver = driver or _FakeDriver()
+    devices = devices if devices is not None else [_make_config()]
+    return ManagedDeviceRegistry(
+        devices=devices,
+        driver_factory=lambda cfg: driver,
+        **kwargs,
+    ), driver
+
+
+# ---------------------------------------------------------------------------
+# C1 -- import vendor paresseux (managed_devices ne doit jamais tirer la lib)
+# ---------------------------------------------------------------------------
+
+
+class TestImportVendorParesseux:
+    def test_import_managed_devices_sans_lib_vendor(self):
+        assert "tplinkrouterc6u" not in sys.modules
+        import managed_devices  # noqa: F401
+
+        assert "tplinkrouterc6u" not in sys.modules
+
+
+# ---------------------------------------------------------------------------
+# Aucun equipement declare -- comportement identique a la 1.8
+# ---------------------------------------------------------------------------
+
+
+class TestNoTplinkConfigured:
+    def test_no_tplink_configured_list_devices_is_empty(self):
+        registry, _ = _make_registry(devices=[])
+        assert registry.list_devices() == []
+
+    def test_no_tplink_configured_get_status_returns_none(self):
+        registry, _ = _make_registry(devices=[])
+        assert registry.get_status("1") is None
+
+    def test_no_tplink_configured_check_returns_none(self):
+        registry, _ = _make_registry(devices=[])
+        assert registry.check("1") is None
+
+    def test_no_tplink_configured_request_reboot_returns_none(self):
+        registry, _ = _make_registry(devices=[])
+        assert registry.request_reboot("1", origin="api") is None
+
+    def test_no_tplink_configured_never_builds_a_driver(self):
+        built = []
+
+        def factory(cfg):
+            built.append(cfg)
+            return _FakeDriver()
+
+        from managed_devices import ManagedDeviceRegistry
+
+        registry = ManagedDeviceRegistry(devices=[], driver_factory=factory)
+        registry.list_devices()
+        registry.get_status("1")
+        assert built == []
+
+
+# ---------------------------------------------------------------------------
+# Cache court des lectures
+# ---------------------------------------------------------------------------
+
+
+class TestStatusCache:
+    def test_repeated_status_reads_hit_cache_once(self):
+        registry, driver = _make_registry(status_cache_ttl=60.0)
+        registry.get_status("1")
+        registry.get_status("1")
+        registry.get_status("1")
+        assert driver.health_calls == 1
+        assert driver.readiness_calls == 1
+        assert driver.metrics_calls == 1
+
+    def test_cache_expires_after_ttl(self):
+        registry, driver = _make_registry(status_cache_ttl=0.01)
+        registry.get_status("1")
+        time.sleep(0.05)
+        registry.get_status("1")
+        assert driver.health_calls == 2
+
+    def test_force_refresh_bypasses_cache(self):
+        registry, driver = _make_registry(status_cache_ttl=60.0)
+        registry.get_status("1")
+        registry.get_status("1", force=True)
+        assert driver.health_calls == 2
+
+    def test_unknown_device_returns_none_without_calling_driver(self):
+        registry, driver = _make_registry()
+        assert registry.get_status("nope") is None
+        assert driver.health_calls == 0
+
+    def test_status_dict_never_includes_password(self):
+        registry, _ = _make_registry()
+        status = registry.get_status("1")
+        assert "password" not in status
+        for value in status.values():
+            assert value != "s3cr3t-pwd"
+
+
+# ---------------------------------------------------------------------------
+# Verrou par equipement (C5)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionLock:
+    """C5 -- pytest -k "session_lock" (voir INVARIANTS.md)."""
+
+    def test_session_lock_concurrent_status_reads_are_serialized(self):
+        driver = _FakeDriver()
+        driver._sleep_on_call = 0.05
+        registry, _ = _make_registry(driver=driver, status_cache_ttl=0.0)
+
+        def worker():
+            registry.get_status("1", force=True)
+
+        threads = [threading.Thread(target=worker) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Chaque appel a health() a du dormir 0.05s sous le verrou -- les
+        # fenetres [start, end] ne doivent jamais se chevaucher.
+        events = sorted(driver._call_log, key=lambda kv: kv[1])
+        # reconstruit les paires (start, end) dans l'ordre chronologique
+        pairs = []
+        pending_start = None
+        for name, ts in events:
+            if name == "health:start":
+                pending_start = ts
+            elif name == "health:end" and pending_start is not None:
+                pairs.append((pending_start, ts))
+                pending_start = None
+        assert len(pairs) == 3
+        for i in range(len(pairs) - 1):
+            assert pairs[i][1] <= pairs[i + 1][0] + 0.001, "sessions chevauchees"
+
+    def test_two_concurrent_devices_do_not_block_each_other(self):
+        driver_a = _FakeDriver(label="a")
+        driver_b = _FakeDriver(label="b")
+        driver_a._sleep_on_call = 0.05
+        from managed_devices import ManagedDeviceRegistry
+
+        registry = ManagedDeviceRegistry(
+            devices=[
+                _make_config(index=1, label="a"),
+                _make_config(index=2, label="b"),
+            ],
+            driver_factory=lambda cfg: driver_a if cfg.index == 1 else driver_b,
+        )
+
+        start = time.monotonic()
+        t1 = threading.Thread(target=lambda: registry.get_status("1", force=True))
+        t2 = threading.Thread(target=lambda: registry.get_status("2", force=True))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+        elapsed = time.monotonic() - start
+        # Si les deux equipements partageaient le meme verrou, l'appel sur
+        # "b" attendrait la fin du sleep de "a". Ici ils sont independants.
+        assert elapsed < 0.05 + 0.03
+
+
+# ---------------------------------------------------------------------------
+# Session refusee -- un seul reessai (jamais de boucle)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleRetryOnSessionRefusal:
+    def test_check_retries_once_on_unknown_then_succeeds(self):
+        driver = _FakeDriver(probe_results=[ProbeResult.UNKNOWN, ProbeResult.OK])
+        registry, _ = _make_registry(driver=driver)
+        result = registry.check("1")
+        assert driver.probe_calls == 2
+        assert result["result"] == "ok"
+
+    def test_check_gives_up_after_a_single_retry(self):
+        driver = _FakeDriver(
+            probe_results=[ProbeResult.UNKNOWN, ProbeResult.UNKNOWN, ProbeResult.OK]
+        )
+        registry, _ = _make_registry(driver=driver)
+        result = registry.check("1")
+        # Jamais de boucle : au plus 2 appels, meme si le 3e aurait reussi.
+        assert driver.probe_calls == 2
+        assert result["result"] == "unknown"
+
+    def test_confirm_reboot_retries_once_on_router_refusal(self):
+        driver = _FakeDriver(reboot_results=[False, True])
+        registry, _ = _make_registry(driver=driver)
+        req = registry.request_reboot("1", origin="api")
+        result = registry.confirm_reboot(req["token"], origin="api")
+        assert driver.reboot_calls == 2
+        assert result["ok"] is True
+
+    def test_confirm_reboot_gives_up_after_a_single_retry(self):
+        driver = _FakeDriver(reboot_results=[False, False, True])
+        registry, _ = _make_registry(driver=driver)
+        req = registry.request_reboot("1", origin="api")
+        result = registry.confirm_reboot(req["token"], origin="api")
+        assert driver.reboot_calls == 2
+        assert result["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# Sonde a la demande -- attache vs data qui passe (C11)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckEndToEnd:
+    def test_check_ok_reports_attached_and_data_confirmed(self):
+        driver = _FakeDriver(
+            health_result=RouterHealth(
+                reachable=True, internet_ok=None, rtt_ms=10, failed_hop=None
+            ),
+            probe_results=[ProbeResult.OK],
+        )
+        registry, _ = _make_registry(driver=driver)
+        result = registry.check("1")
+        assert result["attached"] is True
+        assert result["data_confirmed"] is True
+        assert result["result"] == "ok"
+
+    def test_check_fail_reports_attached_but_no_data(self):
+        driver = _FakeDriver(probe_results=[ProbeResult.FAIL, ProbeResult.FAIL])
+        registry, _ = _make_registry(driver=driver)
+        result = registry.check("1")
+        assert result["attached"] is True
+        assert result["data_confirmed"] is False
+        assert result["result"] == "fail"
+
+    def test_check_leak_never_blames_the_backup_link(self):
+        driver = _FakeDriver(probe_results=[ProbeResult.LEAK, ProbeResult.LEAK])
+        registry, _ = _make_registry(driver=driver)
+        result = registry.check("1")
+        assert result["result"] == "leak"
+        assert result["data_confirmed"] is False
+
+    def test_check_unreachable_device_reports_not_attached(self):
+        driver = _FakeDriver(
+            health_result=RouterHealth(
+                reachable=False,
+                internet_ok=None,
+                rtt_ms=None,
+                failed_hop=Hop.WIRELESS,
+                detail="MR110 injoignable",
+            ),
+            probe_results=[ProbeResult.UNKNOWN, ProbeResult.UNKNOWN],
+        )
+        registry, _ = _make_registry(driver=driver)
+        result = registry.check("1")
+        assert result["attached"] is False
+
+
+# ---------------------------------------------------------------------------
+# C6 -- aucune action destructive automatique / sans confirmation
+# ---------------------------------------------------------------------------
+
+
+class TestNoAutoDestructive:
+    """C6 -- pytest -k "no_auto_destructive" (voir INVARIANTS.md)."""
+
+    def test_no_auto_destructive_request_reboot_never_calls_driver_reboot(self):
+        registry, driver = _make_registry()
+        registry.request_reboot("1", origin="api")
+        assert driver.reboot_calls == 0
+
+    def test_no_auto_destructive_check_never_calls_driver_reboot(self):
+        registry, driver = _make_registry()
+        registry.check("1")
+        assert driver.reboot_calls == 0
+
+    def test_no_auto_destructive_get_status_never_calls_driver_reboot(self):
+        registry, driver = _make_registry()
+        registry.get_status("1")
+        assert driver.reboot_calls == 0
+
+    def test_no_auto_destructive_constructing_registry_never_calls_driver_reboot(self):
+        registry, driver = _make_registry()
+        assert driver.reboot_calls == 0
+
+
+class TestRequiresConfirmation:
+    """C6 -- pytest -k "requires_confirmation" (voir INVARIANTS.md)."""
+
+    def test_requires_confirmation_reboot_refused_without_token(self):
+        registry, driver = _make_registry()
+        result = registry.confirm_reboot("does-not-exist", origin="api")
+        assert result["ok"] is False
+        assert result["executed"] is False
+        assert driver.reboot_calls == 0
+
+    def test_reboot_refused_with_expired_token(self):
+        registry, driver = _make_registry()
+        req = registry.request_reboot("1", origin="api")
+        import confirm
+
+        with confirm._lock:
+            entry = confirm._pending[req["token"]]
+            confirm._pending[req["token"]] = entry.__class__(
+                action=entry.action, context=entry.context, expires_at=0.0
+            )
+        result = registry.confirm_reboot(req["token"], origin="api")
+        assert result["ok"] is False
+        assert driver.reboot_calls == 0
+
+    def test_reboot_refused_when_token_reused(self):
+        registry, driver = _make_registry()
+        req = registry.request_reboot("1", origin="api")
+        first = registry.confirm_reboot(req["token"], origin="api")
+        second = registry.confirm_reboot(req["token"], origin="api")
+        assert first["ok"] is True
+        assert second["ok"] is False
+        assert second["executed"] is False
+        assert driver.reboot_calls == 1
+
+    def test_reboot_executed_and_traced_with_origin_on_valid_token(self):
+        from events import EventLog
+
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, driver = _make_registry(event_log=event_log)
+        req = registry.request_reboot("1", origin="telegram")
+        result = registry.confirm_reboot(req["token"], origin="telegram")
+        assert result["ok"] is True
+        assert driver.reboot_calls == 1
+        events_recorded = event_log.get_all()
+        assert len(events_recorded) == 1
+        assert events_recorded[0]["type"] == "tplink_reboot"
+        assert events_recorded[0]["data"]["origin"] == "telegram"
+
+    def test_reboot_failure_traced_as_warning_never_critical(self):
+        from events import EventLog
+        from notifier._types import Level
+
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        driver = _FakeDriver(reboot_results=[False, False])
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+        req = registry.request_reboot("1", origin="api")
+
+        captured = {}
+
+        def fake_notify(text, level, ctx=None):
+            captured["level"] = level
+            return {}
+
+        import managed_devices
+
+        original_notify = managed_devices.notify
+        managed_devices.notify = fake_notify
+        try:
+            result = registry.confirm_reboot(req["token"], origin="api")
+        finally:
+            managed_devices.notify = original_notify
+
+        assert result["ok"] is False
+        assert captured["level"] == Level.WARNING
+        assert captured["level"] != Level.CRITICAL
+        events_recorded = event_log.get_all()
+        assert events_recorded[0]["type"] == "tplink_reboot_failed"
+
+
+# ---------------------------------------------------------------------------
+# Avertissement trafic
+# ---------------------------------------------------------------------------
+
+
+class TestTrafficWarning:
+    def test_warning_present_when_traffic_flowing(self):
+        driver = _FakeDriver(
+            metrics_result=RouterMetrics(
+                rx_speed_bps=5000, tx_speed_bps=100, clients_total=2
+            )
+        )
+        registry, _ = _make_registry(driver=driver)
+        req = registry.request_reboot("1", origin="api")
+        assert req["warning"] is True
+        assert req["warning_reason"]
+
+    def test_no_warning_when_idle(self):
+        driver = _FakeDriver(
+            metrics_result=RouterMetrics(
+                rx_speed_bps=0, tx_speed_bps=0, clients_total=0
+            )
+        )
+        registry, _ = _make_registry(driver=driver)
+        req = registry.request_reboot("1", origin="api")
+        assert req["warning"] is False
+
+
+# ---------------------------------------------------------------------------
+# Logout garanti -- delegue au driver (deja garanti par _with_session, teste
+# ici pour la couverture de l'invariant du cote registre)
+# ---------------------------------------------------------------------------
+
+
+class TestRebootConfirmLogoutGuaranteedDelegatesToDriver:
+    def test_reboot_confirm_does_not_bypass_driver_session_handling(self):
+        """managed_devices n'ouvre jamais de session lui-meme : il delegue
+        entierement a driver.reboot(), qui garantit logout() en interne
+        (voir tests/test_drivers_tplink.py, deja couvert au Sprint 2)."""
+        registry, driver = _make_registry()
+        req = registry.request_reboot("1", origin="api")
+        registry.confirm_reboot(req["token"], origin="api")
+        assert driver.reboot_calls >= 1
+        # Aucune methode de session bas niveau (authorize/logout) n'existe
+        # sur le registre -- seule l'API haut niveau du driver est utilisee.
+        assert not hasattr(registry, "authorize")
+        assert not hasattr(registry, "logout")
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap -- point d'entree production (event_log + handlers Telegram)
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrap:
+    def test_bootstrap_sets_event_log_on_default_registry(self):
+        import managed_devices
+
+        fake_log = object()
+        managed_devices.bootstrap(fake_log)
+        assert managed_devices.registry._event_log is fake_log
+        managed_devices.bootstrap(None)
+
+    def test_bootstrap_registers_telegram_handlers(self):
+        import telegram_bot
+        import managed_devices
+
+        telegram_bot._lte_handlers.clear()
+        managed_devices.bootstrap(None)
+        for key in ("", "status", "check", "reboot", "confirm"):
+            assert key in telegram_bot._lte_handlers
+
+    def test_bootstrap_registers_bare_device_id_shortcut(self):
+        """`/lte <id>` (sans le mot-cle 'status') doit aussi router vers le
+        detail de l'equipement -- forme explicitement listee par la spec
+        (criteres d'acceptation, section 3.7)."""
+        import telegram_bot
+        import managed_devices
+
+        telegram_bot._lte_handlers.clear()
+        registry, _ = _make_registry()  # equipement d'id "1"
+        managed_devices._register_telegram_handlers(registry)
+        assert "1" in telegram_bot._lte_handlers
+
+        # Le handler enregistre est adapte pour telegram_bot (send=_send) ;
+        # on verifie donc via _handle_command bout-en-bout plutot qu'un
+        # appel direct pour capturer le message envoye.
+        import unittest.mock as mock
+
+        with mock.patch("telegram_bot._send") as mock_send:
+            telegram_bot._handle_command("/lte 1", "123", None)
+        msg = mock_send.call_args[0][1]
+        assert "mr110-test" in msg
+
+
+# ---------------------------------------------------------------------------
+# Handlers Telegram -- formatage francais, distinction attache/data
+# ---------------------------------------------------------------------------
+
+
+class TestTelegramHandlers:
+    def setup_method(self):
+        import telegram_bot
+
+        telegram_bot._lte_handlers.clear()
+
+    def teardown_method(self):
+        import telegram_bot
+
+        telegram_bot._lte_handlers.clear()
+
+    def _bind(self, registry):
+        import managed_devices
+
+        managed_devices._handle_lte_all = managed_devices._make_handle_lte_all(registry)
+        managed_devices._handle_lte_status = managed_devices._make_handle_lte_status(
+            registry
+        )
+        managed_devices._handle_lte_check = managed_devices._make_handle_lte_check(
+            registry
+        )
+        managed_devices._handle_lte_reboot = managed_devices._make_handle_lte_reboot(
+            registry
+        )
+        managed_devices._handle_lte_confirm = managed_devices._make_handle_lte_confirm(
+            registry
+        )
+
+    def test_lte_all_lists_devices_by_label(self):
+        import managed_devices
+
+        registry, _ = _make_registry()
+        handler = managed_devices._make_handle_lte_all(registry)
+        sent = []
+        handler("", "123", None, send=lambda chat_id, text: sent.append(text))
+        assert "mr110-test" in sent[0]
+
+    def test_lte_all_empty_registry_is_polite(self):
+        import managed_devices
+
+        registry, _ = _make_registry(devices=[])
+        handler = managed_devices._make_handle_lte_all(registry)
+        sent = []
+        handler("", "123", None, send=lambda chat_id, text: sent.append(text))
+        assert "aucun" in sent[0].lower()
+
+    def test_lte_status_unknown_device_says_so(self):
+        import managed_devices
+
+        registry, _ = _make_registry()
+        handler = managed_devices._make_handle_lte_status(registry)
+        sent = []
+        handler("99", "123", None, send=lambda chat_id, text: sent.append(text))
+        assert "inconnu" in sent[0].lower()
+
+    def test_lte_check_distinguishes_attached_from_data(self):
+        import managed_devices
+
+        driver = _FakeDriver(probe_results=[ProbeResult.FAIL, ProbeResult.FAIL])
+        registry, _ = _make_registry(driver=driver)
+        handler = managed_devices._make_handle_lte_check(registry)
+        sent = []
+        handler("1", "123", None, send=lambda chat_id, text: sent.append(text))
+        text = sent[0].lower()
+        assert "attach" in text
+        assert "data" in text
+
+    def test_lte_check_leak_never_blames_the_backup(self):
+        import managed_devices
+
+        driver = _FakeDriver(probe_results=[ProbeResult.LEAK, ProbeResult.LEAK])
+        registry, _ = _make_registry(driver=driver)
+        handler = managed_devices._make_handle_lte_check(registry)
+        sent = []
+        handler("1", "123", None, send=lambda chat_id, text: sent.append(text))
+        text = sent[0].lower()
+        assert "fibre" in text or "chemin de test" in text
+
+    def test_lte_reboot_then_confirm_flow(self):
+        import managed_devices
+
+        registry, driver = _make_registry()
+        reboot_handler = managed_devices._make_handle_lte_reboot(registry)
+        confirm_handler = managed_devices._make_handle_lte_confirm(registry)
+
+        sent = []
+        reboot_handler("1", "123", None, send=lambda chat_id, text: sent.append(text))
+        assert driver.reboot_calls == 0
+        assert "/lte confirm" in sent[0]
+
+        token = sent[0].split("/lte confirm")[1].strip().split()[0]
+        sent.clear()
+        confirm_handler(
+            token, "123", None, send=lambda chat_id, text: sent.append(text)
+        )
+        assert driver.reboot_calls == 1
+        assert "succes" in sent[0].lower() or "succès" in sent[0].lower()
+
+    def test_lte_confirm_without_token_asks_for_one(self):
+        import managed_devices
+
+        registry, _ = _make_registry()
+        handler = managed_devices._make_handle_lte_confirm(registry)
+        sent = []
+        handler("", "123", None, send=lambda chat_id, text: sent.append(text))
+        assert "jeton" in sent[0].lower()
+
+
+# ---------------------------------------------------------------------------
+# messages.py -- notify() tuples pour tplink_reboot / tplink_reboot_failed
+# ---------------------------------------------------------------------------
+
+
+class TestMessagesTplinkReboot:
+    def test_tplink_reboot_is_info_never_critical(self):
+        from messages import tplink_reboot
+        from notifier._types import Level
+
+        text, level, ctx = tplink_reboot("mr110-dijon", "api")
+        assert level == Level.INFO
+        assert "mr110-dijon" in text
+
+    def test_tplink_reboot_failed_is_warning_never_critical(self):
+        from messages import tplink_reboot_failed
+        from notifier._types import Level
+
+        text, level, ctx = tplink_reboot_failed("mr110-dijon", "telegram")
+        assert level == Level.WARNING
+        assert level != Level.CRITICAL
+
+
+# ---------------------------------------------------------------------------
+# events.py -- constantes de traçabilite
+# ---------------------------------------------------------------------------
+
+
+class TestEventsConstants:
+    def test_tplink_reboot_constants_exist(self):
+        from events import TPLINK_REBOOT, TPLINK_REBOOT_FAILED
+
+        assert TPLINK_REBOOT == "tplink_reboot"
+        assert TPLINK_REBOOT_FAILED == "tplink_reboot_failed"
+
+
+# ---------------------------------------------------------------------------
+# config.py -- helper de masquage des secrets
+# ---------------------------------------------------------------------------
+
+
+class TestRedactSecrets:
+    def test_redacts_password_token_key_webhook(self):
+        from config import redact_secrets
+
+        data = {
+            "TPLINK_1_PASSWORD": "hunter2",
+            "TELEGRAM_BOT_TOKEN": "abc123",
+            "CLOUDFLARE_API_TOKEN": "xyz",
+            "SLACK_WEBHOOK_URL": "https://hooks.slack.com/secret",
+            "SOME_KEY": "k",
+            "CHECK_INTERVAL": 30,
+        }
+        redacted = redact_secrets(data)
+        assert redacted["TPLINK_1_PASSWORD"] != "hunter2"
+        assert redacted["TELEGRAM_BOT_TOKEN"] != "abc123"
+        assert redacted["CLOUDFLARE_API_TOKEN"] != "xyz"
+        assert redacted["SLACK_WEBHOOK_URL"] != "https://hooks.slack.com/secret"
+        assert redacted["SOME_KEY"] != "k"
+        assert redacted["CHECK_INTERVAL"] == 30
+
+    def test_does_not_mutate_input(self):
+        from config import redact_secrets
+
+        data = {"TPLINK_1_PASSWORD": "hunter2"}
+        redact_secrets(data)
+        assert data["TPLINK_1_PASSWORD"] == "hunter2"
+
+    def test_empty_secret_value_stays_falsy(self):
+        from config import redact_secrets
+
+        data = {"TPLINK_1_PASSWORD": ""}
+        redacted = redact_secrets(data)
+        assert not redacted["TPLINK_1_PASSWORD"]
+
+
+# ---------------------------------------------------------------------------
+# Secrets jamais exposes -- pytest -k "secret_not_exposed" (voir INVARIANTS.md)
+# Couvre les 3 whitelists divergentes de http_server.py (_handle_config,
+# _EXPORT_SAFE_KEYS, _SAFE_RELOAD_KEYS) ET les reponses /api/tplink/*.
+# ---------------------------------------------------------------------------
+
+
+class TestSecretNotExposed:
+    def test_secret_not_exposed_in_export_and_reload_whitelists(self):
+        import http_server
+        from state import StateHolder
+
+        handler_class = http_server._make_handler_class(StateHolder())
+        assert not any("TPLINK" in key for key in handler_class._EXPORT_SAFE_KEYS)
+        assert not any("TPLINK" in key for key in handler_class._SAFE_RELOAD_KEYS)
+
+    def test_secret_not_exposed_in_config_endpoint_response(self):
+        import json as _json
+        import threading as _threading
+        import urllib.request as _ur
+        from http.server import HTTPServer
+
+        import http_server
+        from state import StateHolder
+
+        holder = StateHolder()
+        handler_class = http_server._make_handler_class(holder)
+        server = HTTPServer(("127.0.0.1", 0), handler_class)
+        port = server.server_address[1]
+        thread = _threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with _ur.urlopen(f"http://127.0.0.1:{port}/api/config", timeout=2) as resp:
+                body_text = resp.read().decode("utf-8")
+        finally:
+            server.shutdown()
+        assert "TPLINK" not in body_text
+        assert _json.loads(
+            body_text
+        )  # reponse bien formee malgre l'assertion ci-dessus
+
+    def test_secret_not_exposed_in_tplink_status_response(self):
+        import json as _json
+
+        registry, _ = _make_registry()
+        status = registry.get_status("1")
+        assert "password" not in status
+        assert "s3cr3t-pwd" not in _json.dumps(status)
+
+    def test_secret_not_exposed_in_tplink_list_response(self):
+        import json as _json
+
+        registry, _ = _make_registry()
+        devices = registry.list_devices()
+        assert "s3cr3t-pwd" not in _json.dumps(devices)

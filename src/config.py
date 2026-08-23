@@ -573,6 +573,38 @@ TPLINK_DEVICES: tuple[TplinkDeviceConfig, ...] = _load_tplink_devices()
 # ---------------------------------------------
 
 
+# ---------------------------------------------
+# MASQUAGE DE SECRETS -- helper reutilisable (A1, Sprint 3, 3.4)
+# ---------------------------------------------------------------------------
+
+# Motifs de nom de variable consideres secrets. Couvre les 11 secrets
+# existants (SMTP_PASSWORD, TELEGRAM_BOT_TOKEN, CLOUDFLARE_API_TOKEN,
+# *_WEBHOOK_URL, etc.) ainsi que TPLINK_<n>_PASSWORD -- pas seulement
+# TP-Link, tout secret futur suivant cette convention de nommage en
+# beneficie automatiquement.
+_SECRET_NAME_SUFFIXES = ("_PASSWORD", "_TOKEN", "_KEY", "_WEBHOOK_URL")
+
+
+def redact_secrets(data: dict) -> dict:
+    """Retourne une copie de `data` avec les valeurs dont le nom de cle se
+    termine par un motif de secret connu (`_PASSWORD`, `_TOKEN`, `_KEY`,
+    `_WEBHOOK_URL`, insensible a la casse) remplacees par un marqueur.
+    N'altere jamais l'entree. Les valeurs deja vides/falsy restent telles
+    quelles (rien a masquer, et ca evite de laisser croire qu'un secret est
+    configure alors qu'il ne l'est pas)."""
+    redacted: dict = {}
+    for key, value in data.items():
+        if (
+            isinstance(key, str)
+            and key.upper().endswith(_SECRET_NAME_SUFFIXES)
+            and value
+        ):
+            redacted[key] = "***REDACTED***"
+        else:
+            redacted[key] = value
+    return redacted
+
+
 def validate() -> list[str]:
     """Valide la coherence entre les parametres. Appele au demarrage."""
     errors: list[str] = []

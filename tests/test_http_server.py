@@ -594,7 +594,6 @@ class TestGetBackupUnifi:
         self.server.shutdown()
 
     def test_backup_not_configured(self):
-        import src.http_server as _mod
         import unittest.mock as mock
 
         with mock.patch("backup_unifi.is_configured", return_value=False):
@@ -616,7 +615,6 @@ class TestGetBackupUnifi:
 
     def test_backup_configured_with_latest(self, tmp_path):
         import unittest.mock as mock
-        from pathlib import Path
 
         fake_file = tmp_path / "backup_2026-03-31.unf"
         fake_file.write_bytes(b"x" * 1024 * 512)  # 0.5 MB
@@ -858,7 +856,6 @@ class TestPostConfigReload:
 
     def test_reload_with_env_file(self, tmp_path):
         import unittest.mock as mock
-        import importlib
 
         env_content = "CHECK_INTERVAL=60\nLOG_LEVEL=DEBUG\n"
         env_file = tmp_path / ".env"
@@ -1135,7 +1132,6 @@ class TestEdgeCases:
         assert "error" in body
 
     def test_post_500_on_handler_exception(self):
-        import unittest.mock as mock
 
         # StateHolder uses __slots__ so we cannot patch the instance directly.
         # Patch the class method instead and restore it after.
@@ -1162,3 +1158,257 @@ class TestEdgeCases:
             )
         assert status == 500
         assert body["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# /api/tplink/* -- A1, Sprint 3, C19 (auth aussi en GET, fail closed)
+# ---------------------------------------------------------------------------
+
+
+class _FakeRegistry:
+    """Double de managed_devices.ManagedDeviceRegistry -- surface minimale
+    utilisee par les routes /api/tplink/*."""
+
+    def __init__(self):
+        self.devices = {
+            "1": {
+                "id": "1",
+                "label": "mr110-dijon",
+                "reachable": True,
+                "readiness": "ok",
+            }
+        }
+        self.reboot_requests = []
+        self.confirm_calls = []
+
+    def list_devices(self):
+        return list(self.devices.values())
+
+    def get_status(self, device_id, force=False):
+        return self.devices.get(device_id)
+
+    def check(self, device_id):
+        if device_id not in self.devices:
+            return None
+        return {
+            "id": device_id,
+            "label": self.devices[device_id]["label"],
+            "attached": True,
+            "result": "ok",
+            "data_confirmed": True,
+        }
+
+    def request_reboot(self, device_id, origin):
+        if device_id not in self.devices:
+            return None
+        self.reboot_requests.append((device_id, origin))
+        return {
+            "token": "fake-token-123",
+            "device_id": device_id,
+            "label": self.devices[device_id]["label"],
+            "warning": False,
+            "warning_reason": None,
+        }
+
+    def confirm_reboot(self, token, origin, expected_device_id=None):
+        self.confirm_calls.append((token, origin, expected_device_id))
+        if token != "fake-token-123":
+            return {"ok": False, "executed": False, "error": "jeton invalide"}
+        return {
+            "ok": True,
+            "executed": True,
+            "device_id": expected_device_id or "1",
+            "label": "mr110-dijon",
+        }
+
+
+def _install_fake_registry():
+    import managed_devices
+
+    fake = _FakeRegistry()
+    original = managed_devices.registry
+    managed_devices.registry = fake
+    return fake, original
+
+
+def _restore_registry(original):
+    import managed_devices
+
+    managed_devices.registry = original
+
+
+class TestTplinkApiAuthC19:
+    """C19 -- GET et POST sur /api/tplink/* exigent le jeton Bearer, fail
+    closed si API_TOKEN absent, meme sans equipement declare."""
+
+    @pytest.fixture(autouse=True)
+    def _start(self):
+        import src.http_server as _http_server_mod
+
+        self._config = _http_server_mod._config
+        self._original_token = self._config.API_TOKEN
+        self.fake_registry, self._original_registry = _install_fake_registry()
+
+        self.holder = StateHolder()
+        self.server, self.port, self.base_url = _make_server(self.holder)
+        yield
+        self.server.shutdown()
+        self._config.API_TOKEN = self._original_token
+        _restore_registry(self._original_registry)
+
+    def test_get_list_fails_closed_without_api_token(self):
+        self._config.API_TOKEN = ""
+        status, body = _get(f"{self.base_url}/api/tplink")
+        assert status == 403
+        assert "error" in body
+
+    def test_get_device_fails_closed_without_api_token(self):
+        self._config.API_TOKEN = ""
+        status, body = _get(f"{self.base_url}/api/tplink/1/status")
+        assert status == 403
+
+    def test_get_list_401_on_wrong_token(self):
+        self._config.API_TOKEN = _TEST_API_TOKEN
+        req_url = f"{self.base_url}/api/tplink"
+        import urllib.request as ur
+
+        req = ur.Request(req_url)
+        req.add_header("Authorization", "Bearer wrong")
+        try:
+            ur.urlopen(req, timeout=2)
+            raise AssertionError("expected HTTPError")
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+
+    def test_get_list_200_with_correct_token(self):
+        self._config.API_TOKEN = _TEST_API_TOKEN
+        import urllib.request as ur
+
+        req = ur.Request(f"{self.base_url}/api/tplink")
+        req.add_header("Authorization", f"Bearer {_TEST_API_TOKEN}")
+        with ur.urlopen(req, timeout=2) as resp:
+            assert resp.status == 200
+            body = json.loads(resp.read().decode("utf-8"))
+        assert body[0]["id"] == "1"
+
+    def test_post_check_fails_closed_without_api_token(self):
+        self._config.API_TOKEN = ""
+        status, body = _post(f"{self.base_url}/api/tplink/1/check")
+        assert status == 403
+
+    def test_post_reboot_fails_closed_without_api_token(self):
+        self._config.API_TOKEN = ""
+        status, body = _post(f"{self.base_url}/api/tplink/1/reboot")
+        assert status == 403
+
+
+class TestTplinkApiRouting:
+    @pytest.fixture(autouse=True)
+    def _start(self):
+        import src.http_server as _http_server_mod
+
+        self._config = _http_server_mod._config
+        self._original_token = self._config.API_TOKEN
+        self._config.API_TOKEN = _TEST_API_TOKEN
+        self.fake_registry, self._original_registry = _install_fake_registry()
+
+        self.holder = StateHolder()
+        self.server, self.port, self.base_url = _make_server(self.holder)
+        yield
+        self.server.shutdown()
+        self._config.API_TOKEN = self._original_token
+        _restore_registry(self._original_registry)
+
+    def _get_authed(self, path):
+        import urllib.request as ur
+
+        req = ur.Request(f"{self.base_url}{path}")
+        req.add_header("Authorization", f"Bearer {_TEST_API_TOKEN}")
+        try:
+            with ur.urlopen(req, timeout=2) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read().decode("utf-8"))
+
+    def test_get_list_devices(self):
+        status, body = self._get_authed("/api/tplink")
+        assert status == 200
+        assert body == [self.fake_registry.devices["1"]]
+
+    def test_get_device_status_by_id(self):
+        status, body = self._get_authed("/api/tplink/1/status")
+        assert status == 200
+        assert body["label"] == "mr110-dijon"
+
+    def test_get_device_status_alias_without_suffix(self):
+        status, body = self._get_authed("/api/tplink/1")
+        assert status == 200
+        assert body["label"] == "mr110-dijon"
+
+    def test_get_unknown_device_404(self):
+        status, body = self._get_authed("/api/tplink/99/status")
+        assert status == 404
+
+    def test_post_check_is_non_destructive_no_confirmation_needed(self):
+        status, body = _post_authed(
+            f"{self.base_url}/api/tplink/1/check", _TEST_API_TOKEN
+        )
+        assert status == 200
+        assert body["result"] == "ok"
+        assert body["data_confirmed"] is True
+
+    def test_post_check_unknown_device_404(self):
+        status, body = _post_authed(
+            f"{self.base_url}/api/tplink/99/check", _TEST_API_TOKEN
+        )
+        assert status == 404
+
+    def test_post_reboot_always_returns_400_with_token(self):
+        """POST /reboot ne verifie/execute jamais lui-meme : il emet
+        toujours un jeton via 400, la confirmation se fait sur un endpoint
+        distinct (voir DEVIATIONS du sprint pour le choix de design)."""
+        status, body = _post_authed(
+            f"{self.base_url}/api/tplink/1/reboot", _TEST_API_TOKEN
+        )
+        assert status == 400
+        assert body["token"] == "fake-token-123"
+        assert "confirm" in body["confirm_endpoint"]
+        assert self.fake_registry.reboot_requests == [("1", "api")]
+
+    def test_post_reboot_unknown_device_404(self):
+        status, body = _post_authed(
+            f"{self.base_url}/api/tplink/99/reboot", _TEST_API_TOKEN
+        )
+        assert status == 404
+
+    def test_post_reboot_confirm_executes_with_valid_token(self):
+        status, body = _post_authed_json(
+            f"{self.base_url}/api/tplink/1/reboot/confirm",
+            _TEST_API_TOKEN,
+            body=json.dumps({"token": "fake-token-123"}).encode("utf-8"),
+        )
+        assert status == 200
+        assert body["ok"] is True
+        assert self.fake_registry.confirm_calls == [("fake-token-123", "api", "1")]
+
+    def test_post_reboot_confirm_missing_token_returns_400(self):
+        status, body = _post_authed_json(
+            f"{self.base_url}/api/tplink/1/reboot/confirm",
+            _TEST_API_TOKEN,
+            body=json.dumps({}).encode("utf-8"),
+        )
+        assert status == 400
+        assert "token" in body["error"]
+
+    def test_post_reboot_confirm_invalid_token_returns_400(self):
+        status, body = _post_authed_json(
+            f"{self.base_url}/api/tplink/1/reboot/confirm",
+            _TEST_API_TOKEN,
+            body=json.dumps({"token": "not-the-right-one"}).encode("utf-8"),
+        )
+        assert status == 400
+        assert body["ok"] is False
+
+    def test_unknown_tplink_subpath_404(self):
+        status, body = self._get_authed("/api/tplink/1/nonsense")
+        assert status == 404

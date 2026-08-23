@@ -73,6 +73,13 @@ def _send(chat_id: str, text: str) -> None:
     _api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
 
 
+def send_message(chat_id: str, text: str) -> None:
+    """Wrapper public de `_send`, pour les handlers `/lte` externes
+    (`managed_devices.py`) qui n'ont pas vocation a acceder aux internes du
+    module Telegram."""
+    _send(chat_id, text)
+
+
 def _handle_command(
     command: str,
     chat_id: str,
@@ -191,6 +198,7 @@ def _handle_command(
             "/ddns - Forcer une MAJ DNS Cloudflare\n"
             "/tailscale - Forcer une sync DNS Tailscale\n"
             "/backup - Lancer un backup UniFi\n"
+            "/lte - Etat des lignes de secours 4G (TP-Link)\n"
             "/help - Cette aide",
         )
 

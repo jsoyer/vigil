@@ -732,3 +732,27 @@ class TestLteExtensionPoint:
         holder = _make_holder()
         _handle_command("/reboot", "123", holder)
         holder.send_command.assert_called_once_with(CMD_REBOOT)
+
+
+# ---------------------------------------------------------------------------
+# send_message -- wrapper public pour les handlers /lte externes (A1, Sprint 3)
+# ---------------------------------------------------------------------------
+
+
+class TestSendMessage:
+    def test_send_message_delegates_to_send(self):
+        with patch("telegram_bot._send") as mock_send:
+            from telegram_bot import send_message
+
+            send_message("123", "hello")
+            mock_send.assert_called_once_with("123", "hello")
+
+
+class TestHelpMentionsLte:
+    def test_help_mentions_lte(self):
+        with patch("telegram_bot._send") as mock_send:
+            from telegram_bot import _handle_command
+
+            _handle_command("/help", "123", _make_holder())
+            msg = mock_send.call_args[0][1]
+            assert "/lte" in msg
