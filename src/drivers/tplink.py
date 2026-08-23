@@ -28,7 +28,12 @@ from ddns_cloudflare import get_public_ip
 
 from ._base import Hop, Readiness, RouterHealth, RouterMetrics, RouterReadiness
 
-# Interface WiFi locale portant le lien vers le MR110 en mode `bridged`.
+# Interface utilisee pour le binding de la sonde de bout en bout (C11,
+# `_probe_command`) uniquement -- l'etage BRIDGE en mode `bridged` ne s'y fie
+# plus depuis le bugfix 2026-08-22 (voir `_default_route_check`) : le lien
+# reel vers le MR110 varie selon le parc (WiFi, ethernet, vlan...) et coder
+# `wlan0` en dur y produisait un faux negatif sur les guardians ou ce n'est
+# pas l'interface reellement utilisee.
 # Non exposee via une variable d'environnement dans ce sprint (la liste des
 # variables TPLINK_<n>_* est fixee par la spec : HOST, LABEL, PASSWORD,
 # BRIDGE_HOST, MODE, RSRP_MIN, RSRQ_MIN, SNR_MIN) -- constante isolee ici pour
@@ -37,6 +42,13 @@ DEFAULT_WIFI_IFACE = "wlan0"
 
 DEFAULT_TIMEOUT = 8.0
 DEFAULT_PROBE_CACHE_TTL = 60.0
+
+# `ip route get` est une resolution locale au noyau -- quasi instantanee.
+# Timeout court et independant du timeout reseau (SSH/ping) pour ne jamais
+# faire trainer l'etage BRIDGE en mode `bridged`.
+DEFAULT_ROUTE_CHECK_TIMEOUT = 2.0
+
+_ROUTE_DEV_RE = re.compile(r"\bdev\s+\S+")
 
 # SIM consideree operationnelle : valeur observee sur les deux MR110 reels
 # lors du spike (Dijon et Nice, service fonctionnel). La lib ne documentant
@@ -111,23 +123,29 @@ def _default_ping(host: str, timeout: float) -> tuple[bool, float | None]:
     return True, elapsed_ms
 
 
-def _default_wifi_status(iface: str, timeout: float) -> tuple[bool, float | None]:
-    """Verifie l'etat et l'association de l'interface WiFi locale (mode
-    `bridged`). Ne leve jamais."""
+def _default_route_check(host: str, timeout: float) -> tuple[bool, float | None]:
+    """Verifie qu'une route locale existe vers `host` (mode `bridged`), via
+    `ip route get` -- resout la route reellement empruntee par le noyau,
+    quel que soit le type d'interface (WiFi, ethernet, vlan...). Remplace
+    l'ancien check `iw dev wlan0 link` (bugfix 2026-08-22) qui produisait un
+    faux negatif des que le lien vers le MR110 n'etait pas porte par wlan0.
+    Timeout court et plafonne (`DEFAULT_ROUTE_CHECK_TIMEOUT`) : une
+    resolution de route locale ne devrait jamais trainer. Ne leve jamais."""
     try:
         completed = subprocess.run(
-            ["iw", "dev", iface, "link"],
+            ["ip", "route", "get", host],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=timeout,
+            timeout=min(timeout, DEFAULT_ROUTE_CHECK_TIMEOUT),
             text=True,
         )
     except Exception:
         return False, None
     if completed.returncode != 0:
         return False, None
-    connected = "Not connected" not in (completed.stdout or "")
-    return connected, None
+    if not _ROUTE_DEV_RE.search(completed.stdout or ""):
+        return False, None
+    return True, None
 
 
 def _default_local_command(command: str, timeout: float) -> tuple[bool, str]:
@@ -193,7 +211,7 @@ class TplinkDriver:
         probe_cache_ttl: float = DEFAULT_PROBE_CACHE_TTL,
         client_factory: Callable[[], Any] | None = None,
         ping_fn: Callable[[str, float], tuple[bool, float | None]] | None = None,
-        wifi_status_fn: Callable[[float], tuple[bool, float | None]] | None = None,
+        route_check_fn: Callable[[str, float], tuple[bool, float | None]] | None = None,
         ssh_client_factory: Callable[[], Any] | None = None,
         ssh_command_fn: Callable[[Any, str, float], tuple[bool, str]] | None = None,
         local_command_fn: Callable[[str, float], tuple[bool, str]] | None = None,
@@ -221,9 +239,7 @@ class TplinkDriver:
 
         self._client_factory = client_factory or self._default_client_factory
         self._ping_fn = ping_fn or _default_ping
-        self._wifi_status_fn = wifi_status_fn or (
-            lambda t: _default_wifi_status(DEFAULT_WIFI_IFACE, t)
-        )
+        self._route_check_fn = route_check_fn or _default_route_check
         self._ssh_client_factory = (
             ssh_client_factory or self._default_ssh_client_factory
         )
@@ -331,24 +347,43 @@ class TplinkDriver:
             )
             return ok, rtt, detail
 
-        ok, rtt = self._wifi_status_fn(self.timeout)
-        detail = "" if ok else "Interface WiFi locale down ou non associee au MR110"
+        ok, rtt = self._route_check_fn(self.host, self.timeout)
+        detail = (
+            ""
+            if ok
+            else (
+                f"Pas de route locale vers le MR110 '{self.label}' -- "
+                "interface reseau locale down ou non configuree (verifier "
+                f"'ip route get {self.host}' sur cette machine)"
+            )
+        )
         return ok, rtt, detail
 
     def health(self) -> RouterHealth:
-        """Sonde de joignabilite avec attribution de panne. Ne leve jamais."""
+        """Sonde de joignabilite avec attribution de panne. Ne leve jamais.
+
+        L'etage BRIDGE est un signal de diagnostic, jamais un veto (bugfix
+        2026-08-22) : un echec de resolution de route locale ne bloque pas la
+        suite de la sonde. Il n'est attribue comme `failed_hop` que si le
+        device ne repond PAS non plus au ping -- sinon un etage anterieur en
+        echec "soft" contredirait un device qui repond reellement (auth +
+        metriques OK), ce qui rendrait `reachable` incoherent avec la
+        realite observee par les etages suivants.
+        """
         bridge_ok, bridge_rtt, bridge_detail = self._check_bridge()
-        if not bridge_ok:
-            return RouterHealth(
-                reachable=False,
-                internet_ok=None,  # type: ignore[arg-type]
-                rtt_ms=bridge_rtt,
-                failed_hop=Hop.BRIDGE,
-                detail=bridge_detail,
-            )
 
         wireless_ok, wireless_rtt = self._ping_fn(self.host, self.timeout)
         if not wireless_ok:
+            if not bridge_ok:
+                # Route locale absente ET device injoignable : l'etage
+                # BRIDGE est la cause la plus actionnable, on l'attribue.
+                return RouterHealth(
+                    reachable=False,
+                    internet_ok=None,  # type: ignore[arg-type]
+                    rtt_ms=bridge_rtt,
+                    failed_hop=Hop.BRIDGE,
+                    detail=bridge_detail,
+                )
             if self.mode == "remote" and not self._ever_reachable:
                 # C8 : jamais joignable depuis cette instance -> defaut de
                 # configuration (route/NAT absents), pas une panne du secours.
@@ -375,6 +410,19 @@ class TplinkDriver:
             )
 
         self._ever_reachable = True
+
+        if not bridge_ok:
+            # Le device repond au ping malgre un etage BRIDGE en echec : ne
+            # jamais laisser ce signal anterieur contredire un secours sain.
+            # Reste un defaut de configuration local a diagnostiquer (route
+            # absente alors que le device est joignable par un autre chemin),
+            # journalise pour observabilite mais n'affecte pas `reachable`.
+            logging.info(
+                "TPLINK '%s' : etage bridge en echec (%s) mais le device "
+                "repond au ping -- signal ignore pour 'reachable'",
+                self.label,
+                bridge_detail,
+            )
 
         authorized, _ = self._with_session(lambda client: None)
         if not authorized:

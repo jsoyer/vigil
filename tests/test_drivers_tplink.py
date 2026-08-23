@@ -63,7 +63,7 @@ def _make_driver(**overrides):
         bridge_host="",
         client_factory=lambda: mock_client,
         ping_fn=Mock(return_value=(True, 12.0)),
-        wifi_status_fn=Mock(return_value=(True, None)),
+        route_check_fn=Mock(return_value=(True, None)),
         ssh_client_factory=Mock(
             side_effect=AssertionError("SSH ne doit pas etre appele en mode bridged")
         ),
@@ -81,11 +81,19 @@ class TestFailedHop:
     attribuee au bon saut'."""
 
     def test_failed_hop_bridge_mode_bridged(self):
+        """Adapte au bugfix 2026-08-22 : BRIDGE (route locale absente) n'est
+        attribue que si le device ne repond PAS non plus au ping -- sinon
+        `reachable` doit refleter un device qui repond (cf.
+        TestBridgeSignalNestPasUnVeto). Avant le fix, une route locale
+        absente a elle seule suffisait a declarer reachable=False, y compris
+        quand le device repondait -- comportement bugue reproduit en
+        production (faux negatif via l'ancien check `iw wlan0`)."""
         from src.drivers._base import Hop
 
         driver, _ = _make_driver(
             mode="bridged",
-            wifi_status_fn=Mock(return_value=(False, None)),
+            route_check_fn=Mock(return_value=(False, None)),
+            ping_fn=Mock(return_value=(False, None)),
         )
         health = driver.health()
         assert health.reachable is False
@@ -188,6 +196,147 @@ class TestRouteMisconfig:
         )
         second = driver.health()
         assert second.failed_hop is Hop.WIRELESS
+
+
+class TestRouteCheckLocal:
+    """Bugfix 2026-08-22 -- l'etage BRIDGE en mode `bridged` resout la route
+    locale via `ip route get` (subprocess mocke), sans dependance a une
+    interface WiFi fixe (`wlan0`). Remplace l'ancien check `iw wlan0` qui
+    produisait un faux negatif des que le lien vers le MR110 n'etait pas
+    porte par wlan0 (cas reel des guardians en production)."""
+
+    def test_default_route_check_ok_quand_ip_route_get_reussit(self, monkeypatch):
+        from src.drivers import tplink as tplink_module
+
+        completed = Mock(
+            returncode=0,
+            stdout="192.168.10.1 via 10.0.0.1 dev eth0 src 10.0.0.5\n",
+        )
+        monkeypatch.setattr(
+            tplink_module.subprocess, "run", Mock(return_value=completed)
+        )
+        ok, rtt = tplink_module._default_route_check("192.168.10.1", 8.0)
+        assert ok is True
+        assert rtt is None
+
+    def test_default_route_check_ko_si_exit_code_non_zero(self, monkeypatch):
+        from src.drivers import tplink as tplink_module
+
+        completed = Mock(returncode=2, stdout="")
+        monkeypatch.setattr(
+            tplink_module.subprocess, "run", Mock(return_value=completed)
+        )
+        ok, _ = tplink_module._default_route_check("192.168.10.1", 8.0)
+        assert ok is False
+
+    def test_default_route_check_ko_si_pas_de_ligne_dev(self, monkeypatch):
+        from src.drivers import tplink as tplink_module
+
+        completed = Mock(
+            returncode=0, stdout="RTNETLINK answers: Network is unreachable\n"
+        )
+        monkeypatch.setattr(
+            tplink_module.subprocess, "run", Mock(return_value=completed)
+        )
+        ok, _ = tplink_module._default_route_check("192.168.10.1", 8.0)
+        assert ok is False
+
+    def test_default_route_check_ko_si_exception_subprocess(self, monkeypatch):
+        from src.drivers import tplink as tplink_module
+
+        monkeypatch.setattr(
+            tplink_module.subprocess,
+            "run",
+            Mock(side_effect=Exception("boom")),
+        )
+        ok, rtt = tplink_module._default_route_check("192.168.10.1", 8.0)
+        assert ok is False
+        assert rtt is None
+
+    def test_default_route_check_indifferent_au_type_interface(self, monkeypatch):
+        """N'importe quel type d'interface (WiFi, ethernet, vlan, usb...) est
+        accepte -- plus de dependance a `wlan0` (mode bridged sans wlan0)."""
+        from src.drivers import tplink as tplink_module
+
+        for iface in ("wlan0", "eth0", "vlan42", "usb0"):
+            completed = Mock(
+                returncode=0,
+                stdout=f"192.168.10.1 dev {iface} src 192.168.10.5\n",
+            )
+            monkeypatch.setattr(
+                tplink_module.subprocess, "run", Mock(return_value=completed)
+            )
+            ok, _ = tplink_module._default_route_check("192.168.10.1", 8.0)
+            assert ok is True, f"echec pour l'interface {iface}"
+
+    def test_mode_bridged_sans_wlan0_bout_en_bout(self, monkeypatch):
+        """Driver complet en mode bridged, route reelle (mockee) portee par
+        une interface non-WiFi -- plus aucune reference a `wlan0` dans le
+        chemin BRIDGE : reachable=True, failed_hop=None."""
+        from src.drivers import tplink as tplink_module
+
+        completed = Mock(
+            returncode=0, stdout="192.168.10.1 dev eth1 src 192.168.10.20\n"
+        )
+        monkeypatch.setattr(
+            tplink_module.subprocess, "run", Mock(return_value=completed)
+        )
+
+        driver, _ = _make_driver(mode="bridged")
+        # Bypasse le route_check_fn mocke par _make_driver pour exercer le
+        # vrai default (_default_route_check), seul le subprocess est mocke.
+        driver._route_check_fn = tplink_module._default_route_check
+
+        health = driver.health()
+        assert health.reachable is True
+        assert health.failed_hop is None
+
+
+class TestBridgeSignalNestPasUnVeto:
+    """Bugfix 2026-08-22 -- un etage BRIDGE en echec est un signal de
+    diagnostic, jamais un veto : il ne doit jamais contredire un device qui
+    repond reellement (auth + metriques OK). Avant le fix, `_check_bridge`
+    en echec provoquait un retour anticipe `reachable=False` meme quand
+    authorize() et les metriques reussissaient ensuite -- incoherence
+    constatee en production (/api/tplink/1/status renvoyait reachable=false
+    alors que rsrp/wan_ip/compteurs etaient remplis)."""
+
+    def test_device_repond_malgre_etage_bridge_ko_reachable_true(self):
+        driver, _ = _make_driver(
+            mode="bridged",
+            route_check_fn=Mock(return_value=(False, None)),
+        )
+        health = driver.health()
+        assert health.reachable is True
+        assert health.failed_hop is None
+
+    def test_bridge_ko_et_device_injoignable_reste_attribue_bridge(self):
+        """Contre-cas : si le device ne repond vraiment pas non plus, BRIDGE
+        reste l'attribution -- le signal n'est ignore que quand il est
+        contredit par un device qui repond."""
+        from src.drivers._base import Hop
+
+        driver, _ = _make_driver(
+            mode="bridged",
+            route_check_fn=Mock(return_value=(False, None)),
+            ping_fn=Mock(return_value=(False, None)),
+        )
+        health = driver.health()
+        assert health.reachable is False
+        assert health.failed_hop is Hop.BRIDGE
+
+    def test_bridge_ko_device_repond_metriques_conservees(self):
+        """La sonde ne doit pas seulement dire reachable=True : les
+        metriques (authorize deja verifie par health) restent accessibles
+        via metrics(), symptome production #2 (rsrp/wan_ip remplis)."""
+        driver, mock_client = _make_driver(
+            mode="bridged",
+            route_check_fn=Mock(return_value=(False, None)),
+        )
+        health = driver.health()
+        assert health.reachable is True
+        metrics = driver.metrics()
+        assert metrics.rsrp == -95
 
 
 class TestProbePathProof:
@@ -313,11 +462,12 @@ class TestModeBridged:
         driver.probe_end_to_end()
         assert not ssh_factory.called
 
-    def test_mode_bridged_utilise_verification_wifi_locale(self):
-        wifi_status_fn = Mock(return_value=(True, None))
-        driver, _ = _make_driver(mode="bridged", wifi_status_fn=wifi_status_fn)
+    def test_mode_bridged_utilise_verification_route_locale(self):
+        route_check_fn = Mock(return_value=(True, None))
+        driver, _ = _make_driver(mode="bridged", route_check_fn=route_check_fn)
         driver.health()
-        assert wifi_status_fn.called
+        assert route_check_fn.called
+        route_check_fn.assert_called_with(driver.host, driver.timeout)
 
 
 class TestModeRemote:
