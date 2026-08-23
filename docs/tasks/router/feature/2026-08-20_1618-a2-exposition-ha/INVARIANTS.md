@@ -175,8 +175,14 @@ pas le nôtre.
 ## Aucune action destructive automatique (C6, maintenu)
 
 - **Owner** : `src/mqtt_publisher.py`, `src/managed_devices.py`
-- **Preconditions** : A2 ajoute une **troisième** voie de commande (après l'API
-  et Telegram).
+- **Preconditions** : A2 ajoute une **deuxième** voie de commande (après
+  l'API).
+  > **Mise à jour 2026-08-23** : cet invariant disait initialement « troisième
+  > voie de commande (après l'API et Telegram) ». C'est faux depuis 2.2.0 :
+  > Telegram (comme Discord, Slack et Pushover) a été **retiré du code**
+  > (bascule Ntfy-first), et `src/telegram_bot.py` n'existe plus. MQTT devient
+  > donc la **deuxième** voie de commande entrante du projet, pas la
+  > troisième. Conservé pour mémoire, ne reflète plus l'état actuel.
 - **Postconditions** : le reboot reste déclenché uniquement par une action
   opérateur explicite et gardée, tracée dans l'`EventLog` avec l'origine `mqtt`.
 - **Invariants** : rebooter un secours **pendant qu'il porte le trafic**
@@ -205,7 +211,7 @@ pas le nôtre.
 - **Preconditions** : un déploiement existant n'a aucune variable `TPLINK_*`.
 - **Postconditions** : dashboard, `/metrics` et entités HA strictement
   identiques à avant.
-- **Invariants** : les 4 instances reçoivent la 1.10.0 automatiquement. Rien ne
+- **Invariants** : les 4 instances reçoivent la 2.3.0 automatiquement. Rien ne
   doit bouger tant qu'un humain n'a pas déclaré un équipement, site par site.
 - **Verify** : `python3 -m pytest tests/ -k "no_tplink_configured" -q`
 - **Fix** : conditionner strictement tout rendu et toute publication à la

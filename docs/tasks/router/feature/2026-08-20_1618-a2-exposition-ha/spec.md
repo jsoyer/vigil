@@ -4,7 +4,11 @@
 - **Date** : 2026-08-20
 - **Auteur** : Jerome Soyer
 - **ADR** : [docs/adr/0001-multi-vendor-router-monitoring.md](../../../../adr/0001-multi-vendor-router-monitoring.md)
-- **Version cible** : 1.10.0 (minor)
+- **Version cible** : 2.3.0 (minor)
+  > **Mise à jour 2026-08-23** : cible révisée depuis `1.10.0`. Les releases
+  > 2.1.x (TP-Link) et 2.2.0 (Ntfy-first, retrait de Telegram/Discord/Slack/
+  > Pushover) sont sorties entre-temps sur `main`/`dev` ; A2 s'enchaîne après
+  > elles, d'où le saut de version.
 - **Branche** : `dev` → PR → `main`
 - **Dépend de** : [A1 — Pilotage](../2026-08-20_1618-a1-pilotage-tplink/spec.md) livré (1.9.0)
 - **Pré-requis BLOQUANT** : bugfix [1.8.1 identité MQTT](../../bugfix/2026-08-20_1618-mqtt-instance-identity.md)
@@ -18,6 +22,12 @@ A1 a rendu les MR110 **pilotables** : joignables via le pont Pi Zero, avec des
 commandes API et Telegram. Mais il faut taper une commande pour savoir quoi que
 ce soit. Rien n'est visible passivement, rien n'est historisé, et rien ne
 remonte dans Home Assistant où le reste de l'infrastructure est déjà supervisée.
+
+> **Mise à jour 2026-08-23** : le canal Telegram, ainsi que Discord, Slack et
+> Pushover, ont été **retirés du code en 2.2.0** (bascule Ntfy-first). La
+> phrase ci-dessus décrit l'état d'A1 au moment de l'écriture de ce PRD —
+> conservée pour mémoire. Ce que A2 ajoute reste vrai : MQTT devient la
+> **deuxième** voie de commande entrante, après l'API (voir INVARIANTS.md, C6).
 
 **Objectif d'A2** : rendre l'état des secours **visible sans action**, et
 **actionnable depuis Home Assistant**.
@@ -104,7 +114,7 @@ résultat intestable.
 - **Métriques de la machine hôte** sur le device watchdog : température, disque,
   mémoire, charge.
 - Notifications sur changement d'état (quota, usage).
-- Docs + release 1.10.0.
+- Docs + release 2.3.0.
 
 ### Out of scope
 - Moteur multi-cible, `UsgDriver`, rôles dans le scoring, alerting automatique
@@ -171,6 +181,14 @@ résultat intestable.
   configurés (Telegram, Discord, Slack, **ntfy**, e-mail, Pushover, MQTT), chacun
   filtrant par son `*_MIN_LEVEL`. Aucun code par canal n'est à écrire — ntfy
   mappe déjà `INFO`/`WARNING`/`CRITICAL` vers ses priorités 3/4/5 et ses tags.
+
+  > **Mise à jour 2026-08-23** : depuis 2.2.0, `notify()` ne dispatche plus que
+  > vers **ntfy** et **e-mail** (`src/notifier/_dispatch.py`) — Telegram,
+  > Discord, Slack et Pushover ont été retirés du code. MQTT n'a jamais été un
+  > canal de `_dispatch.py` : c'est un mécanisme de publication séparé
+  > (`src/mqtt_publisher.py`). Le principe de C18 (niveau choisi par événement,
+  > escalade conditionnelle) reste inchangé, seule la liste des canaux
+  > destinataires a rétréci.
   En revanche, il n'existe que **trois** niveaux et `NTFY_MIN_LEVEL` vaut `INFO`
   par défaut : un événement mal noté part directement sur le téléphone, et un
   `CRITICAL` de complaisance apprend à ignorer les alertes. Le niveau de chaque
@@ -250,7 +268,8 @@ résultat intestable.
 - **C9 — Le chemin de commande MQTT est authentifié et gardé.** Le `subscribe`
   crée une surface d'attaque qui n'existait pas : le broker doit être
   authentifié (`MQTT_USERNAME` / `MQTT_PASSWORD` existent déjà,
-  `config.py:260-261`), et toute action destructive exige l'entité *arm*.
+  `config.py:334-335` — vérifié 2026-08-23, était cité `:260-261`), et toute
+  action destructive exige l'entité *arm*.
 - **C10 — Aucun échec silencieux côté HA.** Toute commande reçue produit un
   résultat observable dans une entité dédiée. Sans ça, un refus est
   indistinguable d'un message perdu.
@@ -302,7 +321,7 @@ résultat intestable.
 - [ ] **C9** : chemin de commande documenté comme exigeant un broker authentifié
 - [ ] Toute commande HA tracée dans l'`EventLog` avec l'origine `mqtt`
 - [ ] `watchdog.py` et `state.py` **non modifiés**
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %, docs à jour, VERSION = 1.10.0
+- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %, docs à jour, VERSION = 2.3.0
 
 ## 7. Sprints
 
@@ -311,7 +330,7 @@ résultat intestable.
 | 1 | Quota, usage, **élection du poller** | Les informations qui ne se déduisent pas d'une lecture isolée, et l'exclusivité qu'impose le polling périodique | **Élevé** |
 | 2 | Dashboard + Prometheus | Voir sans taper une commande, sans casser Grafana | Moyen |
 | 3 | Home Assistant : capteurs + bouton armé | Superviser et agir depuis HA | **Élevé** (chemin entrant) |
-| 4 | Docs + release 1.10.0 | | Faible |
+| 4 | Docs + release 2.3.0 | | Faible |
 
 ## 8. Risques
 
@@ -352,7 +371,7 @@ redémarrages, et durables au-delà du code qui les a créées.
 ## 9. Definition of Done
 
 Tous les AC §6 cochés, 4 sprints verts, coverage ≥ 80 %, `validate.sh` vert,
-docs à jour, v1.10.0 taggée — et **vérification terrain** : dans Home Assistant,
+docs à jour, v2.3.0 taggée — et **vérification terrain** : dans Home Assistant,
 les deux MR110 apparaissent comme deux devices distincts avec leur readiness et
 leur signal réels ; presser le bouton de reboot **sans armer** ne fait rien et
 l'entité de dernière action explique pourquoi ; armer puis presser redémarre

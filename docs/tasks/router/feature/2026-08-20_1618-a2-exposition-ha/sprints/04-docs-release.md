@@ -1,4 +1,7 @@
-# Sprint 4 — Documentation et release 1.10.0
+# Sprint 4 — Documentation et release 2.3.0
+
+> **Mise à jour 2026-08-23** : version cible révisée de `1.10.0` à `2.3.0` —
+> les releases 2.1.x (TP-Link) et 2.2.0 (Ntfy-first) sont sorties entre-temps.
 
 - **PRD** : A2 — Exposition & Home Assistant (2026-08-20)
 - **Dépend de** : Sprints 1, 2, 3
@@ -44,7 +47,7 @@ d'attaque.
 
 ## Release
 
-- Bump `VERSION` → 1.10.0 ; `dev` → PR → `main` ; tag `v1.10.0`.
+- Bump `VERSION` → 2.3.0 ; `dev` → PR → `main` ; tag `v2.3.0`.
 - Ouvrir (ou mettre à jour) l'issue de suivi du **PRD B** — moteur multi-cible.
 - Ouvrir une issue de suivi pour les **améliorations MQTT restantes** :
   `availability_topic` / LWT, et exposition du topic `{prefix}/state` déjà publié
@@ -69,7 +72,7 @@ d'attaque.
 - [ ] `CLAUDE.md` à jour ; ADR-0001 passé à `Accepté`
 - [ ] Issues ouvertes : PRD B, et améliorations MQTT hors périmètre
 - [ ] Aucun secret exposé
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %, VERSION = 1.10.0
+- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %, VERSION = 2.3.0
 
 ## Frontières de fichiers
 
