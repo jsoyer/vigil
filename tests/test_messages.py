@@ -331,3 +331,129 @@ class TestDdnsFailed:
         text, _, _ = ddns_failed("9.9.9.9", errors)
         for err in errors:
             assert err in text
+
+
+# ===================================================================
+# Alert escalation (Sprint 4, PRD Ntfy-first S5)
+# ===================================================================
+
+
+class TestAlertEscalation:
+    def test_is_critical_and_escalation_category(self):
+        from src.messages import alert_escalation
+
+        text, level, ctx = alert_escalation(15, 12, 15)
+        assert level == Level.CRITICAL
+        assert ctx is not None
+        assert ctx.category == "escalation"
+
+    def test_contains_delay_and_score(self):
+        from src.messages import alert_escalation
+
+        text, _, _ = alert_escalation(15, 12, 15)
+        assert "15" in text
+        assert "12/15" in text
+
+    def test_mentions_escalade_or_critique(self):
+        from src.messages import alert_escalation
+
+        text, _, _ = alert_escalation(20, 5, 10)
+        assert "scalade" in text.lower() or "critique" in text.lower()
+
+    def test_explains_no_ack_possible(self):
+        """S5.3 : pas d'ACK possible sur l'escalade -- le message doit
+        expliciter que le seul signal d'arret est le retablissement reel."""
+        from src.messages import alert_escalation
+
+        text, _, _ = alert_escalation(15, 12, 15)
+        assert "retablissement" in text.lower() or "retabli" in text.lower()
+
+    def test_context_carries_score_and_threshold(self):
+        from src.messages import alert_escalation
+
+        _, _, ctx = alert_escalation(15, 8, 15)
+        assert ctx.score == 8
+        assert ctx.threshold == 15
+
+    def test_under_4096_bytes(self):
+        from src.messages import alert_escalation
+
+        text, _, _ = alert_escalation(15, 12, 15)
+        assert len(text.encode("utf-8")) <= 4096
+
+
+# ===================================================================
+# Markdown degradable (Q6, PRD Ntfy-first S3.4)
+# ===================================================================
+
+
+class TestMarkdownDegradable:
+    """Sous-ensemble autorise : **gras**, listes `-`, blocs de code courts.
+    Interdits : tableaux Markdown (|---|) et liens [texte](url) -- le corps
+    doit rester lisible en texte brut sur mobile."""
+
+    def _all_template_texts(self):
+        from src import messages as m
+
+        peer_info = {
+            "status": "healthy",
+            "score": 0,
+            "gateway": "OK",
+            "internet": "3/3",
+        }
+        return [
+            m.startup()[0],
+            m.shutdown("arret manuel")[0],
+            m.shutdown("crash")[0],
+            m.reboot_launching(1, 12, True, 0, 3, 2, peer_info)[0],
+            m.reboot_launching(1, 12, True, 0, 3, 2, peer_info, "diagnostic")[0],
+            m.recovery_with_reboot("5min", 2, True)[0],
+            m.recovery_no_reboot("3min")[0],
+            m.isp_outage_detected("30min", 3)[0],
+            m.max_reboots_reached(10)[0],
+            m.ssh_failure(5, "5min")[0],
+            m.divergence_detected(10, True, 0, 0, "OK", "3/3")[0],
+            m.api_pause()[0],
+            m.api_resume()[0],
+            m.api_reboot()[0],
+            m.update_available("1.0.0", "1.1.0")[0],
+            m.update_success("1.0.0", "1.1.0")[0],
+            m.update_failed("1.1.0", "tests echoues")[0],
+            m.tplink_reboot("secours-1", "auto")[0],
+            m.tplink_reboot_failed("secours-1", "auto")[0],
+            m.backup_ok("unifi.unf", 1.0, "/tmp")[0],
+            m.backup_failed("erreur")[0],
+            m.backup_stale("unifi.unf", 48, 24)[0],
+            m.ddns_updated("1.2.3.4", "5.6.7.8", 1, "example.com")[0],
+            m.ddns_failed("1.2.3.4", ["erreur"])[0],
+            m.alert_escalation(15, 12, 15)[0],
+        ]
+
+    def test_no_markdown_table_pattern(self):
+        for text in self._all_template_texts():
+            assert "|---" not in text and "---|" not in text, (
+                f"tableau Markdown detecte : {text!r}"
+            )
+
+    def test_no_markdown_link_pattern(self):
+        import re
+
+        link_re = re.compile(r"\[.+?\]\(.+?\)")
+        for text in self._all_template_texts():
+            assert not link_re.search(text), f"lien Markdown detecte : {text!r}"
+
+    def test_no_template_exceeds_4096_bytes_raw(self):
+        """Garde-fou : la troncature vit dans _ntfy.py, mais un gabarit
+        "nu" ne doit jamais depasser la limite au point de perdre une
+        information critique avant meme d'atteindre _truncate_body()."""
+        for text in self._all_template_texts():
+            assert len(text.encode("utf-8")) <= 4096
+
+    def test_no_leftover_telegram_html_in_source(self):
+        """S2 de ce sprint : purger tout rendu HTML oriente Telegram."""
+        import inspect
+        from src import messages as m
+
+        source = inspect.getsource(m)
+        for tag in ("<b>", "</b>", "<i>", "</i>", "<code>", "</code>", "<pre>"):
+            assert tag not in source

@@ -415,3 +415,65 @@ def test_no_reference_to_other_channels():
     lowered = source.lower()
     for forbidden in ("telegram", "discord", "slack", "pushover"):
         assert forbidden not in lowered
+
+
+# ===================================================================
+# send -- escalade (categorie "escalation", PRD Ntfy-first S5.2/S5.3)
+# ===================================================================
+
+
+class TestNtfyEscalation:
+    def test_escalation_priority_is_5_even_if_level_not_critical(self):
+        ctx = NotificationContext(category="escalation")
+        _, mock_open = _send_with_patches("test", Level.WARNING, ctx, "host", "ts")
+        req = mock_open.call_args[0][0]
+        assert req.get_header("Priority") == "5"
+
+    def test_escalation_critical_priority_is_5(self):
+        ctx = NotificationContext(category="escalation")
+        _, mock_open = _send_with_patches("test", Level.CRITICAL, ctx, "host", "ts")
+        req = mock_open.call_args[0][0]
+        assert req.get_header("Priority") == "5"
+
+    def test_escalation_tag_sos_present_in_addition_to_usual_tags(self):
+        ctx = NotificationContext(category="escalation")
+        _, mock_open = _send_with_patches(
+            "test",
+            Level.CRITICAL,
+            ctx,
+            "host",
+            "ts",
+            overrides={"INSTANCE_ID": "dijon_master"},
+        )
+        req = mock_open.call_args[0][0]
+        tags = req.get_header("Tags")
+        assert "sos" in tags.split(",")
+        assert "rotating_light" in tags
+        assert "dijon_master" in tags
+
+    def test_escalation_title_prefixed_relance(self):
+        ctx = NotificationContext(category="escalation")
+        _, mock_open = _send_with_patches(
+            "Alerte critique non resolue", Level.CRITICAL, ctx, "host", "ts"
+        )
+        req = mock_open.call_args[0][0]
+        assert req.get_header("Title").startswith("[RELANCE]")
+
+    def test_escalation_never_sets_actions_header(self):
+        ctx = NotificationContext(category="escalation")
+        _, mock_open = _send_with_patches("test", Level.CRITICAL, ctx, "host", "ts")
+        req = mock_open.call_args[0][0]
+        assert req.get_header("Actions") is None
+
+    def test_non_escalation_title_not_prefixed(self):
+        ctx = NotificationContext(category="alert")
+        _, mock_open = _send_with_patches(
+            "Internet KO", Level.CRITICAL, ctx, "host", "ts"
+        )
+        req = mock_open.call_args[0][0]
+        assert not req.get_header("Title").startswith("[RELANCE]")
+
+    def test_non_escalation_no_sos_tag(self):
+        _, mock_open = _send_with_patches("test", Level.CRITICAL, None, "host", "ts")
+        req = mock_open.call_args[0][0]
+        assert "sos" not in req.get_header("Tags").split(",")

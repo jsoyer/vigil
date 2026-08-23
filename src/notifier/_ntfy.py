@@ -71,6 +71,10 @@ def _derive_site(instance_id: str) -> str:
 
 
 def _priority_for(level: Level, category: str) -> int:
+    if category == "escalation":
+        # Toujours Priority 5 (urgent), quel que soit le niveau -- une
+        # escalade ne doit jamais etre noyee (PRD Ntfy-first S5.2/S5.3).
+        return _LEVEL_PRIORITY[Level.CRITICAL]
     if category == "ops" and level == Level.INFO:
         return _OPS_INFO_PRIORITY
     return _LEVEL_PRIORITY.get(level, 3)
@@ -131,8 +135,18 @@ def send(
     body = _truncate_body(body)
 
     site = _derive_site(INSTANCE_ID)
-    title = _ascii_safe(f"Vigil {INSTANCE_ID} - {_short_summary(message)}")
-    tags = _ascii_safe(f"{_LEVEL_TAGS.get(level, '')},{INSTANCE_ID},{site}")
+    summary = _short_summary(message)
+    # Escalade (PRD Ntfy-first S5.2) : titre prefixe [RELANCE] et tag `sos`
+    # en plus des tags habituels, pour se distinguer visuellement d'une
+    # CRITICAL normale -- jamais de bouton Actions sur ce chemin (send()
+    # ne construit d'Actions que dans send_confirm_actions() ci-dessous,
+    # jamais ici, donc l'escalade n'en recoit jamais).
+    if category == "escalation":
+        title = _ascii_safe(f"[RELANCE] Vigil {INSTANCE_ID} - {summary}")
+        tags = _ascii_safe(f"{_LEVEL_TAGS.get(level, '')},{INSTANCE_ID},{site},sos")
+    else:
+        title = _ascii_safe(f"Vigil {INSTANCE_ID} - {summary}")
+        tags = _ascii_safe(f"{_LEVEL_TAGS.get(level, '')},{INSTANCE_ID},{site}")
 
     headers = {
         "Title": title,

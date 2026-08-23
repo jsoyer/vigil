@@ -1776,6 +1776,51 @@ class TestAlertEscalation:
         ]
         assert len(escalation_calls) >= 1
 
+    @mock.patch("src.watchdog.ALERT_ESCALATION_DELAY", 1)
+    @mock.patch("src.watchdog.USG_REBOOT_WAIT", 1)
+    @mock.patch("src.watchdog.POST_REBOOT_GRACE", 1)
+    @mock.patch("src.watchdog.time.sleep")
+    @mock.patch("src.watchdog.notify")
+    @mock.patch("src.watchdog.reboot_usg", return_value=True)
+    @mock.patch("src.watchdog.check_connectivity")
+    @mock.patch("src.watchdog.time.time")
+    def test_escalation_notification_uses_escalation_category(
+        self, mock_time, mock_conn, mock_reboot, mock_notify, mock_sleep
+    ):
+        """L'escalade doit passer par un contexte category="escalation" --
+        c'est ce qui fait produire a _ntfy.py Priority 5, tag sos, titre
+        [RELANCE] et l'absence de bouton Actions (voir
+        tests/test_ntfy_notifier.py::TestNtfyEscalation)."""
+        mock_conn.return_value = _make_result(False, 0)
+
+        tick = 0.0
+
+        def time_side():
+            nonlocal tick
+            tick += 200
+            return tick
+
+        mock_time.side_effect = time_side
+        mock_sleep.side_effect = _make_sleep_limiter(20)
+
+        with mock.patch("src.watchdog.EscalationTracker") as MockEscalation:
+            escalation = mock.MagicMock()
+            escalation.should_escalate.return_value = True
+            MockEscalation.return_value = escalation
+
+            with pytest.raises(KeyboardInterrupt):
+                watchdog.main()
+
+        escalation_calls = [
+            c
+            for c in mock_notify.call_args_list
+            if "escalade" in str(c).lower() or "critique" in str(c).lower()
+        ]
+        assert len(escalation_calls) >= 1
+        _, _, ctx = escalation_calls[0].args
+        assert ctx is not None
+        assert ctx.category == "escalation"
+
 
 # ===================================================================
 # Speedtest

@@ -497,3 +497,32 @@ def ddns_failed(
         ]
     )
     return "\n".join(lines), Level.WARNING, None
+
+
+# ===================================================================
+# Alert escalation
+# ===================================================================
+
+
+def alert_escalation(
+    delay_minutes: int,
+    score: int,
+    threshold: int,
+) -> tuple[str, Level, NotificationContext]:
+    """Escalade d'une alerte CRITICAL non resolue -- re-notification a
+    priorite maximale sur Ntfy (categorie "escalation" -> Priority 5, tag
+    sos, titre prefixe [RELANCE], voir notifier/_ntfy.py). Aucun bouton
+    d'action ni ACK possible : le seul signal d'arret de l'escalade est le
+    retablissement reel du service (PRD Ntfy-first S5.3)."""
+    lines = [
+        f"**Escalade** : alerte critique non resolue depuis {delay_minutes} minutes.",
+        "",
+        f"Score actuel : {score}/{threshold}",
+        "",
+        "- Aucun accuse de reception n'est attendu sur ce message.",
+        "- L'escalade s'arrete uniquement au retablissement reel du service.",
+        "",
+        f"Dashboard : {_dashboard_link()}",
+    ]
+    ctx = NotificationContext(score=score, threshold=threshold, category="escalation")
+    return "\n".join(lines), Level.CRITICAL, ctx

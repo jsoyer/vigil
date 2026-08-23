@@ -970,12 +970,10 @@ def main() -> None:
         # --- Alert escalation check ---
         if escalation.should_escalate():
             logging.warning("Escalade d'alerte -- re-notification sur tous les canaux")
-            notify(
-                "ESCALADE : alerte critique non resolue depuis "
-                f"{ALERT_ESCALATION_DELAY} minutes.\n"
-                f"Score actuel : {failure_score}/{REBOOT_SCORE_THRESHOLD}",
-                Level.CRITICAL,
+            text, level, ctx = msg.alert_escalation(
+                ALERT_ESCALATION_DELAY, failure_score, REBOOT_SCORE_THRESHOLD
             )
+            notify(text, level, ctx)
             event_log.record("alert_escalated", score=failure_score)
 
         # --- Periodic speedtest (every SPEEDTEST_INTERVAL_CYCLES) ---
