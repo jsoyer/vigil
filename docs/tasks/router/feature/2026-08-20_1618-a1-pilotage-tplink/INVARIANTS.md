@@ -31,7 +31,7 @@ existent parce qu'une violation se traduirait par une panne silencieuse sur ces
   `WatchdogState` strictement inchangés par rapport à la 1.8.
 - **Invariants** : c'est ce qui rend A1 quasi sans risque de régression USG, et
   ce qui satisfait C3 par construction. Le refactor appartient au PRD B.
-- **Verify** : `git diff --quiet $(git describe --tags --abbrev=0 --match 'v1.8*') -- src/watchdog.py src/state.py`
+- **Verify** : `git diff --quiet $(git describe --tags --abbrev=0 --match 'v2.0*') -- src/watchdog.py src/state.py`
 - **Fix** : sortir le changement d'A1. S'il est indispensable, c'est le découpage
   qui est à revoir — le remonter, pas le contourner.
 

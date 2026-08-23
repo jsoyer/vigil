@@ -7,7 +7,8 @@
 
 ## Contexte (autoportant)
 
-`usg-watchdog` tourne en **4 instances** : Dijon (master + slave), Nice (master
+`Vigil` (anciennement `usg-watchdog`, renomme en 2.0.0) tourne en **4
+instances** : Dijon (master + slave), Nice (master
 + slave). Il expose une API HTTP et un **bot Telegram** en long-polling avec 8
 commandes : `/status`, `/pause`, `/resume`, `/reboot`, `/ddns`, `/backup`,
 `/tailscale`, `/help`.

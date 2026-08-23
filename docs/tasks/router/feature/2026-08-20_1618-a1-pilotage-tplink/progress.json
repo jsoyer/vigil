@@ -2,7 +2,7 @@
   "prd": "docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/spec.md",
   "name": "a1-pilotage-tplink",
   "created": "2026-08-20",
-  "target_version": "1.9.0",
+  "target_version": "2.1.0",
   "branch": "dev",
   "status": "planned",
   "supersedes": "docs/tasks/router/feature/2026-08-12_1451-tplink-backup-lines/",
