@@ -1,7 +1,10 @@
 """Telegram bot -- interactive commands via long-polling.
 
 Runs in a background thread. Allows controlling the watchdog from Telegram.
-Commands: /status, /pause, /resume, /reboot, /ddns, /backup, /help
+Commands: /status, /pause, /resume, /reboot, /ddns, /backup, /tailscale, /help
+/lte est un point d'extension : le dispatcher route ses sous-commandes vers
+des handlers enregistres via `register_lte_handler()`. Aucun handler n'est
+enregistre par ce module -- ils arrivent avec les commandes TP-Link.
 """
 
 import json
@@ -10,9 +13,38 @@ import threading
 import time
 import urllib.request
 import urllib.error
+from typing import Callable
 
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from state import StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
+
+# Handler enregistrable pour une sous-commande /lte : recoit les arguments
+# restants (chaine, potentiellement vide), le chat_id et le StateHolder.
+LteHandler = Callable[[str, str, StateHolder], None]
+
+_lte_handlers: dict[str, LteHandler] = {}
+
+
+def register_lte_handler(subcommand: str, handler: LteHandler) -> None:
+    """Enregistre un handler pour `/lte <subcommand> [args]`.
+
+    Point d'extension : les commandes TP-Link reelles s'enregistrent ici.
+    Ce module ne fournit aucun handler par defaut.
+    """
+    _lte_handlers[subcommand.strip().lower()] = handler
+
+
+def _handle_lte(args: str, chat_id: str, holder: StateHolder) -> None:
+    """Route `/lte <sous-commande> [reste]` vers son handler enregistre."""
+    subcommand, _, rest = args.strip().partition(" ")
+    handler = _lte_handlers.get(subcommand.lower())
+    if handler is None:
+        _send(
+            chat_id,
+            "Commande LTE indisponible pour le moment.\nTapez /help pour la liste.",
+        )
+        return
+    handler(rest.strip(), chat_id, holder)
 
 
 def is_configured() -> bool:
@@ -47,7 +79,15 @@ def _handle_command(
     holder: StateHolder,
 ) -> None:
     """Process a bot command."""
-    cmd = command.strip().lower().split("@")[0]  # strip @botname
+    cmd = command.strip().lower().split("@")[0]  # strip @botname -- inchange
+    # cmd_word et lte_args sont calcules a partir du texte brut, pas de `cmd`
+    # (qui peut avoir tronque tout ce qui suit un "@" ailleurs dans le
+    # message). Ils servent uniquement au routage /lte <sous-commande>
+    # [args] ; les 8 commandes existantes continuent de dispatcher sur `cmd`
+    # en entier, donc rejettent tout argument en trop exactement comme avant.
+    _raw = command.strip().lower()
+    _first_token, _, lte_args = _raw.partition(" ")
+    cmd_word = _first_token.split("@")[0]  # strip @botname du seul 1er mot
 
     if cmd == "/status":
         state = holder.state
@@ -65,7 +105,7 @@ def _handle_command(
             status = "OK"
 
         lines = [
-            f"<b>Vigil</b>",
+            "<b>Vigil</b>",
             "",
             f"Status : <b>{status}</b>",
             f"Score : {state.failure_score}/{state.threshold}",
@@ -153,6 +193,12 @@ def _handle_command(
             "/backup - Lancer un backup UniFi\n"
             "/help - Cette aide",
         )
+
+    elif cmd_word == "/lte":
+        # /lte <sous-commande> [args] -- point d'extension, voir _handle_lte.
+        # Nouveau : aucune des 8 commandes ci-dessus ne peut matcher "/lte",
+        # donc ce branchement ne change rien a leur comportement.
+        _handle_lte(lte_args, chat_id, holder)
 
     else:
         _send(chat_id, f"Commande inconnue : {cmd}\nTapez /help pour la liste.")

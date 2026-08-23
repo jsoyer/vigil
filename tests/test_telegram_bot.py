@@ -1,10 +1,8 @@
 """Tests for src/telegram_bot.py"""
 
 import json
-from unittest import mock
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 import sys
 import os
@@ -597,3 +595,140 @@ class TestApiFunction:
             _api("sendMessage", {"chat_id": "1", "text": "hi"})
             req = mock_open.call_args[0][0]
             assert req.data is not None
+
+
+# ---------------------------------------------------------------------------
+# Non-regression du parsing d'arguments (P1, sprint 3 prep) -- ajouts en fin
+# de fichier uniquement : aucune assertion existante ci-dessus n'est touchee.
+# ---------------------------------------------------------------------------
+
+
+class TestArgumentParsingNonRegression:
+    """Les 8 commandes existantes gardent un comportement identique une fois
+    le parsing d'arguments ajoute : argument en trop => "commande inconnue",
+    exactement comme avant (cmd contenait deja tout, espaces compris)."""
+
+    def test_status_with_extra_arg_is_unknown_command(self):
+        with patch("telegram_bot._send") as mock_send:
+            from telegram_bot import _handle_command
+
+            _handle_command("/status foo", "123", _make_holder(state=_make_state()))
+            msg = mock_send.call_args[0][1]
+            assert "Commande inconnue" in msg
+            assert "/status foo" in msg
+
+    def test_reboot_with_extra_arg_is_unknown_command_and_does_not_reboot(self):
+        with patch("telegram_bot._send") as mock_send:
+            from telegram_bot import _handle_command
+
+            holder = _make_holder()
+            _handle_command("/reboot now", "123", holder)
+            holder.send_command.assert_not_called()
+            msg = mock_send.call_args[0][1]
+            assert "Commande inconnue" in msg
+
+    def test_pause_with_extra_arg_is_unknown_command(self):
+        with patch("telegram_bot._send") as mock_send:
+            from telegram_bot import _handle_command
+
+            holder = _make_holder()
+            _handle_command("/pause please", "123", holder)
+            holder.send_command.assert_not_called()
+            assert "Commande inconnue" in mock_send.call_args[0][1]
+
+    def test_help_with_extra_arg_is_unknown_command(self):
+        with patch("telegram_bot._send") as mock_send:
+            from telegram_bot import _handle_command
+
+            _handle_command("/help me", "123", _make_holder())
+            assert "Commande inconnue" in mock_send.call_args[0][1]
+
+    def test_unknown_command_message_unchanged(self):
+        with patch("telegram_bot._send") as mock_send:
+            from telegram_bot import _handle_command
+
+            _handle_command("/bogus", "123", _make_holder())
+            assert mock_send.call_args[0][1] == (
+                "Commande inconnue : /bogus\nTapez /help pour la liste."
+            )
+
+
+# ---------------------------------------------------------------------------
+# /lte -- point d'extension (P1, sprint 3 prep)
+# ---------------------------------------------------------------------------
+
+
+class TestLteExtensionPoint:
+    def setup_method(self):
+        import telegram_bot
+
+        telegram_bot._lte_handlers.clear()
+        self.patcher = patch("telegram_bot._send")
+        self.mock_send = self.patcher.start()
+
+    def teardown_method(self):
+        self.patcher.stop()
+        import telegram_bot
+
+        telegram_bot._lte_handlers.clear()
+
+    def test_bare_lte_without_handler_is_polite_and_does_not_crash(self):
+        from telegram_bot import _handle_command
+
+        _handle_command("/lte", "123", _make_holder())
+        msg = self.mock_send.call_args[0][1]
+        assert "indisponible" in msg.lower()
+
+    def test_lte_subcommand_without_handler_is_polite(self):
+        from telegram_bot import _handle_command
+
+        _handle_command("/lte reboot dijon-1", "123", _make_holder())
+        msg = self.mock_send.call_args[0][1]
+        assert "indisponible" in msg.lower()
+
+    def test_lte_routes_to_registered_handler_with_remaining_args(self):
+        from telegram_bot import _handle_command, register_lte_handler
+
+        received = {}
+
+        def fake_handler(args, chat_id, holder):
+            received["args"] = args
+            received["chat_id"] = chat_id
+            received["holder"] = holder
+
+        register_lte_handler("reboot", fake_handler)
+        holder = _make_holder()
+        _handle_command("/lte reboot dijon-1", "123", holder)
+
+        assert received["args"] == "dijon-1"
+        assert received["chat_id"] == "123"
+        assert received["holder"] is holder
+        self.mock_send.assert_not_called()
+
+    def test_lte_subcommand_is_case_insensitive(self):
+        from telegram_bot import _handle_command, register_lte_handler
+
+        called = []
+        register_lte_handler("check", lambda args, chat_id, holder: called.append(args))
+        _handle_command("/lte CHECK dijon-1", "123", _make_holder())
+        assert called == ["dijon-1"]
+
+    def test_lte_with_botname_suffix_still_routes(self):
+        from telegram_bot import _handle_command, register_lte_handler
+
+        called = []
+        register_lte_handler(
+            "reboot", lambda args, chat_id, holder: called.append(args)
+        )
+        _handle_command("/lte@mybot reboot dijon-1", "123", _make_holder())
+        assert called == ["dijon-1"]
+
+    def test_lte_does_not_affect_existing_commands(self):
+        """Enregistrer un handler /lte ne doit rien changer aux 8 commandes."""
+        from telegram_bot import _handle_command, register_lte_handler
+        from state import CMD_REBOOT
+
+        register_lte_handler("reboot", lambda args, chat_id, holder: None)
+        holder = _make_holder()
+        _handle_command("/reboot", "123", holder)
+        holder.send_command.assert_called_once_with(CMD_REBOOT)
