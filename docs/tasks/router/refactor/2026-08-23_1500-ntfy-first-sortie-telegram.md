@@ -19,6 +19,44 @@
 
 ---
 
+## 0bis. Décisions (2026-08-23 soir)
+
+Réponses utilisateur aux questions ouvertes du § 12, tranchées le soir même de
+la rédaction du PRD. Elles priment sur les recommandations formulées plus haut
+dans le document là où elles diffèrent ; le corps du PRD **n'est pas réécrit**
+— les sections concernées reçoivent des encarts datés « **Décision du
+2026-08-23 (soir)** » aux endroits pertinents (§ 2.1, § 3.6, § 4.1, § 4.2.3,
+§ 6.2, § 9). Sprints extraits dans
+`2026-08-23_1500-ntfy-first-sortie-telegram/`.
+
+| # | Question | Décision | Écart vs recommandation § 12 |
+|---|---|---|---|
+| **Q1** | Serveur Ntfy + authentification | Ni (b) ni (c) au sens strict du § 12 : le serveur retenu est le ntfy **existant** sur bbh-network (conteneur Docker `binwiederhier/ntfy`, port 7171, auth déjà active côté serveur — une publication anonyme y renvoie déjà 403). Exposition publique **déjà en place** : `https://ntfy.bbhome.wf` via tunnel Cloudflare. **Publication interne par les Pi jamais via Cloudflare** : dijon-master (colocalisé sur bbh-network) publie en local `http://127.0.0.1:7171` ; les 3 autres Pi publient sur `http://100.112.123.103:7171` (IP Tailscale de bbh-network). Abonnement téléphone via `https://ntfy.bbhome.wf`. Risque « ntfy hébergé sur un site surveillé » **explicitement assumé**, mitigé par Email + MQTT conservés (Q3) | **Écart** : le § 3.6 écartait justement l'auto-hébergement sur un site surveillé (« à écarter », seule option qualifiée de « réellement disqualifiante »). L'utilisateur assume ce risque au lieu de déployer un VPS tiers, en s'appuyant sur les deux canaux de secours |
+| **Q2** | Topics | **Par site + commun** : `vigil-dijon`, `vigil-nice` (alertes de ligne par site) **+ `vigil-ops`** (cycle de vie, mises à jour, rapports) — un topic de plus que la recommandation « par site » du § 3.5 | Écart mineur : § 3.5 ne comparait que 2 topics (par site) ; l'utilisateur ajoute un troisième topic opérationnel |
+| **Q3** | Canaux conservés | **Ntfy (principal) + Email + MQTT/HA.** **Pushover, Discord et Slack sont débranchés avec Telegram** — le périmètre de démantèlement (S5) s'élargit en conséquence : `notifier/_pushover.py`, `_discord.py`, `_slack.py`, leurs variables de config, leurs tests, leur documentation | **Écart majeur vs § 9 point 2 et § 12 Q3** : le PRD conservait par défaut les « 5 autres canaux » et renvoyait une éventuelle suppression de Discord/Slack/Pushover à un PRD distinct. L'utilisateur les inclut dans celui-ci |
+| **Q4** | Double-run | **Aucun double-run — bascule sèche.** En compensation : une **vérification en réel renforcée** avant débranchement (S5, avant le sprint de suppression) : publication de test sur **chaque topic à chaque niveau** (INFO/WARNING/CRITICAL, priorités ntfy correspondantes), reçue et constatée, **+ un test E2E d'un bouton de confirmation depuis le LAN**, le tout **avant** la suppression du code Telegram | **Écart majeur vs § 6.2**, qui posait 7 jours de double-run comme non négociable (« l'ordre n'est pas négociable »). La durée est remplacée par une checklist de vérification réelle resserrée, mais le principe « ne jamais débrancher avant d'avoir prouvé que ça marche » est conservé |
+| **Q5** | TTL de confirmation | **600 s.** `CONFIRM_TTL` — défaut porté de 120 à 600 dans `src/confirm.py` (`DEFAULT_TTL_SECONDS`, L20), pour les actions de confirmation mobiles | Repris de l'option (b) évoquée en recommandation § 12 Q5, mais retenu comme **défaut global** plutôt que « éventuellement, pour la seule action `tplink_reboot` » |
+| **Q6** | Markdown dégradable | **Oui**, conforme à la recommandation § 12 Q6 (`**gras**`, listes, code court ; ni tableaux ni liens `[texte](url)`) | Conforme à la reco |
+| **Q7** | Accès aux boutons de confirmation | **LAN/Tailscale uniquement**, confirmé explicitement : **aucune** route `/api/confirm/*` n'est exposée via le tunnel Cloudflare. Les URL d'action pointent exclusivement sur les adresses Tailscale des Pi. Assumé : une confirmation ne fonctionne depuis un téléphone que sur LAN ou avec Tailscale actif | Conforme au design déjà retenu au § 4.1/§ 4.2 (Tailscale y était déjà la seule option ✅) — cette décision ferme explicitement la question implicite « et si on passait par Cloudflare comme pour l'abonnement ntfy ? » par non |
+
+**Détail opérationnel nouveau (hors Q1-Q7)** : un utilisateur/token ntfy
+`vigil` doit être créé sur le serveur ntfy de bbh-network
+(`docker exec ... ntfy user add …` puis droits `write` sur `vigil-*` via
+`ntfy access`/`ntfy token add`). Cette étape est exécutée par
+**l'orchestrateur humain**, qui dispose de `sudo` sur bbh-network — pas par un
+sous-agent `sprint-executor` en worktree, à l'image du renommage du dépôt
+GitHub dans le grand renommage (`sprints/01-depot-documentation.md`).
+Rattachée au Sprint 1.
+
+**Conséquence directe sur le découpage des sprints (§ 8)** : le Sprint 5,
+initialement limité au débranchement de Telegram, démantèle désormais
+**quatre** canaux (Telegram, Pushover, Discord, Slack), et il est précédé d'un
+**gate de vérification réelle** au lieu d'un double-run de 7 jours. Voir
+`2026-08-23_1500-ntfy-first-sortie-telegram/progress.json` et les 5
+`sprints/NN-*.md`.
+
+---
+
 ## 1. Contexte et décision
 
 Vigil dispose de **7 canaux de notification** (Telegram, Discord, Slack, Ntfy,
@@ -93,6 +131,23 @@ connectivité sortante (fibre, 4G de secours, DERP relay derrière CGNAT).
 | Documentation | `README.md` (32 occurrences), `DEPLOY.md` (13), `CLAUDE.md` (8), `WORKFLOW.md` (2) | 55 occurrences |
 | `.env` de production | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` retirés des 4 Pi (§ 6.3) | 4 hôtes |
 
+> **Décision du 2026-08-23 (soir), Q3 — périmètre élargi.** Ce tableau ne
+> listait que Telegram. L'utilisateur a tranché : **Pushover, Discord et
+> Slack sont débranchés dans le même PRD**, avec le même traitement que
+> Telegram, listés ici pour mémoire :
+>
+> | Élément | Détail |
+> |---|---|
+> | `src/notifier/_pushover.py`, `_discord.py`, `_slack.py` | fichiers **entiers supprimés** |
+> | Config `src/config.py` | `DISCORD_WEBHOOK_URL`, `DISCORD_TIMEOUT`, `DISCORD_MIN_LEVEL` ; `SLACK_WEBHOOK_URL`, `SLACK_TIMEOUT`, `SLACK_MIN_LEVEL` ; `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`, `PUSHOVER_TIMEOUT`, `PUSHOVER_MIN_LEVEL` — 10 variables supplémentaires |
+> | Enregistrement des canaux | entrées `discord`, `slack`, `pushover` de `_get_channels()` dans `src/notifier/_dispatch.py` |
+> | Tests | `tests/test_pushover_notifier.py` (fichier entier supprimé) ; classes/tests Discord et Slack retirés de `tests/test_notifier.py` |
+> | Documentation | occurrences `Discord`/`Slack`/`Pushover` dans `README.md`, `DEPLOY.md`, `CLAUDE.md`, `WORKFLOW.md` |
+> | `.env` de production | `DISCORD_WEBHOOK_URL`, `SLACK_WEBHOOK_URL`, `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN` retirés des 4 Pi s'ils y étaient présents (à vérifier — aucun des deux sites n'a confirmé les utiliser) |
+>
+> Rattaché au Sprint 5 (§ 8), dont le titre et les critères de vérification
+> sont élargis en conséquence (§ 9 point 2, § 10 « Débranchement »).
+
 **Ne sont pas réécrits** : les documents historiques (`docs/adr/0001-*.md`,
 `docs/RELEASE-NOTES-1.8.*`, `docs/RELEASE-NOTES-2.0.0.md`,
 `docs/tasks/**` y compris la spec A1 et son Sprint 3). Ils décrivent l'état du
@@ -110,6 +165,11 @@ grand renommage.
 | Les 5 autres canaux | **inchangés** — Discord, Slack, Email SMTP, Pushover, MQTT | Cf. § 9 et question **Q3**. |
 | `src/notifier/__init__.py` (`notify()`) | **contrat inchangé** | `notify(message, level, context)`, never raises, filtrage par `MIN_LEVEL`. Rien de ce PRD ne doit modifier cette signature. *(Note : `dispatch()` itère en réalité **séquentiellement**, pas en parallèle comme l'annonce `CLAUDE.md` — à corriger dans la doc au passage.)* |
 | Endpoints `/api/tplink/*` | **inchangés** | Livrés par A1 Sprint 3, protégés par `Bearer API_TOKEN`, indépendants du canal. |
+
+> **Décision du 2026-08-23 (soir), Q3** : la ligne « Les 5 autres canaux —
+> inchangés » ci-dessus est **caduque**. Seuls **Email SMTP** et **MQTT**
+> restent inchangés ; **Discord, Slack et Pushover sont débranchés** avec
+> Telegram (§ 2.1, encart daté). Voir § 0bis pour le détail.
 
 ### 2.3 La couche `/lte` du Sprint 3 d'A1 : dette assumée
 
@@ -282,6 +342,24 @@ d'ajouter :
 - `NTFY_URL` accepte déjà librement une URL self-hosted (aucune validation de
   domaine, commentaire L248) — rien à changer côté schéma de configuration.
 
+> **Décision du 2026-08-23 (soir), Q1** : le serveur retenu n'est ni (b) ni
+> (c) au sens strict ci-dessus — c'est le ntfy **déjà déployé** sur
+> bbh-network (conteneur Docker `binwiederhier/ntfy`, port 7171,
+> authentification déjà active côté serveur : publication anonyme y renvoie
+> déjà 403). L'exposition publique est **déjà en place**,
+> `https://ntfy.bbhome.wf` via un tunnel Cloudflare — Vigil ne la met pas en
+> place, elle existe déjà pour l'abonnement téléphone. Ce que ce PRD fixe :
+> **la publication interne des 4 Pi ne passe jamais par Cloudflare**.
+> dijon-master (colocalisé sur bbh-network) publie en local sur
+> `http://127.0.0.1:7171` ; les 3 autres Pi (dijon-slave, nice-master,
+> nice-slave) publient sur `http://100.112.123.103:7171` (IP Tailscale de
+> bbh-network). Le risque que le § 3.6 qualifiait de « seule option
+> réellement disqualifiante » — héberger le serveur de notification sur un
+> site surveillé — est ici **explicitement assumé** par l'utilisateur, pas
+> écarté : bbh-network hébergeant le serveur ntfy, une panne de ce site
+> précis coupe le canal de notification qu'il sert. Mitigation retenue :
+> Email SMTP et MQTT restent des canaux indépendants (§ 9, Q3). Voir § 0bis.
+
 ---
 
 ## 4. Remplacement des commandes
@@ -319,6 +397,19 @@ Pourquoi Tailscale résout le problème :
 **et** sur les téléphones qui reçoivent les notifications. C'est déjà le cas des
 Pi (`src/tailscale_dns.py` synchronise le DNS du tailnet) ; le téléphone est à
 vérifier avant le Sprint 2.
+
+> **Décision du 2026-08-23 (soir), Q7** : confirmée sans réserve — **LAN/
+> Tailscale uniquement**. Aucune route `/api/confirm/*` n'est exposée via le
+> tunnel Cloudflare qui sert par ailleurs `https://ntfy.bbhome.wf` (Q1) :
+> l'abonnement au topic passe par Cloudflare, la confirmation d'action jamais.
+> Toutes les URL d'action publiées dans les boutons ntfy pointent sur les
+> adresses Tailscale des 4 Pi, jamais sur une IP LAN ni sur un nom public.
+> Conséquence assumée : une confirmation ne fonctionne depuis un téléphone que
+> sur le LAN domestique ou avec Tailscale actif sur ce téléphone — un
+> réglage réseau opérateur (bascule Wi-Fi/4G, Tailscale endormi) peut donc
+> faire expirer une confirmation sans recours. C'est déjà le risque n°3
+> identifié au § 11 ; cette décision ne l'ajoute pas, elle en confirme
+> l'acceptation.
 
 ### 4.2 Confirmations par boutons d'action — **point de sécurité central**
 
@@ -418,6 +509,19 @@ plus rien ne justifie qu'il soit court.
 | **D5** | **`API_TOKEN` obligatoire** | Le défaut est `""` ; `_check_auth()` est heureusement **fail-closed** (403 si vide). À renforcer : log `CRITICAL` au démarrage si `API_TOKEN` est vide alors qu'un canal avec boutons d'action est configuré. |
 | **D6** | **Réponse muette** | L'endpoint répond `200 {"ok": true}` ou `404 {"error":"unknown or expired"}` — **jamais** de détail sur l'existence du jeton, l'action visée ou l'équipement. |
 | **D7** | **Événement systématique** | Chaque confirmation (acceptée, refusée, expirée) génère un événement `confirm_accepted` / `confirm_rejected` dans l'`EventLog`, donc visible dans `/api/events` et le dashboard. Une confirmation qu'on n'a pas déclenchée doit se voir. |
+
+> **Décision du 2026-08-23 (soir), Q5** : le TTL par défaut de `confirm.py`
+> passe de **120 s à 600 s** — `DEFAULT_TTL_SECONDS` dans `src/confirm.py`
+> (L20), et donc la valeur lue par `_get_ttl_seconds()` quand `CONFIRM_TTL`
+> n'est pas positionné dans l'environnement. Recommandation (b) du § 12 Q5
+> retenue, mais comme **défaut global** (toutes les actions confirmables, pas
+> seulement `tplink_reboot`). Conséquence directe sur D1/D3 : la fenêtre
+> d'exploitation d'un jeton fuité, déjà ramenée à « inutilisable hors
+> tailnet » par le § 4.1, passe de 2 à 10 minutes — jugé acceptable
+> puisqu'elle reste conditionnée à un accès Tailscale. Tous les tests et
+> critères d'acceptation qui référencent « 120 s » (§ 4.2.2, § 6.2, § 10)
+> s'entendent désormais avec la valeur effective de `CONFIRM_TTL`, soit 600 s
+> après ce changement de défaut.
 
 #### 4.2.4 Ce que le design ne protège pas (limites honnêtes)
 
@@ -625,6 +729,33 @@ dans un état mixte. Cf. **Q4**.
 loin du plafond en régime normal, mais une tempête d'incidents peut s'en
 approcher. À surveiller.
 
+> **Décision du 2026-08-23 (soir), Q4 — remplace ce paragraphe.** Pas de
+> double-run, pas de fenêtre de 7 jours, pas de `2.2.0-rc1` maintenue en
+> parallèle de Telegram sur les 4 Pi : **bascule sèche**. Le plafond
+> `ntfy.sh` de 250 msg/jour évoqué ci-dessus ne s'applique plus non plus
+> (serveur auto-hébergé, § 3.6 Q1). En compensation, une **vérification en
+> réel renforcée** est exigée avant le sprint de débranchement (S5), et
+> **avant** la suppression du code Telegram — reprise du principe « ne jamais
+> débrancher le canal qui marche avant d'avoir prouvé que le nouveau marche »
+> du § 6.1, sans la durée de 7 jours :
+>
+> - publication de **test sur chaque topic** (`vigil-dijon`, `vigil-nice`,
+>   `vigil-ops`) **à chaque niveau** (INFO/WARNING/CRITICAL, avec la priorité
+>   ntfy correspondante — § 3.2), **reçue et constatée** sur téléphone ;
+> - **un test end-to-end d'un bouton de confirmation depuis le LAN** (pas
+>   nécessairement en 4G/hors domicile, contrairement à l'ancienne exigence
+>   double-run ci-dessus) : publication d'une action confirmable, réception
+>   du bouton, tap, vérification que l'action s'exécute et que l'événement
+>   `confirm_accepted` apparaît dans `/api/events` ;
+> - le tout **journalisé et daté**, avant que le sprint de démantèlement ne
+>   supprime `src/telegram_bot.py`.
+>
+> Cette checklist devient le **gate `verification-reelle-avant-debranchement`**
+> de `progress.json`, bloquant avant le Sprint 5. Elle remplace les critères
+> « Double-run (S4) » du § 10 en substance (la table de critères originale
+> n'est pas réécrite — voir le sprint 5 pour la liste exacte des preuves
+> exigées).
+
 ### 6.3 Les `.env` des 4 Pi
 
 | Étape | Action sur les 4 `.env` |
@@ -709,6 +840,16 @@ pourrait être parallélisé, **mais** il partage la convention d'authentificati
 avec S2 : les garder séquentiels. S5 dépend de tout, et surtout du **verdict du
 double-run** de S4.
 
+> **Décision du 2026-08-23 (soir)** : le tableau S1-S5 ci-dessus décrit
+> l'intention initiale, non réécrite. Les spécifications de sprint réellement
+> extraites (`2026-08-23_1500-ntfy-first-sortie-telegram/sprints/`)
+> l'ajustent : **S4** remplace le déploiement `2.2.0-rc1` + protocole
+> double-run par la checklist de vérification réelle du § 6.2 (encart Q4) ;
+> **S5** démantèle Telegram **et** Pushover, Discord, Slack (§ 2.1 encart
+> Q3), et son gate d'entrée n'est plus « verdict du double-run » mais
+> « vérification réelle renforcée constatée » (gate
+> `verification-reelle-avant-debranchement` de `progress.json`).
+
 ---
 
 ## 9. Ce qui ne change PAS (invariants)
@@ -716,11 +857,16 @@ double-run** de S4.
 1. **Le contrat de `notify()`** : `notify(message, level, context)`, never
    raises, filtrage par `MIN_LEVEL` par canal. Aucune signature publique du
    paquet `notifier` n'est modifiée.
-2. **Les 5 autres canaux** — Discord, Slack, Email SMTP, Pushover, MQTT — sont
+2. ~~**Les 5 autres canaux** — Discord, Slack, Email SMTP, Pushover, MQTT — sont
    **conservés tels quels**, code et configuration. Aucun n'est supprimé par ce
-   PRD (à confirmer, **Q3**). MQTT en particulier n'est pas un canal d'alerte
-   mais de la télémétrie Home Assistant : il ne relève pas de ce document, et il
-   est le socle d'A2 en 2.3.0.
+   PRD (à confirmer, **Q3**).~~ **Invariant révisé par la décision du
+   2026-08-23 (soir), Q3** : seuls **Email SMTP** et **MQTT** sont conservés
+   tels quels. **Discord, Slack et Pushover sont supprimés par ce PRD**
+   (§ 2.1 encart daté, § 8 S5 élargi) — l'hypothèse « à confirmer » du Q3
+   original est tranchée par la négative pour ces trois canaux. MQTT en
+   particulier n'est pas un canal d'alerte mais de la télémétrie Home
+   Assistant : il ne relève pas de ce document, et il est le socle d'A2 en
+   2.3.0.
 3. **L'identité MQTT / Home Assistant** (`unique_id`, `device.name`,
    `client_id`, topics de discovery) — figée depuis la 1.8.2, **on n'y touche
    pas**.
