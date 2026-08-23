@@ -64,6 +64,10 @@ import state
 import events
 import report
 import messages
+# A1 -- drivers/ et managed_devices.py doivent rester importables sans
+# tplinkrouterc6u installee (invariant C1).
+import drivers
+import managed_devices
 print('OK')
 " 2>/dev/null | grep -q "OK"; then
     log_success "Imports OK"

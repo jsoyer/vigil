@@ -2,7 +2,7 @@
   "prd": "docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/spec.md",
   "name": "a1-pilotage-tplink",
   "created": "2026-08-20",
-  "target_version": "1.9.0",
+  "target_version": "2.1.0",
   "branch": "dev",
   "status": "planned",
   "supersedes": "docs/tasks/router/feature/2026-08-12_1451-tplink-backup-lines/",
@@ -49,7 +49,8 @@
       "id": 1,
       "title": "Chemin reseau Pi Zero + spike MR110 + contrat RouterDriver",
       "spec": "sprints/01-chemin-reseau-spike-contrat.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["81a665e", "d88f6f1"],
       "depends_on": [],
       "risk": "gate",
       "isolation": "worktree",
@@ -72,7 +73,8 @@
       "id": 2,
       "title": "TplinkDriver + sonde etagee (attribution de panne)",
       "spec": "sprints/02-tplink-driver.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["dab9ecc"],
       "depends_on": [
         1
       ],
@@ -103,7 +105,9 @@
       "id": 3,
       "title": "Commandes de management (API + Telegram) + masquage des secrets",
       "spec": "sprints/03-commandes-management.md",
-      "status": "pending",
+      "status": "done",
+      "commits": ["6f38318", "29360cd"],
+      "pre_sprint_commit_note": "6f38318 = pre-Sprint 3 (parsing arguments Telegram + confirmation a jeton)",
       "depends_on": [
         1,
         2
@@ -143,7 +147,9 @@
       "id": 4,
       "title": "Auto-updater (C2), docs, release 1.9.0",
       "spec": "sprints/04-updater-docs-release.md",
-      "status": "pending",
+      "status": "done",
+      "commits": [],
+      "notes_execution": "Sprint reduit (encarts 2026-08-23) : C2 verifie sans modification de updater/, preflight.py + scripts/validate.sh + tests etendus, README/DEPLOY/CLAUDE.md a jour, RELEASE-NOTES-2.1.0.md cree. VERSION, tag, PR et issues de suivi restent a la charge de l'orchestrateur.",
       "depends_on": [
         1,
         2,

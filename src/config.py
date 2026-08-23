@@ -7,6 +7,7 @@ import ipaddress
 import logging
 import os
 import socket
+from dataclasses import dataclass
 
 
 def _get_env(*names: str, default: str) -> str:
@@ -479,8 +480,129 @@ ISP_STATUS_URLS: str = os.getenv("ISP_STATUS_URLS", "")
 ISP_STATUS_TIMEOUT: int = _get_int_env("ISP_STATUS_TIMEOUT", default=10, minimum=3)
 
 # ---------------------------------------------
+# TP-LINK MR110 -- lignes de secours 4G (A1, optionnel)
+# ---------------------------------------------
+
+# Equipements numerotes TPLINK_<n>_* (n = 1, 2, ... contigus). Aucune
+# variable TPLINK_1_HOST declaree => aucun equipement TP-Link actif et le
+# comportement du watchdog reste strictement celui de la 2.0 -- voir
+# INVARIANTS.md, "Aucun equipement declare => comportement identique a la 1.8".
+# Voir docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/ pour le
+# contexte complet (contrat RouterDriver, TplinkDriver, C16).
+
+
+@dataclass(frozen=True)
+class TplinkDeviceConfig:
+    """Configuration d'un equipement TP-Link MR110, une entree par index."""
+
+    index: int
+    label: str
+    host: str
+    password: str
+    mode: str  # "bridged" | "remote" -- C16, decision du 2026-08-23
+    bridge_host: str  # utilise seulement en mode "remote"
+    rsrp_min: int
+    rsrq_min: int
+    snr_min: int
+
+
+def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
+    """Parse TPLINK_<n>_* pour n = 1, 2, ... jusqu'au premier index sans HOST.
+
+    Numerotation strictement contigue : un trou (TPLINK_2_HOST absent alors
+    que TPLINK_3_HOST existe) arrete le parsing -- ce qui suit TPLINK_3_*
+    n'est pas lu. Defauts surs : mode "bridged" si absent/invalide, seuils
+    de signal coherents avec le spike (voir tplink.py pour la justification
+    detaillee, en particulier du SNR).
+    """
+    devices: list[TplinkDeviceConfig] = []
+    index = 1
+    while True:
+        host = os.getenv(f"TPLINK_{index}_HOST", "")
+        if not host:
+            break
+
+        label = _get_env(f"TPLINK_{index}_LABEL", default=f"tplink-{index}")
+        password = os.getenv(f"TPLINK_{index}_PASSWORD", "")
+
+        mode = _get_env(f"TPLINK_{index}_MODE", default="bridged").strip().lower()
+        if mode not in ("bridged", "remote"):
+            logging.warning(
+                "TPLINK_%d_MODE invalide ('%s'), repli sur 'bridged'", index, mode
+            )
+            mode = "bridged"
+
+        bridge_host = os.getenv(f"TPLINK_{index}_BRIDGE_HOST", "")
+
+        # RSRP : coherent avec les valeurs mesurees au spike (-99 Dijon,
+        # -103 Nice, service fonctionnel) -- -110 dBm = seuil LTE standard
+        # "limite utilisable". Voir docs/spikes/2026-08-23-mr110-compat.md.
+        rsrp_min = _get_int_env(f"TPLINK_{index}_RSRP_MIN", default=-110, minimum=-140)
+        # RSRQ : marge sur les valeurs observees au spike (-14 Dijon, -18
+        # Nice, toutes deux fonctionnelles).
+        rsrq_min = _get_int_env(f"TPLINK_{index}_RSRQ_MIN", default=-20, minimum=-30)
+        # SNR : echelle du firmware douteuse au spike (-20 Dijon, -70 Nice,
+        # deux liens pourtant fonctionnels) -- seuil tres conservateur par
+        # defaut pour ne jamais declencher de faux DEGRADED tant que
+        # l'unite exacte n'est pas confirmee sur le terrain. Voir
+        # src/drivers/tplink.py (readiness()) pour la justification complete.
+        snr_min = _get_int_env(f"TPLINK_{index}_SNR_MIN", default=-100, minimum=-200)
+
+        devices.append(
+            TplinkDeviceConfig(
+                index=index,
+                label=label,
+                host=host,
+                password=password,
+                mode=mode,
+                bridge_host=bridge_host,
+                rsrp_min=rsrp_min,
+                rsrq_min=rsrq_min,
+                snr_min=snr_min,
+            )
+        )
+        index += 1
+
+    return tuple(devices)
+
+
+TPLINK_DEVICES: tuple[TplinkDeviceConfig, ...] = _load_tplink_devices()
+
+# ---------------------------------------------
 # VALIDATION CROISEE
 # ---------------------------------------------
+
+
+# ---------------------------------------------
+# MASQUAGE DE SECRETS -- helper reutilisable (A1, Sprint 3, 3.4)
+# ---------------------------------------------------------------------------
+
+# Motifs de nom de variable consideres secrets. Couvre les 11 secrets
+# existants (SMTP_PASSWORD, TELEGRAM_BOT_TOKEN, CLOUDFLARE_API_TOKEN,
+# *_WEBHOOK_URL, etc.) ainsi que TPLINK_<n>_PASSWORD -- pas seulement
+# TP-Link, tout secret futur suivant cette convention de nommage en
+# beneficie automatiquement.
+_SECRET_NAME_SUFFIXES = ("_PASSWORD", "_TOKEN", "_KEY", "_WEBHOOK_URL")
+
+
+def redact_secrets(data: dict) -> dict:
+    """Retourne une copie de `data` avec les valeurs dont le nom de cle se
+    termine par un motif de secret connu (`_PASSWORD`, `_TOKEN`, `_KEY`,
+    `_WEBHOOK_URL`, insensible a la casse) remplacees par un marqueur.
+    N'altere jamais l'entree. Les valeurs deja vides/falsy restent telles
+    quelles (rien a masquer, et ca evite de laisser croire qu'un secret est
+    configure alors qu'il ne l'est pas)."""
+    redacted: dict = {}
+    for key, value in data.items():
+        if (
+            isinstance(key, str)
+            and key.upper().endswith(_SECRET_NAME_SUFFIXES)
+            and value
+        ):
+            redacted[key] = "***REDACTED***"
+        else:
+            redacted[key] = value
+    return redacted
 
 
 def validate() -> list[str]:
@@ -500,4 +622,26 @@ def validate() -> list[str]:
         errors.append(f"WEEKLY_REPORT_DAY ({WEEKLY_REPORT_DAY}) > 6")
     if LOG_LEVEL.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         errors.append(f"LOG_LEVEL invalide : '{LOG_LEVEL}'")
+    for device in TPLINK_DEVICES:
+        if not device.password:
+            errors.append(
+                f"TPLINK_{device.index}_PASSWORD absent (equipement '{device.label}')"
+            )
+        try:
+            ipaddress.ip_address(device.host)
+        except ValueError:
+            errors.append(f"TPLINK_{device.index}_HOST invalide : '{device.host}'")
+        if device.mode == "remote" and not device.bridge_host:
+            errors.append(
+                f"TPLINK_{device.index}_MODE=remote mais "
+                f"TPLINK_{device.index}_BRIDGE_HOST absent"
+            )
+        elif device.bridge_host:
+            try:
+                ipaddress.ip_address(device.bridge_host)
+            except ValueError:
+                errors.append(
+                    f"TPLINK_{device.index}_BRIDGE_HOST invalide : "
+                    f"'{device.bridge_host}'"
+                )
     return errors

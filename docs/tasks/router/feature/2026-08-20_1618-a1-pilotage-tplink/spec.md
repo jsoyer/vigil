@@ -4,7 +4,7 @@
 - **Date** : 2026-08-20
 - **Auteur** : Jerome Soyer
 - **ADR** : [docs/adr/0001-multi-vendor-router-monitoring.md](../../../../adr/0001-multi-vendor-router-monitoring.md)
-- **Version cible** : 1.9.0 (minor)
+- **Version cible** : 2.1.0 (minor)
 - **Branche** : `dev` → PR → `main`
 - **Pré-requis** : 1.8.1 (identité MQTT par instance), 1.8.2 (layout releases/current + vérification de version par l'updater + identité `vigil_*`) et 1.8.3 (`release.sh` idempotent + `pip install` des dépendances par l'updater) livrés — bloquant pour A2, recommandé avant A1
 - **Suites** : [A2 — Exposition & Home Assistant](../2026-08-20_1618-a2-exposition-ha/spec.md) puis PRD B (§9)
@@ -126,7 +126,7 @@ détection d'événement de bascule, et les messages doivent le dire.
   secours de Dijon depuis Telegram, tout de suite »* — et si ça ne répond pas,
   *« qu'est-ce qui casse : Pi Zero, WiFi, ou le routeur ? »*
 - **Vérification** : (a) sans `TPLINK_*` déclaré, comportement strictement
-  identique à la 1.8 ; (b) `/lte` depuis Telegram retourne l'état réel d'un
+  identique à la 2.0 ; (b) `/lte` depuis Telegram retourne l'état réel d'un
   MR110 de Dijon ; (c) chaque saut coupé produit une cause **distincte** et
   correctement attribuée ; (d) un reboot exige une confirmation et est tracé.
 - **Failure definition** : impossible de piloter le secours ; OU « secours HS »
@@ -158,7 +158,7 @@ détection d'événement de bascule, et les messages doivent le dire.
 - **Sonde de bout en bout à la demande** (`/lte check <id>`) : vérifier que le
   lien 4G **porte réellement du trafic**, et pas seulement qu'il est attaché.
 - **Helper de masquage de secrets**, applicable aux 11 secrets existants.
-- Contraintes prod C1→C8, updater C2, docs, release 1.9.0.
+- Contraintes prod C1→C8, updater C2, docs, release 2.1.0.
 
 ### Out of scope
 - Dashboard, Prometheus, Home Assistant, quota data, détection d'usage → **A2**.
@@ -174,7 +174,7 @@ détection d'événement de bascule, et les messages doivent le dire.
 
 ### 6.1 Compatibilité production (auto-updater) — BLOQUANTES
 
-L'auto-updater tire `main` automatiquement : la 1.9.0 arrivera sur **les 4
+L'auto-updater tire `main` automatiquement : la 2.1.0 arrivera sur **les 4
 instances** sans intervention.
 
 - **C1 — Import 100 % paresseux de `tplinkrouterc6u`.** Jamais au niveau module.
@@ -298,6 +298,14 @@ instances** sans intervention.
   pannes. Hypothèse retenue par défaut : **oui, configurer le repli**, à
   confirmer lors du relevé terrain.
 
+  > **Décision d'orchestration du 2026-08-23** : la variable d'environnement
+  > qui porte le mode d'accès C16 s'appellera **`TPLINK_<n>_MODE`**
+  > (`<n>` = index de l'équipement déclaré, même convention que les autres
+  > variables `TPLINK_<n>_*`), valeurs `bridged` | `remote`, défaut
+  > `bridged`. Fixé ici pour que les Sprints 2 et 3 lisent le même nom — sans
+  > ça, un driver qui invente sa propre variable et un endpoint/commande qui
+  > en attend une autre divergeraient silencieusement.
+
 - **C8 — Une route absente n'est pas une panne de secours.** Route ou NAT
   manquants → `Hop.ROUTE`, défaut de configuration du chemin d'audit. Sinon la
   première mise à jour système qui efface une route lève une fausse alerte
@@ -323,7 +331,7 @@ instances** sans intervention.
 - [ ] Runbook réseau écrit et **rejoué avec succès sur Nice**
 - [ ] Spike : verdict explicite, révision matérielle et firmware relevés par site,
       **tableau des commandes réellement disponibles**, version de lib retenue
-- [ ] **Aucun `TPLINK_*` déclaré → comportement strictement identique à la 1.8**
+- [ ] **Aucun `TPLINK_*` déclaré → comportement strictement identique à la 2.0**
 - [ ] `TplinkDriver` conforme au contrat ; **aucune méthode ne lève**
 - [ ] **Attribution de panne** : `BRIDGE` / `WIRELESS` / `DEVICE` / `ROUTE`,
       quatre causes distinctes et exactes
@@ -362,7 +370,7 @@ instances** sans intervention.
 | 1 | Chemin réseau Pi Zero + spike MR110 + contrat `RouterDriver` | Créer l'accès, savoir si c'est faisable, poser le contrat | **Go/no-go** |
 | 2 | `TplinkDriver` + sonde étagée | Piloter le routeur, attribuer les pannes | Moyen |
 | 3 | Commandes de management (API + Telegram) + masquage | **Le livrable attendu** | Moyen |
-| 4 | Updater C2, docs, release 1.9.0 | Livrer sans casser les 4 instances | Moyen |
+| 4 | Updater C2, docs, release 2.1.0 | Livrer sans casser les 4 instances | Moyen |
 
 **Gates** :
 - *Dans le Sprint 1, après la partie réseau* : sans chemin joignable, le spike ne
@@ -488,7 +496,7 @@ lui est propre.
 |---|---|---|
 | 1 | Revert de la branche **+** procédure d'annulation réseau du runbook | **Mixte** : du code *et* de la configuration hors dépôt. Le runbook doit contenir la méthode d'annulation de la route, du NAT et de l'accès SSH — c'est un critère d'acceptation, pas une option |
 | 2, 3 | Revert de la branche | Sans équipement déclaré, le code est inerte : un revert suffit |
-| 4 | Revert **+** retag | L'auto-updater tire le **dernier tag** : revenir en arrière suppose de retirer ou dépasser `v1.9.0`, sinon les 4 instances retirent la version fautive |
+| 4 | Revert **+** retag | L'auto-updater tire le **dernier tag** : revenir en arrière suppose de retirer ou dépasser `v2.1.0`, sinon les 4 instances retirent la version fautive |
 
 **Règle générale** : ne jamais fusionner un sprint à moitié. L'isolation en
 worktree rend le revert propre tant que rien n'est mergé — c'est le moment le
@@ -502,7 +510,7 @@ la séquence, et elle arrive en premier.
 ## 11. Definition of Done
 
 Tous les AC §7 cochés, 4 sprints verts, coverage ≥ 80 %, `validate.sh` vert,
-docs à jour, v1.9.0 taggée, `dev` synchronisé — et **vérification terrain** :
+docs à jour, v2.1.0 taggée, `dev` synchronisé — et **vérification terrain** :
 depuis Telegram, `/lte` retourne l'état réel du secours de Dijon ; `/lte reboot`
 exige une confirmation et fonctionne ; débrancher volontairement le WiFi du
 Pi Zero produit un message qui **nomme le saut**, pas « MR110 HS ».

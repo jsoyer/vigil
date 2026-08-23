@@ -7,7 +7,8 @@
 
 ## Contexte (tout ce qu'il faut savoir, ne pas lire le PRD)
 
-`usg-watchdog` surveille un routeur Ubiquiti USG par site. On veut y ajouter le
+`Vigil` (anciennement `usg-watchdog`, renomme en 2.0.0) surveille un routeur
+Ubiquiti USG par site. On veut y ajouter le
 **pilotage et l'audit de lignes de secours 4G TP-Link TL-MR110** présentes à
 Dijon et Nice, via la lib Python `tplinkrouterc6u`.
 

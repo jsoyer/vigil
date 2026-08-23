@@ -106,19 +106,43 @@ Ces contraintes portent les noms C1 et C2 dans le PRD.
 > `tests/test_update.py`). À ré-ouvrir seulement pour vérification avec les
 > dépendances TP-Link, pas pour implémentation.
 
-- [ ] **C2** : `pip install` déclenché sur changement de `requirements.txt`,
+- [x] **C2** : `pip install` déclenché sur changement de `requirements.txt`,
       idempotent, rollback en cas d'échec — **déjà livré en 1.8.3, à vérifier
       avec les dépendances TP-Link**
-- [ ] `pip install` ordonné **avant** le preflight des imports
-- [ ] Preflight vert avec **et** sans la lib installée
-- [ ] README, DEPLOY, runbook, `CLAUDE.md` à jour
-- [ ] Note de migration explicite pour les 4 instances
-- [ ] `API_TOKEN` documenté comme prérequis des commandes API
-- [ ] Limites de gestion des secrets documentées (4 copies, clair, pas de rotation)
-- [ ] `scripts/validate.sh` vérifie la lib si un équipement est déclaré
-- [ ] Aucun secret exposé par l'API ni les logs
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %, VERSION = 1.9.0
-- [ ] Issues de suivi A2 et PRD B ouvertes
+- [x] `pip install` ordonné **avant** le preflight des imports
+- [x] Preflight vert avec **et** sans la lib installée
+- [x] README, DEPLOY, `CLAUDE.md` à jour (runbook non touché -- hors périmètre
+      de ce sprint réduit 2026-08-23, cf. encart en tête de fichier)
+- [x] Note de migration explicite pour les 4 instances
+- [x] `API_TOKEN` documenté comme prérequis des commandes API
+- [x] Limites de gestion des secrets documentées (4 copies, clair, pas de rotation)
+- [x] `scripts/validate.sh` vérifie l'import de `drivers`/`managed_devices`
+      (vérification inconditionnelle -- ces modules doivent s'importer que la
+      lib TP-Link soit installée ou non, invariant C1)
+- [ ] Aucun secret exposé par l'API ni les logs -- non re-vérifié dans ce
+      sprint réduit ; couvert par les tests `test_managed_devices.py`
+      (`secret_not_exposed`) livrés au Sprint 3
+- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 % -- VERSION **non modifiée**
+      dans ce sprint réduit (bump + tag délégués à l'orchestrateur, cf.
+      consignes 2026-08-23)
+- [ ] Issues de suivi A2 et PRD B ouvertes -- hors périmètre de ce sprint
+      réduit, à la charge de l'orchestrateur/release
+
+## Mise à jour 2026-08-23 -- exécution du sprint réduit
+
+Vérification C2 (lecture de `updater/update.py::main`) : l'ordre des appels
+est `install_requirements(staged)` (avant bascule) puis `apply_update(...)`
+(bascule du symlink `current`) puis `restart_service()`. `install_requirements`
+échoue → `return 1` immédiat, aucune bascule, aucun restart : une instance
+avec équipement déclaré ne démarre jamais sans `tplinkrouterc6u`. Confirmé
+sans modification de code.
+
+`updater/preflight.py::check_imports()` importe désormais aussi `drivers` et
+`managed_devices`, en plus des modules existants. Test ajouté dans
+`tests/test_preflight.py` (`test_drivers_and_managed_devices_importable`).
+Vérifié statiquement (grep) que `tplinkrouterc6u` n'est importé qu'à
+l'intérieur de `TplinkDriver._import_tplinkrouterc6u()`, jamais au niveau
+module (invariant C1).
 
 ## Frontières de fichiers
 

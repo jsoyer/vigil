@@ -10,7 +10,6 @@ from config import (
     REBOOT_SCORE_THRESHOLD,
     MAX_SCORE,
     POST_REBOOT_GRACE,
-    REBOOT_COOLDOWN,
     MAX_REBOOTS_PER_DAY,
     INSTANCE_PRIORITY,
     PEER_IP,
@@ -107,7 +106,7 @@ def reboot_launching(
     lines.extend(
         [
             "",
-            f"Le routeur va redemarrer. Coupure reseau de ~2 min attendue.",
+            "Le routeur va redemarrer. Coupure reseau de ~2 min attendue.",
             f"Prochain check dans {POST_REBOOT_GRACE}s (grace post-reboot).",
         ]
     )
@@ -167,7 +166,7 @@ def isp_outage_detected(
     inet_total: int,
 ) -> tuple[str, Level, NotificationContext]:
     lines = [
-        f"Probable panne chez le fournisseur internet.",
+        "Probable panne chez le fournisseur internet.",
         "",
         f"Le routeur USG ({USG_IP}) repond normalement,",
         f"mais aucune des {inet_total} cibles internet n'est joignable",
@@ -306,6 +305,37 @@ def api_reboot() -> tuple[str, Level, NotificationContext | None]:
 
 
 # ===================================================================
+# TP-Link MR110 -- equipements pilotables (A1)
+# ===================================================================
+
+
+def tplink_reboot(
+    label: str, origin: str
+) -> tuple[str, Level, NotificationContext | None]:
+    """Reboot d'un secours 4G reussi -- INFO : l'operateur vient d'agir,
+    pas besoin de le reveiller (jamais CRITICAL, reserve a A2 pour une
+    panne reellement detectee, voir INVARIANTS.md C6)."""
+    return (
+        f"Reboot du secours 4G '{label}' effectue avec succes (origine : {origin}).",
+        Level.INFO,
+        NotificationContext(extra={"device": label, "origin": origin}),
+    )
+
+
+def tplink_reboot_failed(
+    label: str, origin: str
+) -> tuple[str, Level, NotificationContext | None]:
+    """Echec du reboot -- WARNING : l'operateur croit avoir agi alors que
+    non (jamais CRITICAL, voir INVARIANTS.md C6)."""
+    return (
+        f"Echec du reboot du secours 4G '{label}' (origine : {origin}).\n"
+        "Verifier manuellement l'etat de l'equipement sur place.",
+        Level.WARNING,
+        NotificationContext(extra={"device": label, "origin": origin}),
+    )
+
+
+# ===================================================================
 # Updates
 # ===================================================================
 
@@ -364,7 +394,7 @@ def backup_ok(
     source: str = "scheduled",
 ) -> tuple[str, Level, NotificationContext | None]:
     lines = [
-        f"Backup UniFi config reussi.",
+        "Backup UniFi config reussi.",
         "",
         f"Fichier : {filename} ({size_mb} MB)",
         f"Destination : {destination}",
@@ -378,7 +408,7 @@ def backup_failed(
     filename: str = "",
 ) -> tuple[str, Level, NotificationContext | None]:
     lines = [
-        f"Echec du backup UniFi config.",
+        "Echec du backup UniFi config.",
         "",
         f"Erreur : {error}",
     ]
@@ -436,7 +466,7 @@ def ddns_updated(
     record_names: str,
 ) -> tuple[str, Level, NotificationContext | None]:
     lines = [
-        f"Adresse IP publique mise a jour.",
+        "Adresse IP publique mise a jour.",
         "",
         f"Ancienne IP : {previous_ip}",
         f"Nouvelle IP : {current_ip}",
@@ -452,10 +482,10 @@ def ddns_failed(
     errors: list[str],
 ) -> tuple[str, Level, NotificationContext | None]:
     lines = [
-        f"Echec de la mise a jour DNS Cloudflare.",
+        "Echec de la mise a jour DNS Cloudflare.",
         "",
         f"IP publique detectee : {current_ip}",
-        f"Erreurs :",
+        "Erreurs :",
     ]
     for err in errors:
         lines.append(f"  - {err}")

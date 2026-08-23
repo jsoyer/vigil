@@ -233,6 +233,48 @@ TAILSCALE_DNS_SUBDOMAIN=ts
 
 ---
 
+## Migration vers 2.1.0 -- lignes de secours TP-Link (A1)
+
+La 2.1.0 est livrée **automatiquement** aux 4 instances de production (Dijon
+master+slave, Nice master+slave) par l'auto-updater. Elle est **transparente**
+tant qu'aucune variable `TPLINK_*` n'est déclarée : comportement strictement
+identique à la version précédente, aucun driver instancié.
+
+**Déclarer un équipement est une action manuelle, par site**, jamais
+automatique. Topologie réelle constatée (spike matériel, 2026-08-23) : les
+**guardians** portent le lien direct vers leur MR110 (`192.168.10.0/24` à
+Dijon, `192.168.30.0/24` à Nice) ; les **masters** n'ont **pas** de route
+vers le MR110 depuis cette topologie. En conséquence :
+
+- Déclarer `TPLINK_<n>_*` **uniquement sur les guardians** (mode `bridged`) --
+  pas sur les masters, qui n'ont pas de chemin réseau vers le MR110.
+- Ordre conseillé : un site à la fois, guardian d'abord.
+
+**Prérequis avant de déclarer un équipement :**
+
+- `API_TOKEN` doit déjà être configuré sur l'instance : sans lui, ni les
+  commandes ni la lecture TP-Link par l'API ne sont accessibles (GET et POST
+  répondent `403`). Telegram reste utilisable sans `API_TOKEN`.
+- Le mot de passe local du MR110 va dans `TPLINK_<n>_PASSWORD` en clair dans
+  `/opt/vigil/.env` (chmod 600) -- la librairie vendor n'accepte pas de hash
+  pour l'authentification MR. **Limite assumée** : ce mot de passe existe en
+  jusqu'à 4 copies (une par instance qui le déclare), sans rotation outillée.
+  À documenter, pas à masquer.
+
+**Première fois en conditions réelles** : cette release ajoute
+`tplinkrouterc6u==5.31.1` à `requirements.txt`. C'est la première fois que
+l'auto-updater (`updater/update.py::install_requirements`, livré en 1.8.3)
+installe une nouvelle dépendance sur les 4 instances en production, et pas
+seulement en test. L'installation se fait avant la bascule du symlink et le
+restart du service : un échec de `pip install` annule la mise à jour avant
+tout impact sur l'instance en cours.
+
+Voir `README.md` (section "Lignes de secours TP-Link (4G)") pour la
+déclaration complète des variables, les commandes Telegram et les endpoints
+API.
+
+---
+
 ## Mettre à jour une installation existante
 
 ### Méthode 1 : Auto-updater (recommandé)

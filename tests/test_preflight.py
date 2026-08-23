@@ -27,6 +27,18 @@ class TestCheckImports:
         # Depuis le repo, le repli src/ (pas de current/) doit suffire.
         assert preflight.check_imports() is True
 
+    def test_drivers_and_managed_devices_importable(self):
+        # A1 -- preflight.check_imports() ajoute desormais drivers/ et
+        # managed_devices.py aux modules verifies au demarrage du service.
+        # Invariant C1 : les deux doivent s'importer sans tplinkrouterc6u
+        # installee (aucun equipement TP-Link n'a besoin d'etre declare).
+        src_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "src")
+        sys.path.insert(0, src_dir)
+        import drivers  # noqa: F401
+        import managed_devices  # noqa: F401
+
+        assert preflight.check_imports() is True
+
 
 class TestCheckPort:
     def test_free_port_returns_true(self):
