@@ -149,12 +149,22 @@ class ManagedDeviceRegistry:
         driver_factory: Callable[[TplinkDeviceConfig], TplinkDriver] | None = None,
         status_cache_ttl: float = DEFAULT_STATUS_CACHE_TTL,
         event_log: object | None = None,
+        ntfy_send: Callable | None = None,
     ) -> None:
         source = TPLINK_DEVICES if devices is None else devices
         self._configs: dict[str, TplinkDeviceConfig] = {str(d.index): d for d in source}
         self._driver_factory = driver_factory or _default_driver_factory
         self._status_cache_ttl = status_cache_ttl
         self._event_log = event_log
+        # Ntfy-first S2 : fonction `send` injectee pour publier les boutons
+        # Actions (confirmer/annuler) sur une demande de reboot -- meme
+        # principe que `send=telegram_bot.send_message` pour
+        # `_adapt_for_telegram`, mais ici l'injection se fait sur le
+        # registre lui-meme (pas sur un handler individuel) : la publication
+        # doit avoir lieu quel que soit l'origine de la demande (telegram OU
+        # api), pas seulement quand un handler Telegram specifique l'appelle.
+        # `None` par defaut = no-op (tests, Ntfy non configure).
+        self._ntfy_send = ntfy_send
 
         self._registry_lock = threading.Lock()
         self._drivers: dict[str, TplinkDriver] = {}
@@ -169,6 +179,11 @@ class ManagedDeviceRegistry:
 
     def set_event_log(self, event_log: object | None) -> None:
         self._event_log = event_log
+
+    def set_ntfy_send(self, ntfy_send: Callable | None) -> None:
+        """Injecte la fonction de publication des boutons Ntfy (voir
+        `__init__`). Idempotent, comme `set_event_log`."""
+        self._ntfy_send = ntfy_send
 
     def device_ids(self) -> list[str]:
         return list(self._configs.keys())
@@ -287,6 +302,27 @@ class ManagedDeviceRegistry:
             CONFIRM_ACTION_REBOOT,
             context={"device_id": device_id, "requested_by": origin},
         )
+
+        # Ntfy-first S2 : boutons Actions (confirmer/annuler) publies EN
+        # PLUS du chemin Telegram existant (`origin="telegram"` formate et
+        # envoie son propre message via son handler, inchange), jamais a sa
+        # place. Quelle que soit l'origine de la demande (telegram ou api),
+        # la confirmation devient joignable par bouton. Jamais bloquant :
+        # une erreur de publication ne doit jamais empecher l'emission du
+        # jeton (le chemin Telegram/API JSON reste utilisable).
+        if self._ntfy_send is not None:
+            try:
+                self._ntfy_send(
+                    cfg.label, warning, warning_reason, CONFIRM_ACTION_REBOOT, token
+                )
+            except Exception as e:
+                logging.warning(
+                    "Ntfy: echec publication des boutons de confirmation "
+                    "pour '%s' -- %s",
+                    cfg.label,
+                    e,
+                )
+
         return {
             "token": token,
             "device_id": device_id,

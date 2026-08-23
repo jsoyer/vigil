@@ -165,3 +165,111 @@ def send(
     except Exception as e:
         logging.warning("Ntfy: erreur -- %s", e)
     return False
+
+
+# ===================================================================
+# Boutons Actions -- confirmation a capacite (Ntfy-first S2, PRD S4.2.2)
+# ===================================================================
+
+# L'action reservee pour le bouton "Annuler" : ne correspond jamais a une
+# vraie action en attente (voir managed_devices.CONFIRM_ACTION_REBOOT) --
+# consomme le jeton via confirm.validate() (pop inconditionnel, usage
+# unique) sans jamais rien executer. Duplique volontairement la constante de
+# http_server.py/managed_devices.py plutot que de l'importer : ce module
+# reste extension minimale de _ntfy.py, sans nouvelle dependance vers le
+# reste de l'application (invariant du sprint -- managed_devices.py ne doit
+# jamais importer _ntfy, et l'inverse n'est pas souhaitable non plus).
+CANCEL_ACTION = "cancel"
+
+
+def _resolve_hostname() -> str:
+    """Resout le nom d'hote pour les URL d'action des boutons Actions --
+    EXACTEMENT la meme source que le `Click` de `send()` ci-dessus
+    (`socket.gethostname()`, avec repli sur 'vigil'), cf. `messages.py`
+    (`_dashboard_link`) et `notifier._dispatch._get_hostname()`. En
+    production, prerequis Q7 du PRD Ntfy-first : le hostname du Pi
+    correspond au nom MagicDNS Tailscale -- jamais une IP LAN codee en dur,
+    jamais un domaine public (gate `confirm-urls-tailscale-only`,
+    INVARIANTS.md)."""
+    import socket
+
+    try:
+        return socket.gethostname()
+    except Exception:
+        return "vigil"
+
+
+def send_confirm_actions(
+    label: str,
+    warning: bool,
+    warning_reason: str | None,
+    action: str,
+    token: str,
+) -> bool:
+    """Publie une notification CRITICAL avec 2 boutons `Actions` (confirmer
+    / annuler) pour une demande de confirmation deja en attente dans
+    `confirm.py`. Never raises.
+
+    Regle absolue (INVARIANTS.md, gate `no-api-token-in-notification`) :
+    **aucun `API_TOKEN`, jamais**, ni dans le corps ni dans un en-tete
+    d'action -- l'autorisation du bouton est exclusivement le jeton de
+    confirmation `token` (URL de capacite). Seul `NTFY_TOKEN` (secret de
+    canal, pas la cle du systeme) peut apparaitre, et uniquement dans
+    l'en-tete HTTP `Authorization` de la requete de publication elle-meme
+    (jamais dans le corps ni dans les boutons), exactement comme `send()`.
+    """
+    hostname = _resolve_hostname()
+    base = f"http://{hostname}:{HTTP_PORT}"
+    confirm_url = f"{base}/api/confirm/{action}/{token}"
+    cancel_url = f"{base}/api/confirm/{CANCEL_ACTION}/{token}"
+
+    lines = [f"Confirmation requise : redemarrage de '{label}'."]
+    if warning and warning_reason:
+        lines.append(f"ATTENTION : {warning_reason}")
+    lines.append(
+        "Appuyer sur Confirmer pour executer, Annuler pour abandonner. "
+        "Expire automatiquement sinon (voir CONFIRM_TTL)."
+    )
+    body = _truncate_body("\n".join(lines))
+
+    title = _ascii_safe(f"Vigil {INSTANCE_ID} - Confirmation requise")
+    tags = _ascii_safe(f"{_LEVEL_TAGS[Level.CRITICAL]},{INSTANCE_ID}")
+    actions = (
+        f"http, Confirmer le redemarrage, {confirm_url}, "
+        f"method=POST, clear=true ; "
+        f"http, Annuler, {cancel_url}, method=POST, clear=true"
+    )
+
+    headers = {
+        "Title": title,
+        "Priority": str(_LEVEL_PRIORITY[Level.CRITICAL]),
+        "Tags": tags,
+        "Actions": actions,
+        "Click": f"{base}/dashboard",
+        "Content-Type": "text/plain; charset=utf-8",
+    }
+    if NTFY_TOKEN:
+        headers["Authorization"] = f"Bearer {NTFY_TOKEN}"
+
+    url = f"{NTFY_URL.rstrip('/')}/{NTFY_TOPIC}"
+
+    try:
+        data = body.encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=NTFY_TIMEOUT) as resp:
+            status = resp.status
+        if status == 200:
+            logging.debug("Ntfy: boutons de confirmation envoyes")
+            return True
+        logging.warning("Ntfy: HTTP %d (boutons de confirmation)", status)
+        return False
+    except urllib.error.HTTPError as e:
+        logging.warning("Ntfy: HTTP %d (boutons de confirmation)", e.code)
+    except urllib.error.URLError as e:
+        if "timed out" in str(e.reason).lower():
+            logging.warning("Ntfy: timeout (boutons de confirmation)")
+        else:
+            logging.warning("Ntfy: erreur reseau (boutons de confirmation)")
+    except Exception as e:
+        logging.warning("Ntfy: erreur (boutons de confirmation) -- %s", e)
+    return False

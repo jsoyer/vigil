@@ -304,6 +304,23 @@ ALERT_ESCALATION_DELAY: int = _get_int_env(
 API_TOKEN: str = os.getenv("API_TOKEN", "")
 
 # ---------------------------------------------
+# CONFIRMATION A CAPACITE -- POST /api/confirm/<action>/<jeton> (Ntfy-first
+# S2). Seul endpoint POST exempte de API_TOKEN (l'autorisation est le jeton
+# lui-meme) -- D3 impose donc un rate limiting dedie, en memoire, par IP.
+# ---------------------------------------------
+
+# Nombre de tentatives echouees (jeton invalide/expire/action erronee)
+# tolerees par IP dans la fenetre glissante avant reponse 429 + evenement
+# `confirm_bruteforce`. D3 du PRD Ntfy-first exige un minimum de 10/minute.
+CONFIRM_RATE_LIMIT_MAX_FAILURES: int = _get_int_env(
+    "CONFIRM_RATE_LIMIT_MAX_FAILURES", default=10, minimum=1
+)
+# Fenetre glissante (secondes) sur laquelle les echecs sont comptes par IP.
+CONFIRM_RATE_LIMIT_WINDOW: int = _get_int_env(
+    "CONFIRM_RATE_LIMIT_WINDOW", default=60, minimum=1
+)
+
+# ---------------------------------------------
 # IDENTITE DE L'INSTANCE
 # ---------------------------------------------
 

@@ -2,15 +2,24 @@
 
 Mecanisme reutilisable par l'API HTTP et le bot Telegram pour toute action qui
 necessite une confirmation explicite de l'operateur avant execution (reboot
-d'un equipement pilotable, SMS, USSD...). Jeton court, usage unique, TTL
+d'un equipement pilotable, SMS, USSD...). Jeton long, usage unique, TTL
 court, thread-safe, sans dependance a un driver ou vendor particulier et sans
 stockage disque : tout est perdu si le process redemarre, ce qui est
 volontaire (une confirmation en attente ne doit pas survivre a un restart).
 
 Le jeton n'est jamais journalise en clair : seuls l'action et le contexte
 metier apparaissent dans les logs.
+
+TTL par defaut 600s depuis la 2.2.0, decision du 2026-08-23 (PRD Ntfy-first,
+Q5) : historiquement tape a la main dans un chat Telegram authentifie (120s
+suffisait), le jeton devient une URL de capacite cliquee depuis un bouton de
+notification mobile qui doit d'abord reveiller le telephone -- 120s est jugee
+trop courte. Voir aussi D1/D2 (`_generate_token`, `validate`) : le jeton n'est
+plus jamais saisi a la main, d'ou le passage a une entropie ~256 bits et a une
+comparaison d'action en temps constant.
 """
 
+import hmac
 import logging
 import os
 import secrets
@@ -18,11 +27,11 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-DEFAULT_TTL_SECONDS = 120.0
+DEFAULT_TTL_SECONDS = 600.0
 
 
 def _get_ttl_seconds() -> float:
-    """Lit CONFIRM_TTL depuis l'environnement (secondes, defaut 120)."""
+    """Lit CONFIRM_TTL depuis l'environnement (secondes, defaut 600)."""
     raw = os.getenv("CONFIRM_TTL", "")
     if not raw:
         return DEFAULT_TTL_SECONDS
@@ -45,8 +54,13 @@ def _get_ttl_seconds() -> float:
 
 
 def _generate_token() -> str:
-    """Genere un jeton court (8 caracteres hexadecimaux)."""
-    return secrets.token_hex(4)
+    """Genere un jeton long (D1 : `token_urlsafe(32)`, ~256 bits d'entropie).
+
+    Le jeton n'est plus jamais saisi a la main -- il transite exclusivement
+    via une URL de capacite cliquee depuis un bouton de notification. Rien ne
+    justifie plus de rester a 32 bits (`token_hex(4)`, historique du jeton
+    Telegram tape a la main)."""
+    return secrets.token_urlsafe(32)
 
 
 @dataclass(frozen=True)
@@ -133,7 +147,10 @@ def validate(token: str, action: str) -> dict | None:
         )
         return None
 
-    if entry.action != action:
+    # D2 : comparaison en temps constant -- le jeton n'authentifie plus
+    # seulement par sa valeur (deja `pop` en temps constant en pratique),
+    # l'action attendue doit aussi etre comparee sans fuite temporelle.
+    if not hmac.compare_digest(entry.action, action):
         logging.warning(
             "Confirmation refusee : jeton lie a une autre action (attendu '%s')",
             entry.action,

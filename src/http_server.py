@@ -1,7 +1,9 @@
 """Background HTTP server exposing watchdog state, health, and event history."""
 
+import hmac
 import json
 import logging
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +14,12 @@ from events import EventLog
 from report import generate_daily_report, calculate_monthly_sla
 from metrics import render_metrics
 from history import HistoryBuffer
+
+# D4 -- masque le jeton de confirmation dans les journaux, y compris en
+# LOG_LEVEL=DEBUG (log_message() journalise sinon la requete brute, donc le
+# chemin complet, donc le jeton en clair). Applique dans log_message() lui
+# meme (pas chez l'appelant) pour couvrir tous les chemins d'acces.
+_CONFIRM_LOG_MASK_RE = re.compile(r"(/api/confirm/[^/\s\"]+/)[^/\s\"?]+")
 
 
 def _configured_notification_channels() -> list[str]:
@@ -74,6 +82,30 @@ def _make_handler_class(
 ) -> type:
     """Create a request handler class with access to shared state."""
 
+    # D3 -- rate limiting de /api/confirm/* : compteur en memoire simple,
+    # dict IP -> horodatages des tentatives echouees. Ferme sur la classe
+    # Handler (une instance par requete, un seul jeu de compteurs par
+    # serveur) plutot que module-level, pour la meme raison que `holder`/
+    # `event_log` : isolation naturelle entre serveurs (tests) sans etat
+    # partage accidentel entre deux instances de Vigil dans le meme process.
+    # Purge paresseuse (a la lecture) plutot que par tache periodique
+    # dediee -- suffisant vu le volume attendu (endpoint non public, cf.
+    # Q7/INVARIANTS.md) et deja le style de `confirm.py` (`_purge_expired_locked`).
+    _confirm_rate_lock = threading.Lock()
+    _confirm_failures: dict[str, list[float]] = {}
+
+    def _confirm_prune_and_count(ip: str) -> int:
+        now = time.monotonic()
+        window = _config.CONFIRM_RATE_LIMIT_WINDOW
+        with _confirm_rate_lock:
+            recent = [t for t in _confirm_failures.get(ip, []) if now - t < window]
+            _confirm_failures[ip] = recent
+            return len(recent)
+
+    def _confirm_record_failure(ip: str) -> None:
+        with _confirm_rate_lock:
+            _confirm_failures.setdefault(ip, []).append(time.monotonic())
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             try:
@@ -131,13 +163,22 @@ def _make_handler_class(
                 )
                 return False
             auth = self.headers.get("Authorization", "")
-            if auth == f"Bearer {_config.API_TOKEN}":
+            # D2 -- comparaison en temps constant (dette existante, corrigee
+            # au passage avec la meme durcissement que confirm.validate()).
+            if hmac.compare_digest(auth, f"Bearer {_config.API_TOKEN}"):
                 return True
             self._respond_json(401, {"error": "unauthorized"})
             return False
 
         def do_POST(self) -> None:
             try:
+                # /api/confirm/<action>/<jeton> -- seul endpoint POST exempte
+                # de _check_auth() : l'autorisation est le jeton de
+                # confirmation lui-meme (URL de capacite, PRD Ntfy-first
+                # S4.2.2). Doit etre route AVANT tout appel a _check_auth().
+                if self.path.split("?", 1)[0].startswith("/api/confirm/"):
+                    self._handle_confirm_action()
+                    return
                 if not self._check_auth():
                     return
                 if self.path == "/api/pause":
@@ -692,6 +733,86 @@ def _make_handler_class(
 
             self._respond_json(404, {"error": "not found"})
 
+        # ------------------------------------------------------------------
+        # POST /api/confirm/<action>/<jeton> -- endpoint de confirmation a
+        # capacite (Ntfy-first S2, coeur securite du PRD). Seul endpoint POST
+        # sans _check_auth() : le jeton EST l'autorisation. Ne fait qu'une
+        # chose : resoudre une confirmation deja en attente, creee par Vigil
+        # lui-meme. N'expose aucun etat, n'accepte aucun parametre de
+        # l'appelant au-dela de `action`/`jeton` dans le chemin (la query
+        # string, si presente, est ignoree -- jamais lue).
+        # ------------------------------------------------------------------
+
+        _CONFIRM_PREFIX = "/api/confirm/"
+
+        def _handle_confirm_action(self) -> None:
+            path = self.path.split("?", 1)[0]
+            remainder = path[len(self._CONFIRM_PREFIX) :]
+            parts = [p for p in remainder.split("/") if p]
+            client_ip = self.client_address[0]
+
+            # Forme stricte : exactement deux segments (action, jeton). Ni
+            # plus (pas de sous-ressource), ni moins.
+            if len(parts) != 2:
+                self._respond_json(404, {"error": "unknown or expired"})
+                return
+
+            action, token = parts
+
+            # D3 -- rate limiting : au-dela de N echecs/minute/IP, 429 +
+            # evenement `confirm_bruteforce`, sans meme tenter de valider le
+            # jeton presente (evite de gaspiller un essai de bruteforce
+            # supplementaire sur l'espace de jetons en attente).
+            if (
+                _confirm_prune_and_count(client_ip)
+                >= _config.CONFIRM_RATE_LIMIT_MAX_FAILURES
+            ):
+                if event_log is not None:
+                    event_log.record("confirm_bruteforce", action=action, ip=client_ip)
+                self._respond_json(429, {"error": "too many attempts"})
+                return
+
+            import confirm as _confirm
+            import managed_devices
+
+            success = False
+            if action == managed_devices.CONFIRM_ACTION_REBOOT:
+                # Delegue entierement a confirm_reboot() (qui appelle
+                # confirm.validate() avec l'action canonique en interne) --
+                # ne PAS appeler confirm.validate() ici en plus : le pop est
+                # inconditionnel (usage unique), un second appel sur le meme
+                # jeton echouerait toujours a tort.
+                result = managed_devices.registry.confirm_reboot(token, origin="ntfy")
+                success = bool(result.get("executed")) and bool(result.get("ok"))
+            else:
+                # "cancel" et toute action non geree ici : aucune execution
+                # possible (seul CONFIRM_ACTION_REBOOT a une contrepartie
+                # d'execution aujourd'hui), mais on consomme quand meme le
+                # jeton si un existe pour cette action precise -- usage
+                # unique deja garanti par confirm.validate() (pop
+                # inconditionnel). C'est ce qui rend le bouton "Annuler"
+                # efficace : il invalide silencieusement la confirmation en
+                # attente sans jamais l'executer, meme si la reponse HTTP
+                # reste un echec generique (D6).
+                _confirm.validate(token, action)
+                success = False
+
+            if success:
+                if event_log is not None:
+                    event_log.record("confirm_accepted", action=action, ip=client_ip)
+                self._respond_json(200, {"ok": True})
+            else:
+                _confirm_record_failure(client_ip)
+                if event_log is not None:
+                    event_log.record("confirm_rejected", action=action, ip=client_ip)
+                # D6 -- reponse muette : jamais de detail sur l'existence du
+                # jeton, l'action visee ou l'equipement concerne. Meme code
+                # et meme corps pour "jeton inconnu", "expire", "deja
+                # utilise" et "mauvaise action" (voir PRD S4.2.2/D6 et
+                # sprint spec -- 404 retenu, coherent avec les criteres
+                # d'acceptation du sprint).
+                self._respond_json(404, {"error": "unknown or expired"})
+
         def _respond_text(self, content_type: str, text: str) -> None:
             body = text.encode("utf-8")
             self.send_response(200)
@@ -710,9 +831,45 @@ def _make_handler_class(
             self.wfile.write(body)
 
         def log_message(self, format: str, *args: object) -> None:
-            logging.debug("HTTP: %s", format % args)
+            # D4 -- le jeton de confirmation ne doit jamais atteindre un
+            # fichier de log, meme en LOG_LEVEL=DEBUG : masquage applique ICI
+            # (pas chez l'appelant) pour couvrir tous les chemins d'acces a
+            # log_message (BaseHTTPRequestHandler l'appelle aussi pour les
+            # erreurs de parsing de requete, avant tout dispatch applicatif).
+            formatted = format % args
+            masked = _CONFIRM_LOG_MASK_RE.sub(r"\1***", formatted)
+            logging.debug("HTTP: %s", masked)
 
     return Handler
+
+
+def _publish_confirm_actions(
+    label: str,
+    warning: bool,
+    warning_reason: str | None,
+    action: str,
+    token: str,
+) -> bool:
+    """Pont vers `notifier._ntfy.send_confirm_actions()` -- injecte dans
+    `managed_devices.registry` en tant que fonction `send` (meme pattern que
+    `send=telegram_bot.send_message` pour `_adapt_for_telegram`), pour que
+    `managed_devices.py` reste agnostique du canal (jamais d'import direct de
+    `_ntfy` la-bas). No-op si Ntfy n'est pas configure. Ne leve jamais."""
+    try:
+        from notifier import _ntfy
+
+        if not _ntfy.is_configured():
+            return False
+        return _ntfy.send_confirm_actions(
+            label=label,
+            warning=warning,
+            warning_reason=warning_reason,
+            action=action,
+            token=token,
+        )
+    except Exception as e:
+        logging.warning("Ntfy: echec publication des boutons de confirmation -- %s", e)
+        return False
 
 
 def start_http_server(
@@ -739,6 +896,27 @@ def start_http_server(
         )
         return None
 
+    # D5 -- API_TOKEN vide est deja fail-closed (_check_auth renvoie 403),
+    # mais si un canal a boutons d'action (Ntfy) est configure, un
+    # API_TOKEN absent merite un CRITICAL au demarrage : les autres
+    # endpoints POST (pause/resume/reboot/tplink/...) resteront inutilisables
+    # en pratique tant qu'il n'est pas positionne. Meme esprit que le
+    # garde-fou "aucun canal configure" du sprint 1 (watchdog.py, PRD S6.4),
+    # branche ici plutot que duplique car watchdog.py est intouchable pour
+    # ce sprint (voir INVARIANTS.md) et start_http_server() est le point
+    # d'entree HTTP le plus proche d'un "demarrage".
+    if not _config.API_TOKEN:
+        from notifier import _ntfy
+
+        if _ntfy.is_configured():
+            logging.critical(
+                "API_TOKEN non configure alors que Ntfy (boutons d'action) "
+                "est actif -- les boutons de confirmation publies resteront "
+                "utilisables (jeton = autorisation), mais tous les autres "
+                "endpoints POST (pause/resume/reboot/tplink/...) resteront "
+                "fermes (403) tant qu'API_TOKEN n'est pas positionne"
+            )
+
     # Wiring des equipements TP-Link pilotables (A1, Sprint 3) : l'event_log
     # de production est deja disponible ici (passe par watchdog.py) --
     # c'est le seul point d'entree qui permet de le relier au registre sans
@@ -747,6 +925,10 @@ def start_http_server(
     import managed_devices
 
     managed_devices.bootstrap(event_log)
+    # Ntfy-first S2 : boutons Actions (confirmer/annuler) publies en
+    # parallele du chemin Telegram existant, jamais a sa place -- voir
+    # managed_devices.request_reboot().
+    managed_devices.registry.set_ntfy_send(_publish_confirm_actions)
 
     thread = threading.Thread(
         target=server.serve_forever,

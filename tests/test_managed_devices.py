@@ -516,6 +516,81 @@ class TestTrafficWarning:
 
 
 # ---------------------------------------------------------------------------
+# Ntfy-first S2 -- boutons Actions publies EN PLUS du chemin Telegram
+# existant, via une fonction `send` injectee (jamais d'import direct de
+# _ntfy dans ce module).
+# ---------------------------------------------------------------------------
+
+
+class TestNtfySendInjection:
+    def test_request_reboot_calls_injected_ntfy_send_with_expected_args(self):
+        calls = []
+
+        def fake_ntfy_send(label, warning, warning_reason, action, token):
+            calls.append((label, warning, warning_reason, action, token))
+            return True
+
+        registry, _ = _make_registry(ntfy_send=fake_ntfy_send)
+        result = registry.request_reboot("1", origin="api")
+
+        assert len(calls) == 1
+        label, warning, warning_reason, action, token = calls[0]
+        assert label == "mr110-test"
+        assert warning is False
+        assert action == "tplink_reboot"
+        assert token == result["token"]
+
+    def test_request_reboot_never_fails_when_no_ntfy_send_injected(self):
+        """Par defaut (tests, Ntfy non configure) : no-op silencieux."""
+        registry, _ = _make_registry()
+        result = registry.request_reboot("1", origin="api")
+        assert result["token"]
+
+    def test_request_reboot_survives_ntfy_send_exception(self):
+        """Une erreur de publication Ntfy ne doit jamais empecher l'emission
+        du jeton -- le chemin Telegram/API JSON doit rester utilisable."""
+
+        def failing_ntfy_send(*args, **kwargs):
+            raise RuntimeError("ntfy down")
+
+        registry, _ = _make_registry(ntfy_send=failing_ntfy_send)
+        result = registry.request_reboot("1", origin="api")
+        assert result["token"]
+
+    def test_set_ntfy_send_is_idempotent_like_set_event_log(self):
+        import managed_devices
+
+        def fake_send(*args, **kwargs):
+            return True
+
+        managed_devices.registry.set_ntfy_send(fake_send)
+        assert managed_devices.registry._ntfy_send is fake_send
+        managed_devices.registry.set_ntfy_send(None)
+        assert managed_devices.registry._ntfy_send is None
+
+    def test_telegram_path_unaffected_by_ntfy_injection(self):
+        """Invariant du sprint : le chemin Telegram existant (le dict
+        retourne par request_reboot()) reste identique, que ntfy_send soit
+        injecte ou non."""
+        calls = []
+
+        def fake_ntfy_send(*args, **kwargs):
+            calls.append(args)
+            return True
+
+        registry, _ = _make_registry(ntfy_send=fake_ntfy_send)
+        result = registry.request_reboot("1", origin="telegram")
+        assert set(result.keys()) == {
+            "token",
+            "device_id",
+            "label",
+            "warning",
+            "warning_reason",
+        }
+        assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
 # Logout garanti -- delegue au driver (deja garanti par _with_session, teste
 # ici pour la couverture de l'invariant du cote registre)
 # ---------------------------------------------------------------------------

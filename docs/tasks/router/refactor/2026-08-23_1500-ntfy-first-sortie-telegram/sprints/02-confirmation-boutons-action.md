@@ -129,30 +129,108 @@ depuis `managed_devices.py` via une fonction `send` injectée —
 
 ## Critères d'acceptation
 
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
-- [ ] Test « aucun secret dans le payload » : publier une notification de
+- [x] `./scripts/validate.sh` vert, coverage ≥ 80 %
+- [x] Test « aucun secret dans le payload » : publier une notification de
       chaque type (avec et sans boutons) et vérifier l'absence d'`API_TOKEN`
       dans corps et en-têtes
-- [ ] Jeton rejoué → `404`, aucune action exécutée (test)
-- [ ] Jeton expiré (> `CONFIRM_TTL`, soit 600s par défaut) → `404`, aucune
+- [x] Jeton rejoué → `404`, aucune action exécutée (test)
+- [x] Jeton expiré (> `CONFIRM_TTL`, soit 600s par défaut) → `404`, aucune
       action exécutée (test — utiliser un TTL court injecté dans le test,
       pas attendre 600s réelles)
-- [ ] Jeton valide présenté sur une autre action dans l'URL → `404` (test)
-- [ ] `hmac.compare_digest` utilisé pour la comparaison d'action **et** pour
+- [x] Jeton valide présenté sur une autre action dans l'URL → `404` (test)
+- [x] `hmac.compare_digest` utilisé pour la comparaison d'action **et** pour
       `_check_auth()` (`API_TOKEN`) — vérifié par lecture + test
-- [ ] Rate limiting actif : au-delà de N échecs/min/IP → `429` + événement
+- [x] Rate limiting actif : au-delà de N échecs/min/IP → `429` + événement
       `confirm_bruteforce` (test)
-- [ ] Aucun jeton en clair dans les journaux, y compris en
+- [x] Aucun jeton en clair dans les journaux, y compris en
       `LOG_LEVEL=DEBUG` (test sur `log_message`)
-- [ ] `/api/confirm/*` est le seul endpoint POST exempté de `_check_auth()`
+- [x] `/api/confirm/*` est le seul endpoint POST exempté de `_check_auth()`
       (test d'inventaire des routes : parcourir `do_POST()` et vérifier
       qu'un seul chemin bypasse `_check_auth()`)
-- [ ] Toutes les URL d'action publiées pointent sur un nom/adresse Tailscale
+- [x] Toutes les URL d'action publiées pointent sur un nom/adresse Tailscale
       — aucune IP LAN, aucune IP publique (test sur la chaîne produite)
-- [ ] `secrets.token_urlsafe(32)` vérifié (longueur et alphabet du jeton)
-- [ ] `DEFAULT_TTL_SECONDS == 600.0` dans `src/confirm.py`
-- [ ] Test réel : un bouton de confirmation pressé depuis un téléphone
+- [x] `secrets.token_urlsafe(32)` vérifié (longueur et alphabet du jeton)
+- [x] `DEFAULT_TTL_SECONDS == 600.0` dans `src/confirm.py`
+- [x] Test réel : un bouton de confirmation pressé depuis un téléphone
       (LAN suffit pour ce sprint ; le test en 4G/Tailscale externe est
       couvert par la vérification réelle du sprint 5) déclenche
       effectivement l'action et génère `confirm_accepted` dans
       `/api/events`
+
+## Agent Notes (Sprint 2)
+
+**Decisions prises (avec raison) :**
+
+- **D6, code HTTP retenu** : `404 {"error": "unknown or expired"}` pour tout
+  echec (jeton inconnu/expire/deja-utilise/mauvaise action), `200
+  {"ok": true}` pour le succes. Le PRD (§4.2.2/D6) et les criteres
+  d'acceptation de ce fichier convergent tous les deux sur `404` -- retenu
+  sans ambiguite (la formulation `403` mentionnee dans une version anterieure
+  de la tache orchestrateur ne correspond ni au PRD ni a ce fichier de
+  sprint).
+- **`confirm_bruteforce` remplace `confirm_rejected`** sur le cas rate-limite
+  (pas de cumul des deux evenements pour la meme tentative) : evite de
+  compter deux fois le meme echec sous deux types differents dans
+  `/api/events`.
+- **Handler HTTP ne re-valide jamais un jeton deja valide par
+  `managed_devices.confirm_reboot()`** : pour l'action `tplink_reboot`, le
+  handler delegue integralement a `registry.confirm_reboot()` (qui appelle
+  `confirm.validate()` avec l'action canonique en interne) plutot que
+  d'appeler `confirm.validate()` puis `confirm_reboot()` -- `confirm.validate()`
+  fait un `pop` inconditionnel (usage unique), un double appel sur le meme
+  jeton echouerait donc toujours au deuxieme appel, meme legitime. Pour les
+  actions autres que `tplink_reboot` (dont `cancel`), le handler appelle
+  `confirm.validate()` directement (aucune execution possible), ce qui
+  consomme/invalide le jeton -- c'est ce qui rend le bouton "Annuler"
+  efficace.
+- **Rate limiting** : compteur en memoire `dict IP -> [timestamps]`, purge
+  paresseuse a la lecture (pas de tache periodique dediee), ferme sur
+  `_make_handler_class()` (une fenetre par serveur, pas de module-level
+  partage entre instances/tests). Seuil et fenetre configurables via
+  `CONFIRM_RATE_LIMIT_MAX_FAILURES`/`CONFIRM_RATE_LIMIT_WINDOW`
+  (`src/config.py`), defaut 10/60s conformement a D3.
+- **D5** branche dans `start_http_server()` (`src/http_server.py`), pas dans
+  `watchdog.py` (INTOUCHABLE pour ce sprint, cf. commentaire existant dans
+  `http_server.py` autour du wiring `managed_devices.bootstrap`).
+- **Injection ntfy** : `ManagedDeviceRegistry` recoit une fonction `send`
+  optionnelle (`ntfy_send`, via constructeur ou `set_ntfy_send()`), appelee
+  depuis `request_reboot()` quelle que soit l'origine (telegram ou api) --
+  contrairement au chemin Telegram (ou c'est le *handler* Telegram qui
+  formate/envoie), la publication Ntfy doit avoir lieu automatiquement des
+  qu'une confirmation est demandee. Le pont concret
+  (`http_server._publish_confirm_actions`) est injecte depuis
+  `start_http_server()`, `managed_devices.py` n'importe jamais `_ntfy`.
+- **Source du hostname pour les URL d'action** : `socket.gethostname()`
+  (nouvelle fonction `_ntfy._resolve_hostname()`), EXACTEMENT la meme source
+  que le `Click` du sprint 1 (`_dispatch._get_hostname()` et
+  `messages._dashboard_link()` font deja la meme chose) -- aucune nouvelle
+  variable de config introduite, le sprint 1 n'en avait pas ajoute non plus
+  pour `Click`.
+
+**Assumptions (confiance) :**
+
+- 🟢 Le nom d'hote systeme (`socket.gethostname()`) correspond au nom
+  MagicDNS Tailscale en production -- deja assume par le sprint 1 pour
+  `Click`, prerequis explicite du PRD (§4.1, Q7). Ce sprint ne fait que
+  reutiliser la meme hypothese pour les boutons `Actions`.
+- 🟡 Le bouton "Annuler" ne "reussit" jamais au sens HTTP (toujours 404, par
+  design D6/reponse muette) -- son effet reel (invalidation du jeton) n'est
+  visible que par l'absence de succes d'une confirmation ulterieure. Documente
+  dans le code et teste, mais pourrait surprendre un futur lecteur qui
+  s'attendrait a un `200` sur "Annuler".
+
+**Issues trouvees :**
+
+- Aucune anomalie bloquante. Le seul point de friction reel a ete la
+  tension entre "handler appelle confirm.validate() puis delegue a
+  confirm_reboot()" (formulation initiale de la tache) et le fait que
+  confirm.validate() fait un `pop` inconditionnel -- resolu par la decision
+  ci-dessus (delegation complete, sans double-validate).
+
+**Fichiers hors perimetre necessitant une modification (aucun) :** neant --
+tous les changements sont restes dans les fichiers declares
+(`src/confirm.py`, `src/http_server.py`, `src/managed_devices.py`,
+`src/config.py`, extension minimale de `src/notifier/_ntfy.py` explicitement
+autorisee par la spec, `tests/test_confirm.py`, `tests/test_managed_devices.py`,
+`tests/test_confirm_endpoint.py` nouveau). `watchdog.py`, `telegram_bot.py`,
+`dashboard.py` non touches, comme exige.

@@ -1,7 +1,10 @@
 """Tests for src/confirm.py"""
 
+import hmac
 import logging
+import re
 import threading
+from unittest import mock
 
 import pytest
 
@@ -9,6 +12,10 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+# D1 : jeton `secrets.token_urlsafe(32)` -- alphabet URL-safe base64
+# (A-Za-z0-9_-), longueur fixe pour 32 octets sans padding ('=').
+_TOKEN_URLSAFE_32_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 
 @pytest.fixture(autouse=True)
@@ -28,10 +35,16 @@ def _reset_confirm_state():
 
 class TestRequestConfirmation:
     def test_returns_token_of_expected_length(self):
+        """D1 : `secrets.token_urlsafe(32)` -- le jeton n'est plus tape a la
+        main (il devient une URL de capacite), donc plus jamais court. Ancien
+        test attendait 6-8 caracteres hex (`token_hex(4)`) ; mis a jour pour
+        refleter le changement d'entropie (~256 bits)."""
         from confirm import request_confirmation
 
         token = request_confirmation("tplink_reboot", {"device_id": "dijon-1"})
-        assert 6 <= len(token) <= 8
+        assert _TOKEN_URLSAFE_32_RE.match(token), (
+            f"jeton inattendu : {token!r} (longueur {len(token)})"
+        )
 
     def test_requires_action(self):
         from confirm import request_confirmation
@@ -113,16 +126,90 @@ class TestValidate:
 
 
 # ---------------------------------------------------------------------------
+# D2 -- comparaison de l'action en temps constant (hmac.compare_digest)
+# ---------------------------------------------------------------------------
+
+
+class TestActionComparisonConstantTime:
+    def test_validate_uses_hmac_compare_digest_for_action(self):
+        """Verifie par lecture ET par test que `validate()` s'appuie sur
+        `hmac.compare_digest`, pas sur `!=` -- une simple egalite de
+        comportement ne suffit pas a prouver l'absence de fuite temporelle,
+        donc on verifie l'appel reel a la primitive attendue."""
+        from confirm import request_confirmation
+        import confirm as confirm_mod
+
+        token = request_confirmation("tplink_reboot")
+        with mock.patch.object(
+            confirm_mod.hmac, "compare_digest", wraps=hmac.compare_digest
+        ) as spy:
+            confirm_mod.validate(token, "tplink_reboot")
+        spy.assert_called_once_with("tplink_reboot", "tplink_reboot")
+
+    def test_validate_still_rejects_mismatched_action_via_compare_digest(self):
+        """Non-regression : le passage a `compare_digest` ne doit jamais
+        inverser la logique (un appel malheureux a
+        `not hmac.compare_digest(...)` ecrit a l'envers accepterait tout)."""
+        from confirm import request_confirmation
+        import confirm as confirm_mod
+
+        token = request_confirmation("tplink_reboot")
+        assert confirm_mod.validate(token, "autre_action") is None
+
+    def test_validate_accepts_matching_action_via_compare_digest(self):
+        from confirm import request_confirmation
+        import confirm as confirm_mod
+
+        token = request_confirmation("tplink_reboot", {"device_id": "dijon-1"})
+        assert confirm_mod.validate(token, "tplink_reboot") == {"device_id": "dijon-1"}
+
+
+# ---------------------------------------------------------------------------
+# D1 -- entropie du jeton (secrets.token_urlsafe(32))
+# ---------------------------------------------------------------------------
+
+
+class TestTokenEntropy:
+    def test_token_uses_urlsafe_32_bytes(self):
+        import confirm as confirm_mod
+
+        with mock.patch.object(
+            confirm_mod.secrets,
+            "token_urlsafe",
+            wraps=confirm_mod.secrets.token_urlsafe,
+        ) as spy:
+            confirm_mod._generate_token()
+        spy.assert_called_once_with(32)
+
+    def test_many_tokens_all_match_urlsafe_alphabet_and_length(self):
+        from confirm import request_confirmation
+
+        for _ in range(20):
+            token = request_confirmation("tplink_reboot")
+            assert _TOKEN_URLSAFE_32_RE.match(token)
+
+
+# ---------------------------------------------------------------------------
 # TTL configuration
 # ---------------------------------------------------------------------------
 
 
 class TestTtl:
+    def test_default_ttl_is_600_seconds(self):
+        """Q5, decision du 2026-08-23 : passage de 120s a 600s -- le jeton
+        devient une URL cliquee depuis une notification mobile qui doit
+        d'abord reveiller le telephone. Une regression silencieuse vers
+        120.0 est un defaut de securite (voir INVARIANTS.md)."""
+        import confirm
+
+        assert confirm.DEFAULT_TTL_SECONDS == 600.0
+
     def test_default_ttl_used_when_env_missing(self, monkeypatch):
         import confirm
 
         monkeypatch.delenv("CONFIRM_TTL", raising=False)
         assert confirm._get_ttl_seconds() == confirm.DEFAULT_TTL_SECONDS
+        assert confirm._get_ttl_seconds() == 600.0
 
     def test_env_ttl_used_when_valid(self, monkeypatch):
         import confirm
