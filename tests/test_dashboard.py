@@ -1,7 +1,10 @@
 """Tests for dashboard.py -- HTML template structure and SSE integration markers."""
 
+import inspect
+
 import pytest
 
+import src.dashboard as dashboard_module
 from src.dashboard import DASHBOARD_HTML
 
 
@@ -122,3 +125,125 @@ class TestDashboardSseIntegration:
     def test_sse_reconnect_timeout_defined(self):
         """Dashboard must schedule SSE reconnection after errors."""
         assert "setTimeout" in DASHBOARD_HTML
+
+
+@pytest.mark.unit
+class TestDashboardAuth:
+    """Sprint 3 -- API_TOKEN captured client-side, sessionStorage only, never
+    embedded server-side in the generated HTML."""
+
+    def test_uses_session_storage_for_token(self):
+        assert "sessionStorage.setItem(" in DASHBOARD_HTML
+        assert "sessionStorage.getItem(" in DASHBOARD_HTML
+
+    def test_never_uses_local_storage(self):
+        """Hard invariant: no persistence across tab closes -- localStorage
+        must never appear anywhere in the generated dashboard."""
+        assert "localStorage" not in DASHBOARD_HTML
+
+    def test_api_request_helper_defined(self):
+        assert "function apiRequest(" in DASHBOARD_HTML
+
+    def test_api_request_injects_authorization_bearer_header(self):
+        assert "Authorization" in DASHBOARD_HTML
+        assert "'Bearer ' + token" in DASHBOARD_HTML
+
+    def test_send_command_uses_authenticated_request_path(self):
+        """sendCommand() (existing pause/resume/reboot buttons) must funnel
+        through the authenticated request helper -- this is the fix for the
+        blocking bug (403/401 on every click today)."""
+        send_command_start = DASHBOARD_HTML.index("async function sendCommand(")
+        send_command_end = DASHBOARD_HTML.index(
+            "\n}", DASHBOARD_HTML.index("function runAction(", send_command_start)
+        )
+        send_command_src = DASHBOARD_HTML[send_command_start:send_command_end]
+        assert "runAction(" in send_command_src or "apiRequest(" in send_command_src
+
+    def test_unauthorized_response_shows_clear_message_not_silent(self):
+        """401 must surface a clear, visible message inviting the operator
+        to re-enter the token -- never a silent console-only failure."""
+        assert "401" in DASHBOARD_HTML
+        assert "showTokenPrompt(" in DASHBOARD_HTML
+
+    def test_token_prompt_ui_elements_present(self):
+        assert 'id="token-prompt"' in DASHBOARD_HTML
+        assert 'id="api-token-input"' in DASHBOARD_HTML
+        assert 'id="btn-save-token"' in DASHBOARD_HTML
+
+    def test_dashboard_source_never_references_api_token(self):
+        """Architectural guarantee (not just a snapshot of today's HTML):
+        dashboard.py never imports config nor references API_TOKEN, so no
+        code path can ever interpolate the secret into the served HTML."""
+        source = inspect.getsource(dashboard_module)
+        assert "API_TOKEN" not in source
+        assert "import config" not in source
+
+    def test_generated_html_never_contains_configured_token(self, monkeypatch):
+        """End-to-end proof: whatever API_TOKEN is configured server-side,
+        the HTML served to the browser is identical and never carries it."""
+        secret = "s3cr3t-vigil-test-token-must-never-leak-77213"
+        monkeypatch.setenv("API_TOKEN", secret)
+
+        import importlib
+
+        import config as config_module
+
+        importlib.reload(config_module)
+        try:
+            assert secret not in DASHBOARD_HTML
+        finally:
+            importlib.reload(config_module)
+
+
+@pytest.mark.unit
+class TestDashboardActionsSection:
+    """Sprint 3 -- missing commands from PRD S4.5 (DDNS, backup, tailscale,
+    maintenance) wired to their existing server-side endpoints."""
+
+    def test_ddns_button_present(self):
+        assert 'id="btn-ddns"' in DASHBOARD_HTML
+        assert "/api/ddns/update" in DASHBOARD_HTML
+
+    def test_backup_unifi_button_present(self):
+        assert 'id="btn-backup"' in DASHBOARD_HTML
+        assert "/api/backup/unifi" in DASHBOARD_HTML
+
+    def test_tailscale_sync_button_present(self):
+        assert 'id="btn-tailscale"' in DASHBOARD_HTML
+        assert "/api/tailscale/sync" in DASHBOARD_HTML
+
+    def test_maintenance_button_present(self):
+        assert 'id="btn-maintenance"' in DASHBOARD_HTML
+        assert "/api/maintenance" in DASHBOARD_HTML
+
+
+@pytest.mark.unit
+class TestDashboardTplinkSection:
+    """Sprint 3 -- new TP-Link section: list, per-device status, check,
+    reboot + existing confirmation flow (reused, not reinvented)."""
+
+    def test_tplink_section_present(self):
+        assert 'id="tplink-card"' in DASHBOARD_HTML
+        assert 'id="tplink-list"' in DASHBOARD_HTML
+
+    def test_tplink_list_endpoint_referenced(self):
+        assert "/api/tplink" in DASHBOARD_HTML
+
+    def test_tplink_check_function_and_endpoint(self):
+        assert "function tplinkCheck(" in DASHBOARD_HTML
+        assert "/check" in DASHBOARD_HTML
+
+    def test_tplink_reboot_function_and_endpoint(self):
+        assert "function tplinkReboot(" in DASHBOARD_HTML
+        assert "/reboot" in DASHBOARD_HTML
+
+    def test_tplink_reboot_reuses_existing_confirm_endpoint(self):
+        """Must reuse POST /api/tplink/<id>/reboot/confirm (already shipped
+        by A1 Sprint 3) -- no new confirmation mechanism invented here."""
+        assert "/reboot/confirm" in DASHBOARD_HTML
+        assert "function tplinkConfirmReboot(" in DASHBOARD_HTML
+
+    def test_tplink_reboot_sends_token_in_confirm_body(self):
+        """The confirm step must forward the token received from the
+        reboot request, as required by /api/tplink/<id>/reboot/confirm."""
+        assert "token" in DASHBOARD_HTML
