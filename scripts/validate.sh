@@ -19,7 +19,7 @@ source "${SCRIPT_DIR}/lib/logging.sh"
 
 echo ""
 echo "---------------------------------------------------"
-echo "   USG Watchdog -- Validation pre-push"
+echo "   Vigil -- Validation pre-push"
 echo "---------------------------------------------------"
 echo ""
 

@@ -1,0 +1,12 @@
+/var/log/vigil.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 vigil adm
+    postrotate
+        systemctl kill -s HUP vigil.service 2>/dev/null || true
+    endscript
+}

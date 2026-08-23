@@ -12,10 +12,10 @@
 set -euo pipefail
 
 # --- Config ------------------------------------------------------------------
-SSH_DIR="/opt/usg-watchdog/.ssh"
+SSH_DIR="/opt/vigil/.ssh"
 KEY_FILE="${SSH_DIR}/usg_ed25519"
 KNOWN_HOSTS="${SSH_DIR}/known_hosts"
-KEY_COMMENT="usg-watchdog@$(hostname)"
+KEY_COMMENT="vigil@$(hostname)"
 
 USG_IP="${USG_IP:-192.168.1.1}"
 USG_USER="${USG_USER:-maintenance}"
@@ -49,7 +49,7 @@ trap _cleanup EXIT
 
 echo ""
 echo "---------------------------------------------------"
-echo "   USG Watchdog -- Setup SSH Key"
+echo "   Vigil -- Setup SSH Key"
 echo "   (Ed25519 -- compatible EdgeOS OpenSSH 6.6.1)"
 echo "---------------------------------------------------"
 echo ""

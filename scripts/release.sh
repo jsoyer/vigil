@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# release.sh -- Create an annotated (or signed) semver tag for USG Watchdog
+# release.sh -- Create an annotated (or signed) semver tag for Vigil
 # =============================================================================
 # Usage:
 #   ./scripts/release.sh patch    # 1.0.0 -> 1.0.1

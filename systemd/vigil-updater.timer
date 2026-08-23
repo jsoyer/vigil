@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Vigil update check
+
+[Timer]
+# Check for updates daily at 3:00 AM (+/- 10 min jitter)
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

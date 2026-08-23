@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-readonly INSTALL_DIR="/opt/usg-watchdog"
+readonly INSTALL_DIR="/opt/vigil"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_DIR="${INSTALL_DIR}/src"
 PYTHON="${INSTALL_DIR}/venv/bin/python"
@@ -25,7 +25,7 @@ source "${SCRIPT_DIR}/lib/logging.sh"
 # -----------------------------------------------------------------------------
 
 # Load .env if it exists (same as systemd EnvironmentFile)
-ENV_FILE="/opt/usg-watchdog/.env"
+ENV_FILE="${INSTALL_DIR}/.env"
 if [[ -f "${ENV_FILE}" ]]; then
     set -a
     # shellcheck source=/dev/null
@@ -41,7 +41,7 @@ esac
 
 echo ""
 echo "---------------------------------------------------"
-echo "   USG Watchdog -- Tests de configuration"
+echo "   Vigil -- Tests de configuration"
 echo "---------------------------------------------------"
 echo ""
 
@@ -99,7 +99,7 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     print('NOT_CONFIGURED')
 else:
     from notifier import notify
-    results = notify('Test de notification USG Watchdog')
+    results = notify('Test de notification Vigil')
     print('OK' if results.get('telegram') else 'FAIL')
 " 2>/dev/null || echo "ERROR")
 

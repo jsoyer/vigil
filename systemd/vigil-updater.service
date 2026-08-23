@@ -1,0 +1,21 @@
+[Unit]
+Description=Vigil Auto-Updater
+After=network-online.target vigil.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/vigil
+ExecStart=/opt/vigil/venv/bin/python /opt/vigil/updater/update.py
+
+# Secrets (GITHUB_TOKEN pour repos prives)
+EnvironmentFile=-/opt/vigil/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vigil-updater
+
+# Timeout: 10 min max for download + validation + restart
+TimeoutStartSec=600

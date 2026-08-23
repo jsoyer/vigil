@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Shared logging functions for USG Watchdog scripts
+# Shared logging functions for Vigil scripts
 # =============================================================================
 # Usage: source "$(dirname "${BASH_SOURCE[0]}")/lib/logging.sh"
 # =============================================================================

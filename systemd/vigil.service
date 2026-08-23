@@ -1,0 +1,60 @@
+[Unit]
+Description=Vigil -- surveillance de connexion et reboot automatique du routeur USG Ubiquiti
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vigil
+Group=vigil
+WorkingDirectory=/opt/vigil/current/src
+
+ExecStart=/opt/vigil/venv/bin/python /opt/vigil/current/src/watchdog.py
+
+# Restart on crash
+Restart=always
+RestartSec=15
+
+# Secrets via EnvironmentFile (chmod 600 /opt/vigil/.env)
+EnvironmentFile=-/opt/vigil/.env
+
+# Logging via journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vigil
+
+# --- Capabilities ---
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+
+# --- Sandboxing ---
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+ReadOnlyPaths=/opt/vigil
+ReadWritePaths=/var/log/vigil.log -/var/log/vigil-events.json
+# Backup UniFi : acces lecture au repertoire autobackup (UNIFI_BACKUP_DIR)
+# Prefixe '-' : ignore si le repertoire n'existe pas (instance backup sans UniFi)
+BindReadOnlyPaths=-/home/pi/docker/prod/unifi-network-server/data/data/backup/autobackup
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+DevicePolicy=closed
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+
+[Install]
+WantedBy=multi-user.target
