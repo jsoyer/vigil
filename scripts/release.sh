@@ -1,18 +1,33 @@
 #!/usr/bin/env bash
 # =============================================================================
-# release.sh -- Create a signed semver tag for USG Watchdog
+# release.sh -- Create an annotated (or signed) semver tag for USG Watchdog
 # =============================================================================
 # Usage:
 #   ./scripts/release.sh patch    # 1.0.0 -> 1.0.1
 #   ./scripts/release.sh minor    # 1.0.0 -> 1.1.0
 #   ./scripts/release.sh major    # 1.0.0 -> 2.0.0
 #   ./scripts/release.sh 1.2.3    # explicit version
+#
+# Idempotence :
+#   Si VERSION est deja a la version cible (bump + commit fait a la main au
+#   prealable), le script ne recommite rien et enchaine directement sur la
+#   creation du tag.
+#
+# Tag :
+#   Annote (`git tag -a`) par defaut. Signe (`git tag -s`) uniquement si
+#   `git config user.signingkey` est renseignee sur cette machine.
+#
+# Dry-run :
+#   RELEASE_DRY_RUN=1 ./scripts/release.sh patch
+#   N'effectue aucune ecriture (pas de commit, pas de tag) -- affiche les
+#   actions qui auraient ete executees.
 # =============================================================================
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION_FILE="${REPO_DIR}/VERSION"
+DRY_RUN="${RELEASE_DRY_RUN:-0}"
 
 # --- Shared logging ----------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,16 +85,39 @@ if git -C "${REPO_DIR}" rev-parse "v${NEXT}" &>/dev/null; then
     exit 1
 fi
 
-# Update VERSION file
-echo "${NEXT}" > "${VERSION_FILE}"
-git -C "${REPO_DIR}" add "${VERSION_FILE}"
-git -C "${REPO_DIR}" commit -m "chore: bump version to ${NEXT}"
+if [[ "${CURRENT}" == "${NEXT}" ]]; then
+    # Idempotence : VERSION est deja a la cible (bump manuel prealable et
+    # deja committe, sinon le check diff-index ci-dessus aurait echoue).
+    log_info "VERSION est deja a ${NEXT} -- pas de nouveau commit, passage direct au tag"
+else
+    if [[ "${DRY_RUN}" == "1" ]]; then
+        log_info "[DRY-RUN] echo ${NEXT} > ${VERSION_FILE}"
+        log_info "[DRY-RUN] git commit -m \"chore: bump version to ${NEXT}\""
+    else
+        echo "${NEXT}" > "${VERSION_FILE}"
+        git -C "${REPO_DIR}" add "${VERSION_FILE}"
+        git -C "${REPO_DIR}" commit -m "chore: bump version to ${NEXT}"
+    fi
+fi
 
-# Create signed tag
+# Tag annote par defaut ; signe seulement si une cle de signature existe.
+TAG_FLAG="-a"
+if [[ -n "$(git -C "${REPO_DIR}" config user.signingkey 2>/dev/null || true)" ]]; then
+    TAG_FLAG="-s"
+    log_info "Cle de signature detectee -- tag signe (-s)"
+else
+    log_info "Aucune cle de signature configuree -- tag annote (-a)"
+fi
+
 log_info "Creation du tag v${NEXT}..."
-git -C "${REPO_DIR}" tag -s "v${NEXT}" -m "Release v${NEXT}"
+if [[ "${DRY_RUN}" == "1" ]]; then
+    log_info "[DRY-RUN] git tag ${TAG_FLAG} v${NEXT} -m \"Release v${NEXT}\""
+    log_success "[DRY-RUN] Tag v${NEXT} aurait ete cree"
+else
+    git -C "${REPO_DIR}" tag "${TAG_FLAG}" "v${NEXT}" -m "Release v${NEXT}"
+    log_success "Tag v${NEXT} cree"
+fi
 
-log_success "Tag v${NEXT} cree"
 echo ""
 echo "  Pour publier :"
 echo "    git push origin main"

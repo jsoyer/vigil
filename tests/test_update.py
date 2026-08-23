@@ -3,6 +3,7 @@ after restart must be treated as an update failure, not silently reported as
 success). See docs/tasks/router/bugfix/2026-08-23_1000-vigil-identity-systemd-layout.md
 """
 
+import subprocess
 import sys
 import os
 from unittest.mock import patch, MagicMock
@@ -10,7 +11,8 @@ from unittest.mock import patch, MagicMock
 # Add updater to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "updater"))
 
-from update import health_check
+import update
+from update import health_check, install_requirements
 
 
 def _mock_response(payload: bytes):
@@ -71,3 +73,75 @@ class TestHealthCheckTimeoutAndErrors:
             ):
                 with patch("update.time.sleep"):
                     assert health_check("1.8.2") is False
+
+
+class TestInstallRequirementsSuccess:
+    def test_requirements_present_pip_succeeds(self, tmp_path):
+        staged_dir = tmp_path / "staged"
+        staged_dir.mkdir()
+        requirements_file = staged_dir / "requirements.txt"
+        requirements_file.write_text("requests==2.31.0\n")
+
+        fake_pip = tmp_path / "venv" / "bin" / "pip"
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "Successfully installed requests-2.31.0"
+        mock_result.stderr = ""
+
+        with patch("update.VENV_PIP", fake_pip):
+            with patch("update.subprocess.run", return_value=mock_result) as mock_run:
+                assert install_requirements(staged_dir) is True
+
+        mock_run.assert_called_once_with(
+            [str(fake_pip), "install", "-r", str(requirements_file)],
+            capture_output=True,
+            text=True,
+            timeout=update.PIP_INSTALL_TIMEOUT,
+        )
+
+
+class TestInstallRequirementsFailure:
+    def test_pip_returns_nonzero_returns_false(self, tmp_path):
+        staged_dir = tmp_path / "staged"
+        staged_dir.mkdir()
+        (staged_dir / "requirements.txt").write_text("requests==2.31.0\n")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "ERROR: could not find a version"
+
+        with patch("update.subprocess.run", return_value=mock_result):
+            assert install_requirements(staged_dir) is False
+
+    def test_pip_timeout_returns_false(self, tmp_path):
+        staged_dir = tmp_path / "staged"
+        staged_dir.mkdir()
+        (staged_dir / "requirements.txt").write_text("requests==2.31.0\n")
+
+        with patch(
+            "update.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="pip", timeout=300),
+        ):
+            assert install_requirements(staged_dir) is False
+
+    def test_pip_missing_binary_oserror_returns_false(self, tmp_path):
+        staged_dir = tmp_path / "staged"
+        staged_dir.mkdir()
+        (staged_dir / "requirements.txt").write_text("requests==2.31.0\n")
+
+        with patch("update.subprocess.run", side_effect=OSError("no such file")):
+            assert install_requirements(staged_dir) is False
+
+
+class TestInstallRequirementsNoOp:
+    def test_no_requirements_file_returns_true_without_calling_pip(self, tmp_path):
+        staged_dir = tmp_path / "staged"
+        staged_dir.mkdir()
+        # No requirements.txt created -- true no-op.
+
+        with patch("update.subprocess.run") as mock_run:
+            assert install_requirements(staged_dir) is True
+
+        mock_run.assert_not_called()

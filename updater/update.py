@@ -38,6 +38,8 @@ SERVICE_NAME = "usg-watchdog"
 HEALTH_CHECK_URL = os.getenv("UPDATER_HEALTH_URL", "http://localhost:9000/health")
 HEALTH_CHECK_TIMEOUT = 60  # seconds to wait for healthy after restart
 RELEASES_KEEP = 3
+VENV_PIP = INSTALL_DIR / "venv" / "bin" / "pip"
+PIP_INSTALL_TIMEOUT = 300  # seconds -- installation de dependances peut etre lente
 
 # ===================================================================
 # Logging
@@ -269,6 +271,46 @@ def validate_tests(staged_dir: Path) -> bool:
         return False
 
     log.info("Tests OK")
+    return True
+
+
+def install_requirements(staged_dir: Path) -> bool:
+    """Installe les dependances de la release stagee, si presentes.
+
+    Execute `<venv>/bin/pip install -r <staged>/requirements.txt` -- appele
+    apres validation de la release stagee et avant la bascule du symlink.
+    Un echec ici doit interrompre la mise a jour AVANT toute bascule : pas
+    de swap, pas de restart, pas de rollback (rien n'a encore change pour
+    l'instance en cours).
+    """
+    requirements_file = staged_dir / "requirements.txt"
+    if not requirements_file.exists():
+        log.info("Pas de requirements.txt dans la release -- rien a installer")
+        return True
+
+    log.info("Installation des dependances : %s", requirements_file)
+    try:
+        result = subprocess.run(
+            [str(VENV_PIP), "install", "-r", str(requirements_file)],
+            capture_output=True,
+            text=True,
+            timeout=PIP_INSTALL_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        log.error(
+            "Installation des dependances : delai depasse (%ds)",
+            PIP_INSTALL_TIMEOUT,
+        )
+        return False
+    except OSError as e:
+        log.error("Impossible d'executer pip (%s) : %s", VENV_PIP, e)
+        return False
+
+    if result.returncode != 0:
+        log.error("Installation des dependances echouee :\n%s", result.stderr[-1000:])
+        return False
+
+    log.info("Dependances installees :\n%s", result.stdout[-500:])
     return True
 
 
@@ -509,6 +551,16 @@ def main() -> int:
         version_file = staged / "VERSION"
         if not version_file.exists():
             version_file.write_text(latest_version + "\n")
+
+        # Installer les dependances de la release stagee (si requirements.txt
+        # est present) -- dernier controle avant la bascule du symlink.
+        if not install_requirements(staged):
+            log.error("Installation des dependances echouee -- MAJ annulee")
+            notify_watchdog(
+                f"Mise a jour v{latest_version} annulee : echec de "
+                "l'installation des dependances (pip install)"
+            )
+            return 1
 
         # ===== Apply =====
         log.info("Application de la mise a jour v%s...", latest_version)
