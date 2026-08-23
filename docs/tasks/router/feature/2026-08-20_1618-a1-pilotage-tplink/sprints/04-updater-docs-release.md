@@ -25,9 +25,17 @@ Deux pièges vérifiés dans le code :
 
 Ces contraintes portent les noms C1 et C2 dans le PRD.
 
+> **Mise à jour 2026-08-23** : le `pip install` de l'updater (C2) est **déjà
+> livré**, en 1.8.3 — voir `updater/update.py::install_requirements` et les
+> tests dans `tests/test_update.py`. Ce sprint ne l'implémente plus : il se
+> réduit à **vérifier** ce comportement existant avec les nouvelles
+> dépendances TP-Link (`tplinkrouterc6u`, `requirements.txt` modifié par le
+> Sprint 2). Le reste (4.1 ci-dessous) documente le besoin d'origine, conservé
+> pour mémoire et pour l'ordre des opérations avec le preflight.
+
 ## Travail
 
-### 4.1 C2 — auto-updater (bloquant)
+### 4.1 C2 — auto-updater (déjà livré en 1.8.3, à vérifier avec TP-Link)
 
 - `updater/update.py` : détecter un changement de `requirements.txt` entre la
   release courante et la nouvelle (hash ou diff) et relancer
@@ -78,6 +86,11 @@ Ces contraintes portent les noms C1 et C2 dans le PRD.
 
 ## Tests
 
+> **Mise à jour 2026-08-23** : la première ligne (**C2**) est déjà couverte par
+> `tests/test_update.py` (livré 1.8.3). Ne pas la ré-écrire — l'exécuter avec
+> `requirements.txt` modifié par les dépendances TP-Link du Sprint 2 et
+> confirmer que le comportement tient.
+
 - **C2** : `requirements.txt` modifié → `pip install` déclenché (mocké) ;
   inchangé → **non** déclenché ; `pip install` en échec → rollback.
 - Preflight vert **sans** `tplinkrouterc6u` installée.
@@ -88,8 +101,14 @@ Ces contraintes portent les noms C1 et C2 dans le PRD.
 
 ## Critères d'acceptation
 
+> **Mise à jour 2026-08-23** : le critère **C2** ci-dessous est déjà satisfait
+> par la livraison 1.8.3 (`updater/update.py::install_requirements` +
+> `tests/test_update.py`). À ré-ouvrir seulement pour vérification avec les
+> dépendances TP-Link, pas pour implémentation.
+
 - [ ] **C2** : `pip install` déclenché sur changement de `requirements.txt`,
-      idempotent, rollback en cas d'échec
+      idempotent, rollback en cas d'échec — **déjà livré en 1.8.3, à vérifier
+      avec les dépendances TP-Link**
 - [ ] `pip install` ordonné **avant** le preflight des imports
 - [ ] Preflight vert avec **et** sans la lib installée
 - [ ] README, DEPLOY, runbook, `CLAUDE.md` à jour

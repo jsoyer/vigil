@@ -12,7 +12,8 @@
     "bugfix": "docs/tasks/router/bugfix/2026-08-20_1618-mqtt-instance-identity.md",
     "version": "1.8.1",
     "blocking": true,
-    "note": "BLOQUANT. Ajouter des entites par equipement sur une identite MQTT deja en collision entre les 4 instances rendrait le resultat intestable."
+    "satisfied": true,
+    "note": "Satisfait depuis le 2026-08-23. MQTT connecte rc=0 sur les 4 instances, discovery vigil_* envoyee (identite vigil_{instance_id} : device, unique_id, topic discovery, client_id -- src/mqtt_publisher.py lignes 44/83/92/125)."
   },
   "follow_up": {
     "prd_b": "Moteur multi-cible, UsgDriver, roles dans le scoring, alerting automatique sur la readiness. NB : l'exclusivite de polling (C5) est remontee dans A2.",
@@ -23,7 +24,9 @@
       "id": "mqtt-identity-fixed",
       "before_sprint": 3,
       "blocking": true,
-      "description": "Le bugfix 1.8.1 doit etre livre et verifie (deux instances = identites disjointes) avant d'ajouter des entites par equipement."
+      "satisfied": true,
+      "description": "Le bugfix 1.8.1 doit etre livre et verifie (deux instances = identites disjointes) avant d'ajouter des entites par equipement.",
+      "note": "Satisfait depuis le 2026-08-23. Preuve : MQTT connecte rc=0 sur les 4 instances, discovery vigil_* envoyee."
     }
   ],
   "sprints": [

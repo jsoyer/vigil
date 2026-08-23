@@ -430,7 +430,10 @@ Découpage retenu :
 
 | Livrable | Version | Contenu |
 |---|---|---|
-| **Bugfix** | 1.8.1 | Identité MQTT par instance (bug existant, cf. A9) |
+| **Bugfix** | 1.8.1 (livré) | Identité MQTT par instance (bug existant, cf. A9) |
+| **Bugfix** | 1.8.2 (livré 2026-08-23) | Layout systemd `releases/current` + vérification de version par l'updater + identité `vigil_*` |
+| **Bugfix/infra** | 1.8.3 (livré 2026-08-23) | `release.sh` idempotent + `pip install` des dépendances par l'updater |
+| **Grand renommage Vigil** | 2.0.0 (PRD en relecture) | `usg-watchdog` devient `vigil` — cf. §« Ce qui reste inchangé — Nom du projet » |
 | **A1 — Pilotage** | 1.9.0 | Chemin réseau, `TplinkDriver`, sonde étagée, commandes API + Telegram, masquage des secrets |
 | **A2 — Exposition** | 1.10.0 | Quota, usage, dashboard, Prometheus, Home Assistant |
 | **PRD B — Moteur** | ~1.11.0 | Multi-cible, `UsgDriver`, rôles dans le scoring, C5 complète |
@@ -652,3 +655,11 @@ violerait la séparation bug/feature du projet.
   suppression une version plus tard), car le préfixe `usg_watchdog_*` est
   consommé par des dashboards Grafana existants et 4 instances se mettent à jour
   automatiquement.
+
+  > **Mise à jour 2026-08-23** : décision de renommer en **Vigil** prise,
+  > indépendamment du trigger ci-dessus. PRD dédié :
+  > [docs/tasks/router/refactor/2026-08-23_1130-grand-renommage-vigil.md](../tasks/router/refactor/2026-08-23_1130-grand-renommage-vigil.md)
+  > (en attente de relecture utilisateur). L'identité MQTT est **déjà**
+  > `vigil_*` depuis 1.8.2 (device, `unique_id`, topic de discovery,
+  > `client_id`) — le renommage logiciel reste à faire pour le reste (unit
+  > systemd, `/opt/usg-watchdog`, user système, métriques Prometheus, etc.).

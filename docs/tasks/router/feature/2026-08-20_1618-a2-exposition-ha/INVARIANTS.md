@@ -54,7 +54,11 @@ pas le nôtre.
 ## Identité MQTT disjointe par instance et par équipement
 
 - **Owner** : `src/mqtt_publisher.py`
-- **Preconditions** : le bugfix 1.8.1 a introduit un identifiant d'instance.
+- **Preconditions** : le bugfix 1.8.1 a introduit un identifiant d'instance ;
+  livré avec 1.8.2, ce préfixe est concrètement `vigil_` (device
+  `vigil_{instance_id}`, `unique_id` `vigil_{instance_id}_{sensor_id}`, topic de
+  discovery `.../vigil_{instance_id}/...`, `client_id` `vigil-{instance_id}` —
+  `src/mqtt_publisher.py` lignes 44, 83, 92, 125).
 - **Postconditions** : chaque MR110 est un device HA distinct, dont l'identité
   combine instance **et** équipement ; aucune collision entre master et slave
   d'un même site.
@@ -62,7 +66,9 @@ pas le nôtre.
   mutuellement leurs entités, sans qu'aucun élément d'interface ne l'indique.
 - **Verify** : `python3 -m pytest tests/test_mqtt_publisher.py -k "identity" -q`
 - **Fix** : dériver toutes les identités d'un préfixe unique ; ne jamais
-  réintroduire de constante en dur.
+  réintroduire de constante en dur. Le Sprint 3 doit composer les identités
+  TP-Link sur ce préfixe `vigil_` réel, pas sur `usg_watchdog` (ancien état,
+  déjà remplacé).
 
 ## La sonde périodique sort par le lien 4G, et reste opt-in (C11)
 

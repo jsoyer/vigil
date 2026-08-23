@@ -45,6 +45,14 @@ A2 ne peut pas démarrer avant : ajouter des entités par équipement sur une
 identité déjà en collision ne ferait qu'aggraver le problème et rendrait le
 résultat intestable.
 
+> **Mise à jour 2026-08-23** : le bug est **corrigé** (1.8.1 + 1.8.2).
+> L'identité actuelle est `vigil_{instance_id}` — device, `unique_id`, topic de
+> discovery et `client_id` — voir `src/mqtt_publisher.py` lignes 44, 83, 92 et
+> 125. MQTT est actif sur les 4 Pi de production avec des préfixes
+> `vigil/<site>-<role>`. Les citations ci-dessus (`usg_watchdog`, lignes :29-34
+> et :51) décrivent l'état **d'avant le fix** — conservées pour mémoire, mais
+> ne reflètent plus l'état actuel du code.
+
 ## 3. Correctness Discovery
 
 - **Audience** : l'opérateur, depuis son dashboard Home Assistant — là où le
@@ -56,6 +64,10 @@ résultat intestable.
   l'entité *arm* ; (c) un compteur de data qui se remet à zéro n'est pas compté
   comme une conso négative ; (d) les métriques `usg_watchdog_*` existantes sont
   **inchangées**.
+  > **Note 2026-08-23** : le PRD de renommage Vigil prévoit `vigil_*` en double
+  > émission des métriques Prometheus. Si le renommage passe avant A2 (ordre
+  > prévu — voir A1 §9.5), cette hypothèse « `usg_watchdog_*` inchangées »
+  > devra être relue au démarrage d'A2.
 - **Failure definition** : un secours dégradé ou un forfait épuisé passe
   inaperçu ; OU un reboot part depuis HA sans garde-fou ; OU les dashboards
   Grafana existants cassent ; OU un échec de commande est invisible côté HA.

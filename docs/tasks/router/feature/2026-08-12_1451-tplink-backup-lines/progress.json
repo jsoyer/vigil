@@ -5,7 +5,7 @@
   "created": "2026-08-12",
   "target_version": "1.9.0",
   "branch": "dev",
-  "status": "planned",
+  "status": "superseded",
   "supersedes": "docs/tasks/router/feature/2026-06-26_1200-multi-vendor-tplink.md",
   "adr": "docs/adr/0001-multi-vendor-router-monitoring.md",
   "invariants": "docs/tasks/router/feature/2026-08-12_1451-tplink-backup-lines/INVARIANTS.md",
@@ -38,7 +38,7 @@
       "id": 1,
       "title": "Chemin reseau Pi Zero + spike MR110 + contrat RouterDriver",
       "spec": "sprints/01-chemin-reseau-spike-contrat.md",
-      "status": "pending",
+      "status": "skipped",
       "depends_on": [],
       "risk": "gate",
       "isolation": "worktree",
@@ -52,26 +52,28 @@
       ],
       "files_to_modify": [],
       "files_read_only": ["src/usg.py", "src/connectivity.py"],
-      "notes": "Comporte du travail d'infrastructure hors depot (config reseau des Pi Zero et des hotes watchdog), documente dans le runbook."
+      "notes": "Comporte du travail d'infrastructure hors depot (config reseau des Pi Zero et des hotes watchdog), documente dans le runbook.",
+      "superseded_note": "PRD remplace. Ce sprint est repris par A1 sprint 1 (docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/sprints/01-chemin-reseau-spike-contrat.md)."
     },
     {
       "id": 2,
       "title": "TplinkDriver + sonde etagee (attribution de panne)",
       "spec": "sprints/02-tplink-driver.md",
-      "status": "pending",
+      "status": "skipped",
       "depends_on": [1],
       "risk": "medium",
       "isolation": "worktree",
       "files_to_create": ["src/drivers/tplink.py", "tests/test_drivers_tplink.py"],
       "files_to_modify": ["requirements.txt", "src/config.py"],
       "files_read_only": ["src/drivers/_base.py", "docs/spikes/", "docs/runbooks/"],
-      "forbidden": ["src/watchdog.py", "src/state.py", "src/peer.py", "src/connectivity.py", "src/usg.py"]
+      "forbidden": ["src/watchdog.py", "src/state.py", "src/peer.py", "src/connectivity.py", "src/usg.py"],
+      "superseded_note": "PRD remplace. Ce sprint est repris par A1 sprint 2 (docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/sprints/02-tplink-driver.md)."
     },
     {
       "id": 3,
       "title": "Commandes de management operateur (API + Telegram)",
       "spec": "sprints/03-commandes-management.md",
-      "status": "pending",
+      "status": "skipped",
       "depends_on": [1, 2],
       "risk": "medium",
       "isolation": "worktree",
@@ -85,13 +87,14 @@
       ],
       "files_read_only": ["src/drivers/", "docs/spikes/"],
       "forbidden": ["src/watchdog.py", "src/state.py", "src/peer.py", "src/connectivity.py"],
-      "notes": "Livrable prioritaire demande par l'utilisateur."
+      "notes": "Livrable prioritaire demande par l'utilisateur.",
+      "superseded_note": "PRD remplace. Ce sprint est repris par A1 sprint 3 (docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/sprints/03-commandes-management.md)."
     },
     {
       "id": 4,
       "title": "Observabilite : dashboard, Prometheus, quota, usage",
       "spec": "sprints/04-observabilite-tplink.md",
-      "status": "pending",
+      "status": "skipped",
       "depends_on": [1, 2, 3],
       "risk": "low",
       "isolation": "worktree",
@@ -107,13 +110,14 @@
       ],
       "files_read_only": ["src/drivers/", "src/http_server.py"],
       "forbidden": ["src/watchdog.py", "src/state.py", "src/peer.py", "src/multiwan.py"],
-      "shared_contracts": ["noms de metriques Prometheus (consommes par Grafana)"]
+      "shared_contracts": ["noms de metriques Prometheus (consommes par Grafana)"],
+      "superseded_note": "PRD remplace. Repris par A2 sprints 1 et 2 (docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/sprints/01-quota-et-usage.md et 02-dashboard-prometheus.md)."
     },
     {
       "id": 5,
       "title": "Auto-updater (C2), docs, release 1.9.0",
       "spec": "sprints/05-updater-docs-release.md",
-      "status": "pending",
+      "status": "skipped",
       "depends_on": [1, 2, 3, 4],
       "risk": "medium",
       "isolation": "worktree",
@@ -132,7 +136,8 @@
       "files_read_only": ["src/"],
       "shared_contracts": [
         "processus d'auto-update : touche les 4 instances de production sans intervention humaine"
-      ]
+      ],
+      "superseded_note": "PRD remplace. Le pip install de l'updater (C2) est deja livre en 1.8.3 (updater/update.py::install_requirements). Repris par A1 sprint 4 (docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/sprints/04-updater-docs-release.md)."
     }
   ]
 }

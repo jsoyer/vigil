@@ -10,9 +10,9 @@
   "invariants": "docs/tasks/router/feature/2026-08-20_1618-a1-pilotage-tplink/INVARIANTS.md",
   "prerequisite": {
     "bugfix": "docs/tasks/router/bugfix/2026-08-20_1618-mqtt-instance-identity.md",
-    "version": "1.8.1",
+    "version": "1.8.1, 1.8.2, 1.8.3",
     "blocking_for": "A2",
-    "note": "Bug existant, independant des TP-Link. Recommande avant A1, bloquant avant A2."
+    "note": "Livre 2026-08-23. 1.8.1 : identite MQTT par instance. 1.8.2 : layout releases/current + verification de version par l'updater + identite vigil_*. 1.8.3 : release.sh idempotent + pip install des dependances par l'updater. Recommande avant A1, bloquant avant A2."
   },
   "follow_up": {
     "a2": "docs/tasks/router/feature/2026-08-20_1618-a2-exposition-ha/spec.md",

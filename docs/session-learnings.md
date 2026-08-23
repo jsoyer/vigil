@@ -21,6 +21,32 @@ migration.
 
 ---
 
+## Ship Pipeline State — 1.8.3 (2026-08-23)
+
+- **Version** : 1.8.3 (release.sh idempotent + tag annoté sans GPG + dry-run ;
+  updater : pip install de requirements.txt avant bascule)
+- Release faite **avec release.sh réparé** (dogfooding, dry-run puis réel) ;
+  `main`, `dev`, tag `v1.8.3` poussés (commits `df77884` + `a547666`)
+- **E2E RÉUSSI sur les 4 Pi** : updater déclenché manuellement, chacun a tiré
+  la 1.8.3 tout seul — « Health check OK : status=healthy version=1.8.3 »
+  (la vérification de version livrée en 1.8.2 a fonctionné en réel)
+- MQTT reconnecté partout après restart (rc=0)
+
+### `DEPLOY` — L'updater ne se met pas à jour lui-même (découvert 2026-08-23)
+
+`/opt/usg-watchdog/updater/` n'est réécrit que par `deploy.sh` ; les releases
+de l'updater ne contiennent que `src/` + `VERSION`. Le fix pip-install (1.8.3)
+serait resté inactif sans intervention. Contourné : copie manuelle depuis les
+clones git sur les 4 Pi. Dette réelle → PRD renommage ou 1.8.4.
+
+### État suivant (2026-08-23) — plan global repris
+
+Ordre validé par audit : ~~1.8.3~~ (fait) → **grand renommage Vigil (2.0.0,
+PRD en relecture : docs/tasks/router/refactor/2026-08-23_1130-grand-renommage-vigil.md,
+5 questions ouvertes posées à l'utilisateur)** → A1 TP-Link (1.9.0... numéro à
+revoir si 2.0.0 passe avant) → A2 exposition HA. Avant A1 : re-tagger
+`build-candidate/a1` et `a2` (pointent sur 54a4dcc, antérieur à tout 1.8.x).
+
 ## Ship Pipeline State — 1.8.2 (2026-08-23)
 
 - **Version** : 1.8.2 (unit systemd → `current/src`, deploy.sh → layout releases,

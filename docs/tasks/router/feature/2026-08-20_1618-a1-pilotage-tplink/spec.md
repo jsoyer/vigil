@@ -6,7 +6,7 @@
 - **ADR** : [docs/adr/0001-multi-vendor-router-monitoring.md](../../../../adr/0001-multi-vendor-router-monitoring.md)
 - **Version cible** : 1.9.0 (minor)
 - **Branche** : `dev` → PR → `main`
-- **Pré-requis** : bugfix [1.8.1 identité MQTT](../../bugfix/2026-08-20_1618-mqtt-instance-identity.md) livré (bloquant pour A2, recommandé avant A1)
+- **Pré-requis** : 1.8.1 (identité MQTT par instance), 1.8.2 (layout releases/current + vérification de version par l'updater + identité `vigil_*`) et 1.8.3 (`release.sh` idempotent + `pip install` des dépendances par l'updater) livrés — bloquant pour A2, recommandé avant A1
 - **Suites** : [A2 — Exposition & Home Assistant](../2026-08-20_1618-a2-exposition-ha/spec.md) puis PRD B (§9)
 - **Remplace** : `2026-08-12_1451-tplink-backup-lines/` (superseded)
 
@@ -443,6 +443,13 @@ d'autres.
 **Trigger de réouverture** : ≥ 3 vendors, ou distribution publique. Voie la moins
 risquée : renommage **en deux temps** (alias systemd + double émission des
 métriques, puis suppression une version plus tard).
+
+> **Mise à jour 2026-08-23** : décision prise, indépendamment du trigger
+> ci-dessus. Le logiciel devient **Vigil**. PRD dédié :
+> [2026-08-23_1130-grand-renommage-vigil.md](../../refactor/2026-08-23_1130-grand-renommage-vigil.md)
+> (en attente de relecture utilisateur). Le renommage passera **avant A1**.
+> L'identité MQTT est déjà `vigil_*` depuis 1.8.2 — voir le pré-requis en tête
+> de document.
 
 ## 10. Risques
 

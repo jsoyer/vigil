@@ -53,12 +53,27 @@ dépendances — le venv est partagé et seul `deploy.sh` lit
 
 ## Critères d'acceptation
 
-- [ ] `release.sh` idempotent sur `VERSION` déjà bumpé ; tag annoté sans GPG ;
-      erreur claire si tag existant
-- [ ] L'updater installe `requirements.txt` de la release stagée avant la
-      bascule ; échec = abandon propre sans bascule (tests)
-- [ ] `./scripts/validate.sh` vert, coverage ≥ 80 %
-- [ ] `VERSION` = 1.8.3, tag annoté, `dev` resynchronisé
-- [ ] Vérification E2E réelle : déclenchement manuel de l'updater sur un Pi,
+- [x] `release.sh` idempotent sur `VERSION` déjà bumpé ; tag annoté sans GPG ;
+      erreur claire si tag existant — vérifié en dry-run **et** en release
+      réelle (1.8.3 taguée avec)
+- [x] L'updater installe `requirements.txt` de la release stagée avant la
+      bascule ; échec = abandon propre sans bascule (tests) — livré avec tests
+      (`updater/update.py::install_requirements`, `tests/test_update.py`)
+- [x] `./scripts/validate.sh` vert, coverage ≥ 80 % — vert, 841 tests, 92 %
+- [x] `VERSION` = 1.8.3, tag annoté, `dev` resynchronisé
+- [x] Vérification E2E réelle : déclenchement manuel de l'updater sur un Pi,
       qui doit tirer la 1.8.3, la valider, basculer, redémarrer et annoncer
-      `1.8.3` dans `/health`
+      `1.8.3` dans `/health` — fait sur les **4 Pi** : tous passés 1.8.2→1.8.3
+      avec « Health check OK : status=healthy version=1.8.3 »
+
+## Issues
+
+- (a) **Résolu, livré 2026-08-23** : les deux dettes ci-dessus (release.sh
+  idempotent, pip install de l'updater) sont corrigées et vérifiées en
+  production sur les 4 instances.
+- (b) **Découverte pendant la vérification** : l'updater ne met pas à jour sa
+  propre copie. `/opt/usg-watchdog/updater/` n'est réécrit que par
+  `deploy.sh` — les releases tirées par l'auto-updater ne contiennent que
+  `src/` et `VERSION`. Contourné à la main le 2026-08-23 (copie depuis les
+  clones git sur chaque Pi). Dette réelle, non corrigée ici : à traiter dans
+  le PRD renommage Vigil ou dans une 1.8.4.
