@@ -4,7 +4,7 @@
   "created": "2026-08-23",
   "target_version": "2.0.0",
   "branch": "dev",
-  "status": "planned",
+  "status": "done",
   "invariants": "docs/tasks/router/refactor/2026-08-23_1130-grand-renommage-vigil/INVARIANTS.md",
   "decisions": "PRD section 0bis (2026-08-23) : Q1 nouvel utilisateur vigil cree par deploy.sh (jamais usermod -l, ancien supprime a J+7) ; Q2 bascule seche des metriques (vigil_* seul, pas de double emission) ; Q3 depot jsoyer/vigil ; Q4 /opt/vigil ; Q5 pas d'alias systemd ; Q6 fenetre immediate, flotte migree dans la meme fenetre ; Q7 1.8.3 satisfait ; Q8 src/watchdog.py inchange.",
   "prerequisite": {
@@ -17,25 +17,29 @@
       "id": "s1-s4-merged-before-fleet",
       "before_sprint": 5,
       "blocking": true,
-      "description": "Les sprints 1 a 4 doivent etre merges sur main (via dev -> PR) et scripts/validate.sh vert avant d'ouvrir la fenetre de migration flotte. Le sprint 5 opere depuis un clone git de main a jour, pas depuis une branche de travail."
+      "description": "Les sprints 1 a 4 doivent etre merges sur main (via dev -> PR) et scripts/validate.sh vert avant d'ouvrir la fenetre de migration flotte. Le sprint 5 opere depuis un clone git de main a jour, pas depuis une branche de travail.",
+      "satisfied": true
     },
     {
       "id": "env-mqtt-prefix-audit",
       "before_sprint": 5,
       "blocking": true,
-      "description": "grep MQTT_TOPIC_PREFIX /opt/usg-watchdog/.env sur les 4 Pi avant migration (PRD section 2.7) : confirmer que les 4 instances portent un prefixe explicite vigil/<site>-<role> et qu'aucune ne s'appuie sur le defaut usg-watchdog qui devient vigil en 2.0.0."
+      "description": "grep MQTT_TOPIC_PREFIX /opt/usg-watchdog/.env sur les 4 Pi avant migration (PRD section 2.7) : confirmer que les 4 instances portent un prefixe explicite vigil/<site>-<role> et qu'aucune ne s'appuie sur le defaut usg-watchdog qui devient vigil en 2.0.0.",
+      "satisfied": true
     },
     {
       "id": "updater-timers-frozen",
       "in_sprint": 5,
       "blocking": true,
-      "description": "systemctl disable --now usg-watchdog-updater.timer sur les 4 Pi avant la premiere bascule, reactive uniquement sous le nom vigil-updater.timer une fois chaque instance validee. Aucun updater ne doit tourner pendant la fenetre de migration (PRD section 5.1)."
+      "description": "systemctl disable --now usg-watchdog-updater.timer sur les 4 Pi avant la premiere bascule, reactive uniquement sous le nom vigil-updater.timer une fois chaque instance validee. Aucun updater ne doit tourner pendant la fenetre de migration (PRD section 5.1).",
+      "satisfied": true
     },
     {
       "id": "tag-v2.0.0-posted-last",
       "in_sprint": 5,
       "blocking": true,
-      "description": "Le tag v2.0.0 n'est pousse qu'apres la validation des 4 Pi (bbh-dij-guardian, bbh-nce-guardian, bbh-network, penelope), jamais avant. Tant qu'il n'existe pas, aucun updater non migre ne peut tirer la 2.0.0. Violer cet ordre expose le risque n1 du PRD (section 8)."
+      "description": "Le tag v2.0.0 n'est pousse qu'apres la validation des 4 Pi (bbh-dij-guardian, bbh-nce-guardian, bbh-network, penelope), jamais avant. Tant qu'il n'existe pas, aucun updater non migre ne peut tirer la 2.0.0. Violer cet ordre expose le risque n1 du PRD (section 8).",
+      "satisfied": true
     }
   ],
   "sprints": [
@@ -43,7 +47,7 @@
       "id": 1,
       "title": "Depot GitHub, redirection et documentation vivante",
       "spec": "sprints/01-depot-documentation.md",
-      "status": "pending",
+      "status": "done",
       "depends_on": [],
       "risk": "medium",
       "isolation": "worktree",
@@ -68,8 +72,10 @@
       "id": 2,
       "title": "Unites systemd, scripts et arborescence /opt/vigil",
       "spec": "sprints/02-systemd-scripts.md",
-      "status": "pending",
-      "depends_on": [1],
+      "status": "done",
+      "depends_on": [
+        1
+      ],
       "risk": "medium",
       "isolation": "worktree",
       "files_to_create": [
@@ -103,8 +109,11 @@
       "id": 3,
       "title": "Code applicatif : chemins, libelles, repli de compatibilite",
       "spec": "sprints/03-code-applicatif.md",
-      "status": "pending",
-      "depends_on": [1, 2],
+      "status": "done",
+      "depends_on": [
+        1,
+        2
+      ],
       "risk": "medium",
       "isolation": "worktree",
       "files_to_create": [
@@ -161,8 +170,12 @@
       "id": 4,
       "title": "Metriques Prometheus et Grafana (bascule seche)",
       "spec": "sprints/04-metriques-prometheus-grafana.md",
-      "status": "pending",
-      "depends_on": [1, 2, 3],
+      "status": "done",
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
       "risk": "low",
       "isolation": "worktree",
       "files_to_create": [],
@@ -184,8 +197,13 @@
       "id": 5,
       "title": "Migration de la flotte et release 2.0.0 (runbook operateur)",
       "spec": "sprints/05-migration-flotte-release.md",
-      "status": "pending",
-      "depends_on": [1, 2, 3, 4],
+      "status": "done",
+      "depends_on": [
+        1,
+        2,
+        3,
+        4
+      ],
       "risk": "gate",
       "isolation": "none",
       "files_to_create": [
@@ -198,5 +216,6 @@
       "files_read_only": [],
       "notes": "Pas un sprint de code : c'est un runbook execute manuellement (SSH) par l'operateur sur les 4 Pi de production, dans l'ordre slave -> verif -> master -> verif site, site par site (Dijon puis Nice). Pas d'isolation worktree pertinente ici -- ce sprint touche des machines hors depot. Le tag v2.0.0 n'est pousse qu'a la toute fin, apres les 4 Pi valides (gate tag-v2.0.0-posted-last)."
     }
-  ]
+  ],
+  "completed": "2026-08-23"
 }

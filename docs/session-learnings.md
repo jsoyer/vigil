@@ -5,7 +5,60 @@ vérifiée), documentation vivante (README, DEPLOY, WORKFLOW, CLAUDE.md,
 template d'issue) mise à jour vers Vigil v2.0.0. Le routeur Ubiquiti reste
 désigné USG (src/usg.py, USG_IP, etc. inchangés).
 
-# Session Learnings — USG Watchdog
+# Session Learnings — Vigil (ex-USG Watchdog)
+
+## Ship Pipeline State — 2.0.0 GRAND RENOMMAGE VIGIL (2026-08-23) ✅ LIVRÉ
+
+- **Les 4 Pi migrés et vérifiés en Vigil 2.0.0** le jour même (~11:00→12:35) :
+  dijon-slave (cobaye) → dijon-master → nice-slave → nice-master, slaves
+  d'abord, un site toujours couvert, fenêtres 30 min intra-site respectées
+  (15 min inter-site, marge non stricte compressée sur décision).
+- Repo GitHub renommé `jsoyer/vigil`, redirection API+tarball prouvée en réel.
+- Tag annoté `v2.0.0` posé EN DERNIER (invariant respecté), via release.sh
+  chemin idempotent. Sprints 1-4 committés/poussés au fil de l'eau.
+- Sur chaque Pi : service `vigil`, user `vigil` (nouveau), `/opt/vigil`,
+  venv recréé, métriques `vigil_*` seules (bascule sèche), MQTT rc=0,
+  `/opt/usg-watchdog` + unit désactivée conservés (rollback J+7).
+
+### Écarts vs runbook (consignés, tous justifiés)
+
+1. **VERSION bump AVANT la migration** (le runbook le plaçait après — or
+   deploy.sh installe `releases/v$(cat VERSION)` et l'étape 7 exige
+   /health=2.0.0). Le tag, lui, est bien resté en dernier.
+2. **Épinglage étape 2 abandonné après le cobaye** : les chemins épinglés
+   copiés dans /opt/vigil/.env rendaient la clé SSH illisible par le user
+   vigil et le log ininscriptible. Retirés sur le cobaye, jamais posés sur
+   les 3 suivants (l'ancien service 1.8.3 a ses chemins en dur, il n'en a
+   pas besoin).
+3. **`restart vigil` ajouté après la bascule** : le chevauchement
+   vieux/nouveau service produit un conflit port 9000 + client_id MQTT
+   (ERROR transitoire attendu dans le journal au premier démarrage).
+4. **`fetch --tags --force` requis** sur les clones (re-tag des
+   build-candidate) — un fetch --tags simple sort en erreur et casse les
+   chaînes &&.
+5. penelope utilise une clé `usg_rsa` (pas usg_ed25519) — la détection
+   multi-noms du code la trouve ; adapter les vérifications.
+6. nice-slave avait une modif locale de clone (USG_IP défaut 192.168.3.1
+   dans setup_ssh.sh) → stash `site-local: USG_IP nice` récupérable.
+
+### `LOGIC` — Persistance des événements : la VRAIE cause racine (2026-08-23)
+
+Le fix Sprint 2 (ReadWritePaths sur le fichier) était insuffisant : l'écriture
+atomique `.tmp` + `rename` exige un RÉPERTOIRE inscriptible sous
+ProtectSystem=strict, et l'erreur est avalée en debug. Fix final :
+`StateDirectory=vigil` → `/var/lib/vigil/events.json`. **Première persistance
+d'événements fonctionnelle de l'histoire du projet** (vérifiée non vide sur
+les 4 Pi). Leçon : un fix de permissions doit être testé avec le VRAI pattern
+d'écriture du code, pas avec un `test -w` sur le fichier.
+
+### Reste à faire (post-2.0.0)
+
+- **J+7 (≥ 2026-08-30, sur demande explicite uniquement)** : purge des
+  vestiges usg-watchdog sur les 4 Pi (runbook § dédié).
+- Grafana : réimporter `grafana/dashboard.json` (uid `vigil`) ; l'historique
+  `usg_watchdog_*` s'arrête au 2026-08-23 (bascule sèche assumée).
+- Plan global : A1 pilotage TP-Link (2.1.0) prêt à démarrer, puis A2 (2.2.0).
+- Le clone local est désormais ~/github/vigil (symlink usg-watchdog conservé).
 
 Mémoire vivante de session. Survit à `/compact`. Append-only par catégorie.
 
