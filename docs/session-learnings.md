@@ -7,6 +7,24 @@ désigné USG (src/usg.py, USG_IP, etc. inchangés).
 
 # Session Learnings — Vigil (ex-USG Watchdog)
 
+## Ship Pipeline State — plan global (2026-08-23, après-midi)
+
+- **2.0.1 livrée** : les 3 micro-dettes (auto-update updater, tar filter,
+  USG_IP depuis .env). Flotte passée en 2.0.1 par ses propres updaters ;
+  copies updater amorcées une dernière fois à la main — à partir de la
+  prochaine release, l'updater se met à jour seul.
+- **A1 en cours sur `dev`** (cible 2.1.0) :
+  - Sprint 1 logiciel ✅ (`src/drivers/_base.py` contrat + spike CLI,
+    commit 81a665e) ; **partie terrain BLOQUÉE** en attente utilisateur :
+    IP/SSH des Pi Zero ponts, IP + mdp admin des MR110, mode
+    bridged/remote par site, matériel allumé.
+  - Pré-Sprint 3 ✅ (commit 6f38318) : parsing /lte + register_lte_handler
+    (bug @bot corrigé), src/confirm.py (jeton usage unique TTL 120s).
+  - Sprint 2 (TplinkDriver) : NE PAS lancer avant lecture du verdict du
+    spike (FULL/DEGRADED/UNSUPPORTED) — gate du PRD.
+- Piège récurrent consigné : glob shell évalué AVANT sudo sur répertoires
+  750 → « no matches found » trompeur ; toujours `sudo sh -c '... *.py ...'`.
+
 ## Ship Pipeline State — 2.0.0 GRAND RENOMMAGE VIGIL (2026-08-23) ✅ LIVRÉ
 
 - **Les 4 Pi migrés et vérifiés en Vigil 2.0.0** le jour même (~11:00→12:35) :
