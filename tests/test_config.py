@@ -7,6 +7,7 @@ from unittest import mock
 
 def _reload_config():
     import src.config as config
+
     return importlib.reload(config)
 
 

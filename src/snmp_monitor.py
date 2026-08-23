@@ -10,6 +10,7 @@ from config import USG_IP
 @dataclass(frozen=True)
 class UsgMetrics:
     """USG health metrics via SNMP."""
+
     cpu_percent: float | None = None
     memory_percent: float | None = None
     uptime_seconds: int | None = None
@@ -23,7 +24,9 @@ class UsgMetrics:
             "reachable": self.reachable,
         }
 
-    def is_stressed(self, cpu_threshold: float = 90.0, mem_threshold: float = 90.0) -> bool:
+    def is_stressed(
+        self, cpu_threshold: float = 90.0, mem_threshold: float = 90.0
+    ) -> bool:
         """Check if USG is under stress."""
         if self.cpu_percent is not None and self.cpu_percent > cpu_threshold:
             return True
@@ -33,17 +36,30 @@ class UsgMetrics:
 
 
 # Standard OIDs
-_OID_UPTIME = "1.3.6.1.2.1.1.3.0"           # sysUpTime (timeticks)
-_OID_CPU_1MIN = "1.3.6.1.4.1.2021.11.9.0"   # ssCpuUser (UCD-SNMP)
-_OID_MEM_TOTAL = "1.3.6.1.4.1.2021.4.5.0"   # memTotalReal
-_OID_MEM_AVAIL = "1.3.6.1.4.1.2021.4.6.0"   # memAvailReal
+_OID_UPTIME = "1.3.6.1.2.1.1.3.0"  # sysUpTime (timeticks)
+_OID_CPU_1MIN = "1.3.6.1.4.1.2021.11.9.0"  # ssCpuUser (UCD-SNMP)
+_OID_MEM_TOTAL = "1.3.6.1.4.1.2021.4.5.0"  # memTotalReal
+_OID_MEM_AVAIL = "1.3.6.1.4.1.2021.4.6.0"  # memAvailReal
 
 
-def _snmpget(oid: str, host: str = USG_IP, community: str = "public", timeout: int = 5) -> str | None:
+def _snmpget(
+    oid: str, host: str = USG_IP, community: str = "public", timeout: int = 5
+) -> str | None:
     """Run snmpget and return the value string. Returns None on failure."""
     try:
         result = subprocess.run(
-            ["snmpget", "-v2c", "-c", community, "-t", str(timeout), "-r", "1", host, oid],
+            [
+                "snmpget",
+                "-v2c",
+                "-c",
+                community,
+                "-t",
+                str(timeout),
+                "-r",
+                "1",
+                host,
+                oid,
+            ],
             capture_output=True,
             text=True,
             timeout=timeout + 3,

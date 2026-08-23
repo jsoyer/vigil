@@ -38,10 +38,7 @@ def generate_daily_report(
     isp_outage_count = len(isp_outages)
 
     # Reboot helped ratio
-    helped_count = sum(
-        1 for r in recoveries
-        if r.get("data", {}).get("helped") is True
-    )
+    helped_count = sum(1 for r in recoveries if r.get("data", {}).get("helped") is True)
 
     # Outage durations from recovery events
     outage_durations: list[str] = []
@@ -58,7 +55,9 @@ def generate_daily_report(
     if uptime_hours > 0 and recovery_count > 0:
         # Rough estimate: each outage is ~5 min average if no data
         estimated_downtime_h = recovery_count * 0.1  # 6 min per outage
-        uptime_pct = max(0, min(100, ((uptime_hours - estimated_downtime_h) / uptime_hours) * 100))
+        uptime_pct = max(
+            0, min(100, ((uptime_hours - estimated_downtime_h) / uptime_hours) * 100)
+        )
     else:
         uptime_pct = 100.0 if recovery_count == 0 else 99.0
 
@@ -82,14 +81,16 @@ def generate_daily_report(
 def format_report_notification(report: dict) -> str:
     """Format a report dict as a human-readable notification message."""
     lines = [
-        f"Rapport USG Watchdog -- {report['date']}",
+        f"Rapport Vigil -- {report['date']}",
         f"  Uptime internet : ~{report['uptime_pct']}%",
         f"  Coupures : {report['outage_count']} ({report['outage_durations']})",
         f"  Reboots : {report['reboot_count']}",
     ]
 
     if report["reboot_count"] > 0:
-        lines.append(f"  Reboots utiles : {report['reboot_helped']}/{report['reboot_count']}")
+        lines.append(
+            f"  Reboots utiles : {report['reboot_helped']}/{report['reboot_count']}"
+        )
 
     if report["reboot_failed_count"] > 0:
         lines.append(f"  Reboots echoues : {report['reboot_failed_count']}")
@@ -119,12 +120,15 @@ def generate_weekly_report(
     prev_week_start = today - timedelta(days=14)
 
     week_events = [
-        e for e in all_events
+        e
+        for e in all_events
         if e["ts"][:10] >= week_start.isoformat() and e["ts"][:10] < today.isoformat()
     ]
     prev_events = [
-        e for e in all_events
-        if e["ts"][:10] >= prev_week_start.isoformat() and e["ts"][:10] < week_start.isoformat()
+        e
+        for e in all_events
+        if e["ts"][:10] >= prev_week_start.isoformat()
+        and e["ts"][:10] < week_start.isoformat()
     ]
 
     def count_type(events: list[dict], t: str) -> int:
@@ -187,7 +191,9 @@ def calculate_monthly_sla(event_log: EventLog) -> dict:
     days_in_month = (today - month_start).days + 1
     total_minutes = days_in_month * 24 * 60
     uptime_minutes = max(0, total_minutes - total_downtime_min)
-    uptime_pct = round((uptime_minutes / total_minutes) * 100, 3) if total_minutes > 0 else 100.0
+    uptime_pct = (
+        round((uptime_minutes / total_minutes) * 100, 3) if total_minutes > 0 else 100.0
+    )
 
     # SLA tier
     if uptime_pct >= 99.99:
@@ -238,7 +244,7 @@ def _parse_duration_to_minutes(dur: str) -> int:
 def format_weekly_report(report: dict) -> str:
     """Format a weekly report as notification text."""
     lines = [
-        f"Rapport hebdomadaire USG Watchdog",
+        f"Rapport hebdomadaire Vigil",
         f"Periode : {report['period']}",
         "",
         f"  Coupures : {report['outage_count']} ({report['outage_trend']})",

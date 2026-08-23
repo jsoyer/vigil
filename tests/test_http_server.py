@@ -48,12 +48,14 @@ class TestHttpServer:
         # Use port 0 to let the OS assign a free port
         from http.server import HTTPServer
         from src.http_server import _make_handler_class
+
         handler = _make_handler_class(self.holder)
         self.server = HTTPServer(("127.0.0.1", 0), handler)
         self.port = self.server.server_address[1]
         self.base_url = f"http://127.0.0.1:{self.port}"
 
         import threading
+
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -120,7 +122,7 @@ class TestHttpServer:
         status, ct, body = _get_raw(f"{self.base_url}/")
         assert status == 200
         assert "text/html" in ct
-        assert "USG Watchdog" in body
+        assert "Vigil" in body
         assert "gauge-fill" in body
         assert "/health" in body
 
@@ -172,6 +174,7 @@ class TestHttpServerWithEvents:
         self.base_url = f"http://127.0.0.1:{self.port}"
 
         import threading
+
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         yield
@@ -228,6 +231,7 @@ class TestControlAPI:
 
         # Patch API_TOKEN on the exact module object used by http_server
         import src.http_server as _http_server_mod
+
         _config = _http_server_mod._config  # same object the handler closes over
         _original_token = _config.API_TOKEN
         _config.API_TOKEN = _TEST_API_TOKEN
@@ -239,6 +243,7 @@ class TestControlAPI:
         self.base_url = f"http://127.0.0.1:{self.port}"
 
         import threading
+
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         yield
@@ -291,6 +296,7 @@ class TestControlAPI:
 # Helpers shared by the new test classes
 # ---------------------------------------------------------------------------
 
+
 def _post_authed_json(
     url: str,
     token: str,
@@ -314,6 +320,7 @@ def _post_authed_json(
 # Fixture factory -- reused by several test classes below
 # ---------------------------------------------------------------------------
 
+
 def _make_server(holder, event_log=None, history=None):
     """Spin up a server on a random port; return (server, port, base_url)."""
     from http.server import HTTPServer
@@ -332,6 +339,7 @@ def _make_server(holder, event_log=None, history=None):
 # GET routes: manifest, service-worker, 404
 # ---------------------------------------------------------------------------
 
+
 class TestGetStaticRoutes:
     @pytest.fixture(autouse=True)
     def _start(self):
@@ -349,7 +357,7 @@ class TestGetStaticRoutes:
         status, ct, body = _get_raw(f"{self.base_url}/manifest.json")
         data = json.loads(body)
         assert "name" in data
-        assert data["name"] == "USG Watchdog"
+        assert data["name"] == "Vigil"
 
     def test_sw_js_content_type(self):
         status, ct, body = _get_raw(f"{self.base_url}/sw.js")
@@ -369,12 +377,27 @@ class TestGetStaticRoutes:
         status, body = _get(f"{self.base_url}/api/config")
         assert status == 200
         expected_keys = {
-            "check_interval", "reboot_score_threshold", "max_score",
-            "score_gateway_down", "score_internet_all_down", "score_internet_partial",
-            "score_decay_ok", "score_decay_partial", "post_reboot_grace",
-            "reboot_cooldown", "max_reboot_cooldown", "max_reboots_per_day",
-            "usg_reboot_wait", "usg_ip", "instance_priority", "peer_ip", "peer_port",
-            "http_port", "peer_takeover_delay", "ping_targets", "ping_timeout",
+            "check_interval",
+            "reboot_score_threshold",
+            "max_score",
+            "score_gateway_down",
+            "score_internet_all_down",
+            "score_internet_partial",
+            "score_decay_ok",
+            "score_decay_partial",
+            "post_reboot_grace",
+            "reboot_cooldown",
+            "max_reboot_cooldown",
+            "max_reboots_per_day",
+            "usg_reboot_wait",
+            "usg_ip",
+            "instance_priority",
+            "peer_ip",
+            "peer_port",
+            "http_port",
+            "peer_takeover_delay",
+            "ping_targets",
+            "ping_timeout",
             "isp_outage_detection_delay",
         }
         for key in expected_keys:
@@ -384,10 +407,15 @@ class TestGetStaticRoutes:
         status, body = _get(f"{self.base_url}/api/config")
         body_str = json.dumps(body)
         secret_keys = [
-            "API_TOKEN", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
-            "USG_SSH_KEY", "USG_SSH_PASSWORD",
-            "CLOUDFLARE_API_TOKEN", "TAILSCALE_API_KEY",
-            "MQTT_PASSWORD", "SMTP_PASSWORD",
+            "API_TOKEN",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_CHAT_ID",
+            "USG_SSH_KEY",
+            "USG_SSH_PASSWORD",
+            "CLOUDFLARE_API_TOKEN",
+            "TAILSCALE_API_KEY",
+            "MQTT_PASSWORD",
+            "SMTP_PASSWORD",
         ]
         for key in secret_keys:
             assert key not in body_str, f"Secret key leaked in /api/config: {key}"
@@ -400,6 +428,7 @@ class TestGetStaticRoutes:
 
     def test_api_maintenance_get_with_state(self):
         from src.state import WatchdogState
+
         self.holder.state = WatchdogState(surveillance_only=True)
         status, body = _get(f"{self.base_url}/api/maintenance")
         assert status == 200
@@ -413,6 +442,7 @@ class TestGetStaticRoutes:
 
     def test_metrics_with_state(self):
         from src.state import WatchdogState
+
         self.holder.state = WatchdogState(failure_score=3, reboots_today=1)
         status, ct, body = _get_raw(f"{self.base_url}/metrics")
         assert status == 200
@@ -428,6 +458,7 @@ class TestGetStaticRoutes:
 # ---------------------------------------------------------------------------
 # GET /api/history and /api/sla
 # ---------------------------------------------------------------------------
+
 
 class TestGetHistoryAndSla:
     @pytest.fixture(autouse=True)
@@ -462,7 +493,9 @@ class TestGetHistoryAndSla:
         assert body[1]["score"] == 7
 
     def test_history_data_structure(self):
-        self.history.record(score=3, gateway_rtt=8.0, internet_rtt=15.0, download_mbps=100.0)
+        self.history.record(
+            score=3, gateway_rtt=8.0, internet_rtt=15.0, download_mbps=100.0
+        )
         status, body = _get(f"{self.base_url}/api/history")
         point = body[0]
         assert "ts" in point
@@ -508,6 +541,7 @@ class TestGetHistoryAndSla:
 # GET /api/report
 # ---------------------------------------------------------------------------
 
+
 class TestGetReport:
     @pytest.fixture(autouse=True)
     def _start(self, tmp_path):
@@ -550,6 +584,7 @@ class TestGetReport:
 # GET /api/backup/unifi
 # ---------------------------------------------------------------------------
 
+
 class TestGetBackupUnifi:
     @pytest.fixture(autouse=True)
     def _start(self):
@@ -570,8 +605,10 @@ class TestGetBackupUnifi:
     def test_backup_configured_no_latest(self):
         import unittest.mock as mock
 
-        with mock.patch("backup_unifi.is_configured", return_value=True), \
-             mock.patch("backup_unifi.find_latest_backup", return_value=None):
+        with (
+            mock.patch("backup_unifi.is_configured", return_value=True),
+            mock.patch("backup_unifi.find_latest_backup", return_value=None),
+        ):
             status, body = _get(f"{self.base_url}/api/backup/unifi")
         assert status == 200
         assert body["configured"] is True
@@ -584,9 +621,11 @@ class TestGetBackupUnifi:
         fake_file = tmp_path / "backup_2026-03-31.unf"
         fake_file.write_bytes(b"x" * 1024 * 512)  # 0.5 MB
 
-        with mock.patch("backup_unifi.is_configured", return_value=True), \
-             mock.patch("backup_unifi.find_latest_backup", return_value=fake_file), \
-             mock.patch("backup_unifi.check_backup_age", return_value=(False, 12.5)):
+        with (
+            mock.patch("backup_unifi.is_configured", return_value=True),
+            mock.patch("backup_unifi.find_latest_backup", return_value=fake_file),
+            mock.patch("backup_unifi.check_backup_age", return_value=(False, 12.5)),
+        ):
             status, body = _get(f"{self.base_url}/api/backup/unifi")
         assert status == 200
         assert body["configured"] is True
@@ -598,6 +637,7 @@ class TestGetBackupUnifi:
 # ---------------------------------------------------------------------------
 # GET /api/backup/config (export safe config)
 # ---------------------------------------------------------------------------
+
 
 class TestGetBackupConfig:
     @pytest.fixture(autouse=True)
@@ -639,10 +679,17 @@ class TestGetBackupConfig:
         status, body = _get(f"{self.base_url}/api/backup/config")
         body_str = json.dumps(body)
         secret_keys = [
-            "API_TOKEN", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
-            "USG_SSH_PASSWORD", "CLOUDFLARE_API_TOKEN", "TAILSCALE_API_KEY",
-            "MQTT_PASSWORD", "SMTP_PASSWORD", "PUSHOVER_API_TOKEN",
-            "DISCORD_WEBHOOK_URL", "SLACK_WEBHOOK_URL",
+            "API_TOKEN",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_CHAT_ID",
+            "USG_SSH_PASSWORD",
+            "CLOUDFLARE_API_TOKEN",
+            "TAILSCALE_API_KEY",
+            "MQTT_PASSWORD",
+            "SMTP_PASSWORD",
+            "PUSHOVER_API_TOKEN",
+            "DISCORD_WEBHOOK_URL",
+            "SLACK_WEBHOOK_URL",
         ]
         for key in secret_keys:
             assert key not in body_str, f"Secret leaked in /api/backup/config: {key}"
@@ -657,6 +704,7 @@ class TestGetBackupConfig:
 # ---------------------------------------------------------------------------
 # POST auth tests (no token, wrong token, empty token)
 # ---------------------------------------------------------------------------
+
 
 class TestPostAuth:
     @pytest.fixture(autouse=True)
@@ -701,6 +749,7 @@ class TestPostAuth:
 # ---------------------------------------------------------------------------
 # POST /api/maintenance
 # ---------------------------------------------------------------------------
+
 
 class TestPostMaintenance:
     @pytest.fixture(autouse=True)
@@ -770,9 +819,7 @@ class TestPostMaintenance:
 
     def test_maintenance_queues_command(self):
         payload = json.dumps({"duration_minutes": 30}).encode("utf-8")
-        _post_authed_json(
-            f"{self.base_url}/api/maintenance", _TEST_API_TOKEN, payload
-        )
+        _post_authed_json(f"{self.base_url}/api/maintenance", _TEST_API_TOKEN, payload)
         cmd = self.holder.poll_command()
         assert cmd == "maintenance:30"
 
@@ -780,6 +827,7 @@ class TestPostMaintenance:
 # ---------------------------------------------------------------------------
 # POST /api/config/reload
 # ---------------------------------------------------------------------------
+
 
 class TestPostConfigReload:
     @pytest.fixture(autouse=True)
@@ -796,8 +844,11 @@ class TestPostConfigReload:
         self.server.shutdown()
         self._config.API_TOKEN = self._original_token
 
-    def test_reload_when_env_absent(self):
-        # /opt/usg-watchdog/.env won't exist in test env -- should still return ok
+    def test_reload_when_env_absent(self, monkeypatch):
+        # Neither /opt/vigil nor /opt/usg-watchdog present -- resolves to the
+        # new default (/opt/vigil/.env), which won't exist in test env either
+        # way -- should still return ok.
+        monkeypatch.setattr("os.path.isdir", lambda path: False)
         status, body = _post_authed(
             f"{self.base_url}/api/config/reload", _TEST_API_TOKEN
         )
@@ -813,8 +864,10 @@ class TestPostConfigReload:
         env_file = tmp_path / ".env"
         env_file.write_text(env_content)
 
-        with mock.patch("os.path.exists", return_value=True), \
-             mock.patch("builtins.open", mock.mock_open(read_data=env_content)):
+        with (
+            mock.patch("os.path.exists", return_value=True),
+            mock.patch("builtins.open", mock.mock_open(read_data=env_content)),
+        ):
             status, body = _post_authed(
                 f"{self.base_url}/api/config/reload", _TEST_API_TOKEN
             )
@@ -825,6 +878,7 @@ class TestPostConfigReload:
 # ---------------------------------------------------------------------------
 # POST /api/ddns/update
 # ---------------------------------------------------------------------------
+
 
 class TestPostDdnsUpdate:
     @pytest.fixture(autouse=True)
@@ -850,13 +904,18 @@ class TestPostDdnsUpdate:
             )
         assert status == 200
         assert body["ok"] is False
-        assert "not configured" in body.get("error", "").lower() or "ddns" in body.get("error", "").lower()
+        assert (
+            "not configured" in body.get("error", "").lower()
+            or "ddns" in body.get("error", "").lower()
+        )
 
     def test_ddns_ip_detection_failed(self):
         import unittest.mock as mock
 
-        with mock.patch("ddns_cloudflare.is_configured", return_value=True), \
-             mock.patch("ddns_cloudflare.check_and_update", return_value=None):
+        with (
+            mock.patch("ddns_cloudflare.is_configured", return_value=True),
+            mock.patch("ddns_cloudflare.check_and_update", return_value=None),
+        ):
             status, body = _post_authed(
                 f"{self.base_url}/api/ddns/update", _TEST_API_TOKEN
             )
@@ -874,8 +933,10 @@ class TestPostDdnsUpdate:
             records_updated=2,
             records_failed=0,
         )
-        with mock.patch("ddns_cloudflare.is_configured", return_value=True), \
-             mock.patch("ddns_cloudflare.check_and_update", return_value=fake_result):
+        with (
+            mock.patch("ddns_cloudflare.is_configured", return_value=True),
+            mock.patch("ddns_cloudflare.check_and_update", return_value=fake_result),
+        ):
             status, body = _post_authed(
                 f"{self.base_url}/api/ddns/update", _TEST_API_TOKEN
             )
@@ -888,6 +949,7 @@ class TestPostDdnsUpdate:
 # ---------------------------------------------------------------------------
 # POST /api/tailscale/sync
 # ---------------------------------------------------------------------------
+
 
 class TestPostTailscaleSync:
     @pytest.fixture(autouse=True)
@@ -918,8 +980,10 @@ class TestPostTailscaleSync:
     def test_tailscale_sync_failed(self):
         import unittest.mock as mock
 
-        with mock.patch("tailscale_dns.is_configured", return_value=True), \
-             mock.patch("tailscale_dns.sync_tailscale_dns", return_value=None):
+        with (
+            mock.patch("tailscale_dns.is_configured", return_value=True),
+            mock.patch("tailscale_dns.sync_tailscale_dns", return_value=None),
+        ):
             status, body = _post_authed(
                 f"{self.base_url}/api/tailscale/sync", _TEST_API_TOKEN
             )
@@ -930,9 +994,13 @@ class TestPostTailscaleSync:
         import unittest.mock as mock
         from src.tailscale_dns import SyncResult
 
-        fake_result = SyncResult(created=1, updated=0, deleted=0, unchanged=3, errors=0, ok=True)
-        with mock.patch("tailscale_dns.is_configured", return_value=True), \
-             mock.patch("tailscale_dns.sync_tailscale_dns", return_value=fake_result):
+        fake_result = SyncResult(
+            created=1, updated=0, deleted=0, unchanged=3, errors=0, ok=True
+        )
+        with (
+            mock.patch("tailscale_dns.is_configured", return_value=True),
+            mock.patch("tailscale_dns.sync_tailscale_dns", return_value=fake_result),
+        ):
             status, body = _post_authed(
                 f"{self.base_url}/api/tailscale/sync", _TEST_API_TOKEN
             )
@@ -944,6 +1012,7 @@ class TestPostTailscaleSync:
 # ---------------------------------------------------------------------------
 # POST /api/backup/unifi
 # ---------------------------------------------------------------------------
+
 
 class TestPostBackupUnifi:
     @pytest.fixture(autouse=True)
@@ -981,8 +1050,10 @@ class TestPostBackupUnifi:
             size_bytes=512 * 1024,
             destination="drive:Unifi",
         )
-        with mock.patch("backup_unifi.is_configured", return_value=True), \
-             mock.patch("backup_unifi.run_backup", return_value=fake_result):
+        with (
+            mock.patch("backup_unifi.is_configured", return_value=True),
+            mock.patch("backup_unifi.run_backup", return_value=fake_result),
+        ):
             status, body = _post_authed(
                 f"{self.base_url}/api/backup/unifi", _TEST_API_TOKEN
             )
@@ -995,8 +1066,10 @@ class TestPostBackupUnifi:
         from src.backup_unifi import BackupResult
 
         fake_result = BackupResult(ok=False, error="rclone not found")
-        with mock.patch("backup_unifi.is_configured", return_value=True), \
-             mock.patch("backup_unifi.run_backup", return_value=fake_result):
+        with (
+            mock.patch("backup_unifi.is_configured", return_value=True),
+            mock.patch("backup_unifi.run_backup", return_value=fake_result),
+        ):
             status, body = _post_authed(
                 f"{self.base_url}/api/backup/unifi", _TEST_API_TOKEN
             )
@@ -1007,6 +1080,7 @@ class TestPostBackupUnifi:
 # ---------------------------------------------------------------------------
 # Edge cases: exception paths, surveillance status, invalid event count param
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     @pytest.fixture(autouse=True)
@@ -1032,6 +1106,7 @@ class TestEdgeCases:
 
     def test_health_surveillance_only_status(self):
         from src.state import WatchdogState
+
         self.holder.state = WatchdogState(surveillance_only=True)
         status, body = _get(f"{self.base_url}/health")
         assert status == 200
@@ -1048,9 +1123,12 @@ class TestEdgeCases:
     def test_get_500_on_handler_exception(self):
         import unittest.mock as mock
         import src.http_server as _mod
+
         # Patch render_metrics in the http_server module's own namespace so the
         # handler picks up the patched version at call time.
-        with mock.patch.object(_mod, "render_metrics", side_effect=RuntimeError("boom")):
+        with mock.patch.object(
+            _mod, "render_metrics", side_effect=RuntimeError("boom")
+        ):
             status, ct, raw = _get_raw(f"{self.base_url}/metrics")
         assert status == 500
         body = json.loads(raw)
@@ -1058,12 +1136,16 @@ class TestEdgeCases:
 
     def test_post_500_on_handler_exception(self):
         import unittest.mock as mock
+
         # StateHolder uses __slots__ so we cannot patch the instance directly.
         # Patch the class method instead and restore it after.
         from src.state import StateHolder as _SH
+
         original = _SH.send_command
         try:
-            _SH.send_command = lambda self, cmd: (_ for _ in ()).throw(RuntimeError("boom"))
+            _SH.send_command = lambda self, cmd: (_ for _ in ()).throw(
+                RuntimeError("boom")
+            )
             status, body = _post_authed(f"{self.base_url}/api/pause", _TEST_API_TOKEN)
         finally:
             _SH.send_command = original

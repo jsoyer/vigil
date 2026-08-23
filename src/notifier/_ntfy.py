@@ -8,9 +8,9 @@ from config import NTFY_URL, NTFY_TOPIC, NTFY_TIMEOUT
 from notifier._types import Level, NotificationContext, format_context_inline
 
 _LEVEL_PRIORITY: dict[Level, int] = {
-    Level.INFO: 3,       # default
-    Level.WARNING: 4,    # high
-    Level.CRITICAL: 5,   # urgent
+    Level.INFO: 3,  # default
+    Level.WARNING: 4,  # high
+    Level.CRITICAL: 5,  # urgent
 }
 
 _LEVEL_TAGS: dict[Level, str] = {
@@ -41,7 +41,7 @@ def send(
             body += f"\n{ctx_str}"
 
     headers = {
-        "Title": "USG Watchdog",
+        "Title": "Vigil",
         "Priority": str(_LEVEL_PRIORITY.get(level, 3)),
         "Tags": _LEVEL_TAGS.get(level, ""),
         "Content-Type": "text/plain; charset=utf-8",

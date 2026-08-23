@@ -1,5 +1,5 @@
 """
-Notification module -- multi-channel alerts for USG Watchdog.
+Notification module -- multi-channel alerts for Vigil.
 Supports Telegram, Discord, and Slack. All channels are optional.
 """
 

@@ -17,7 +17,9 @@ from src.report import (
 
 class TestGenerateDailyReport:
     def test_empty_events(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_daily_report(log, uptime_seconds=86400)
 
         assert report["outage_count"] == 0
@@ -25,7 +27,9 @@ class TestGenerateDailyReport:
         assert report["uptime_pct"] == 100.0
 
     def test_with_reboots_and_recoveries(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(REBOOT, attempt=1)
         log.record(REBOOT, attempt=2)
         log.record(RECOVERY, duration="5min", helped=True, reboots=2)
@@ -39,14 +43,18 @@ class TestGenerateDailyReport:
         assert report["reboot_helped"] == 1
 
     def test_with_isp_outage(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(ISP_OUTAGE, duration="2h")
 
         report = generate_daily_report(log)
         assert report["isp_outage_count"] == 1
 
     def test_with_failed_reboots(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(REBOOT_FAILED, ssh_failures=3)
         log.record(REBOOT_FAILED, ssh_failures=4)
 
@@ -54,29 +62,37 @@ class TestGenerateDailyReport:
         assert report["reboot_failed_count"] == 2
 
     def test_includes_peer_status(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_daily_report(log, peer_status="healthy")
         assert report["peer_status"] == "healthy"
 
     def test_includes_current_score(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_daily_report(log, current_score=7)
         assert report["current_score"] == 7
 
 
 class TestFormatReportNotification:
     def test_basic_format(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_daily_report(log, uptime_seconds=86400)
         text = format_report_notification(report)
 
-        assert "Rapport USG Watchdog" in text
+        assert "Rapport Vigil" in text
         assert "Uptime" in text
         assert "Coupures" in text
         assert "Reboots" in text
 
     def test_includes_reboot_details_when_reboots(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(REBOOT, attempt=1)
         log.record(RECOVERY, helped=True, reboots=1)
         report = generate_daily_report(log)
@@ -85,7 +101,9 @@ class TestFormatReportNotification:
         assert "utiles" in text
 
     def test_includes_isp_when_detected(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(ISP_OUTAGE, duration="1h")
         report = generate_daily_report(log)
         text = format_report_notification(report)
@@ -93,21 +111,27 @@ class TestFormatReportNotification:
         assert "ISP" in text
 
     def test_includes_peer_when_configured(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_daily_report(log, peer_status="healthy")
         text = format_report_notification(report)
 
         assert "Peer" in text
 
     def test_no_peer_line_for_standalone(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_daily_report(log, peer_status="standalone")
         text = format_report_notification(report)
 
         assert "Peer" not in text
 
     def test_no_failed_line_when_zero(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_daily_report(log)
         text = format_report_notification(report)
 
@@ -176,7 +200,9 @@ class TestParseDurationToMinutes:
 
 class TestGenerateWeeklyReport:
     def test_empty_events_returns_zeros(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_weekly_report(log)
         assert report["outage_count"] == 0
         assert report["reboot_count"] == 0
@@ -184,23 +210,31 @@ class TestGenerateWeeklyReport:
         assert report["event_count"] == 0
 
     def test_period_key_present(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_weekly_report(log)
         assert "period" in report
         assert "->" in report["period"]
 
     def test_current_score_propagated(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_weekly_report(log, current_score=9)
         assert report["current_score"] == 9
 
     def test_peer_status_propagated(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_weekly_report(log, peer_status="degraded")
         assert report["peer_status"] == "degraded"
 
     def test_trend_stable_when_both_zero(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         report = generate_weekly_report(log)
         assert report["outage_trend"] == "stable"
         assert report["reboot_trend"] == "stable"
@@ -216,7 +250,9 @@ class TestGenerateWeeklyReport:
         from datetime import datetime, timedelta
         from unittest import mock
 
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(RECOVERY, duration="5min", helped=True, reboots=1)
         log.record(REBOOT, attempt=1)
 
@@ -239,7 +275,9 @@ class TestGenerateWeeklyReport:
 
 class TestFormatWeeklyReport:
     def _make_report(self, tmp_path, **kwargs):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         return generate_weekly_report(log, **kwargs)
 
     def test_contains_header(self, tmp_path):
@@ -277,7 +315,9 @@ class TestFormatWeeklyReport:
         from datetime import datetime, timedelta
         from unittest import mock
 
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(ISP_OUTAGE, duration="1h")
 
         tomorrow = datetime.now().date() + timedelta(days=1)
@@ -314,7 +354,9 @@ class TestFormatWeeklyReport:
 
 class TestCalculateMonthlySla:
     def test_returns_required_keys(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         sla = calculate_monthly_sla(log)
         assert "month" in sla
         assert "days_elapsed" in sla
@@ -324,54 +366,73 @@ class TestCalculateMonthlySla:
         assert "sla_tier" in sla
 
     def test_no_outages_gives_100_pct(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         sla = calculate_monthly_sla(log)
         assert sla["uptime_pct"] == 100.0
 
     def test_no_outages_zero_downtime(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         sla = calculate_monthly_sla(log)
         assert sla["downtime_minutes"] == 0
 
     def test_no_outages_sla_tier_four_nines(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         sla = calculate_monthly_sla(log)
         assert "99.99" in sla["sla_tier"]
 
     def test_outage_count_matches_recovery_events(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(RECOVERY, duration="5min", helped=True, reboots=1)
         log.record(RECOVERY, duration="10min", helped=False, reboots=0)
         sla = calculate_monthly_sla(log)
         assert sla["outage_count"] == 2
 
     def test_downtime_accumulates_from_durations(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(RECOVERY, duration="10min", helped=True, reboots=1)
         log.record(RECOVERY, duration="20min", helped=True, reboots=1)
         sla = calculate_monthly_sla(log)
         assert sla["downtime_minutes"] == 30
 
     def test_uptime_pct_below_100_when_downtime_present(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(RECOVERY, duration="60min", helped=True, reboots=1)
         sla = calculate_monthly_sla(log)
         assert sla["uptime_pct"] < 100.0
 
     def test_days_elapsed_is_positive_integer(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         sla = calculate_monthly_sla(log)
         assert sla["days_elapsed"] >= 1
 
     def test_month_format_is_yyyy_mm(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         sla = calculate_monthly_sla(log)
         import re
+
         assert re.match(r"^\d{4}-\d{2}$", sla["month"])
 
     def test_sla_tier_three_nines_label(self, tmp_path):
         """Inject enough downtime to land in the 99.9% tier."""
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         # 30 days * 60 min/h * 24 h = 43200 total minutes
         # 99.9% => max 43.2 minutes downtime; inject ~60 min to drop below 99.9%
         # but above 99.0% => 432 minutes max for 99.0%
@@ -383,7 +444,9 @@ class TestCalculateMonthlySla:
         assert "nines" in sla["sla_tier"] or "99" in sla["sla_tier"]
 
     def test_recovery_with_unknown_duration_uses_default(self, tmp_path):
-        log = EventLog(max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=50, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(RECOVERY, duration="", helped=True, reboots=1)
         sla = calculate_monthly_sla(log)
         assert sla["downtime_minutes"] == 5

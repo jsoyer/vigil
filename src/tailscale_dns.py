@@ -36,7 +36,12 @@ _last_sync_time: float = 0.0
 
 
 def is_configured() -> bool:
-    return bool(TAILSCALE_API_KEY and TAILSCALE_TAILNET and CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID)
+    return bool(
+        TAILSCALE_API_KEY
+        and TAILSCALE_TAILNET
+        and CLOUDFLARE_API_TOKEN
+        and CLOUDFLARE_ZONE_ID
+    )
 
 
 @dataclass(frozen=True)
@@ -60,7 +65,11 @@ class SyncResult:
             parts.append(f"{self.unchanged} inchanges")
         if self.errors:
             parts.append(f"{self.errors} erreurs")
-        return "Tailscale DNS sync : " + ", ".join(parts) if parts else "Tailscale DNS sync : rien a faire"
+        return (
+            "Tailscale DNS sync : " + ", ".join(parts)
+            if parts
+            else "Tailscale DNS sync : rien a faire"
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -77,10 +86,15 @@ def _cf_request(method: str, path: str, data: dict | None = None) -> dict | None
     """Cloudflare API request."""
     url = f"{_CF_API}/{path}"
     body = json.dumps(data).encode("utf-8") if data else None
-    req = urllib.request.Request(url, data=body, method=method, headers={
-        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
-        "Content-Type": "application/json",
-    })
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             result = json.loads(resp.read().decode("utf-8"))
@@ -97,11 +111,15 @@ def _ts_get_devices() -> list[dict] | None:
 
     # Basic auth with API key
     import base64
+
     auth = base64.b64encode(f"{TAILSCALE_API_KEY}:".encode()).decode()
 
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Basic {auth}",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Basic {auth}",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -138,7 +156,10 @@ def _get_zone_records() -> list[dict]:
     records = []
     page = 1
     while True:
-        result = _cf_request("GET", f"zones/{CLOUDFLARE_ZONE_ID}/dns_records?type=A&per_page=100&page={page}")
+        result = _cf_request(
+            "GET",
+            f"zones/{CLOUDFLARE_ZONE_ID}/dns_records?type=A&per_page=100&page={page}",
+        )
         if not result:
             break
         records.extend(result.get("result", []))
@@ -161,7 +182,11 @@ def sync_tailscale_dns(force: bool = False) -> SyncResult | None:
         return None
 
     now = time.time()
-    if not force and _last_sync_time > 0 and (now - _last_sync_time) < TAILSCALE_SYNC_INTERVAL:
+    if (
+        not force
+        and _last_sync_time > 0
+        and (now - _last_sync_time) < TAILSCALE_SYNC_INTERVAL
+    ):
         return None
     _last_sync_time = now
 
@@ -184,7 +209,11 @@ def sync_tailscale_dns(force: bool = False) -> SyncResult | None:
     # Index existing records by name
     existing: dict[str, dict] = {}
     for rec in cf_records:
-        name_part = rec["name"].split(f".{TAILSCALE_DNS_SUBDOMAIN}")[0] if TAILSCALE_DNS_SUBDOMAIN else rec["name"].split(".")[0]
+        name_part = (
+            rec["name"].split(f".{TAILSCALE_DNS_SUBDOMAIN}")[0]
+            if TAILSCALE_DNS_SUBDOMAIN
+            else rec["name"].split(".")[0]
+        )
         # Only manage records with our prefix/postfix
         if TAILSCALE_DNS_PREFIX and not name_part.startswith(TAILSCALE_DNS_PREFIX):
             continue
@@ -219,9 +248,16 @@ def sync_tailscale_dns(force: bool = False) -> SyncResult | None:
         if full_name:
             # Update existing record
             rec_id = existing[full_name]["id"]
-            result = _cf_request("PUT", f"zones/{CLOUDFLARE_ZONE_ID}/dns_records/{rec_id}", {
-                "type": "A", "name": fqdn, "content": ip, "ttl": CLOUDFLARE_TTL,
-            })
+            result = _cf_request(
+                "PUT",
+                f"zones/{CLOUDFLARE_ZONE_ID}/dns_records/{rec_id}",
+                {
+                    "type": "A",
+                    "name": fqdn,
+                    "content": ip,
+                    "ttl": CLOUDFLARE_TTL,
+                },
+            )
             if result:
                 updated += 1
                 logging.info("Tailscale DNS: updated %s -> %s", fqdn, ip)
@@ -229,9 +265,16 @@ def sync_tailscale_dns(force: bool = False) -> SyncResult | None:
                 errors += 1
         else:
             # Create new record
-            result = _cf_request("POST", f"zones/{CLOUDFLARE_ZONE_ID}/dns_records", {
-                "type": "A", "name": fqdn, "content": ip, "ttl": CLOUDFLARE_TTL,
-            })
+            result = _cf_request(
+                "POST",
+                f"zones/{CLOUDFLARE_ZONE_ID}/dns_records",
+                {
+                    "type": "A",
+                    "name": fqdn,
+                    "content": ip,
+                    "ttl": CLOUDFLARE_TTL,
+                },
+            )
             if result:
                 created += 1
                 logging.info("Tailscale DNS: created %s -> %s", fqdn, ip)
@@ -240,14 +283,21 @@ def sync_tailscale_dns(force: bool = False) -> SyncResult | None:
 
     # Delete orphaned records (Tailscale IPs no longer in desired)
     for rec_name, rec in existing.items():
-        fqdn_part = rec_name.split(f".{TAILSCALE_DNS_SUBDOMAIN}")[0] if TAILSCALE_DNS_SUBDOMAIN else rec_name.split(".")[0]
+        fqdn_part = (
+            rec_name.split(f".{TAILSCALE_DNS_SUBDOMAIN}")[0]
+            if TAILSCALE_DNS_SUBDOMAIN
+            else rec_name.split(".")[0]
+        )
         if fqdn_part not in desired:
             _cf_request("DELETE", f"zones/{CLOUDFLARE_ZONE_ID}/dns_records/{rec['id']}")
             deleted += 1
             logging.info("Tailscale DNS: deleted %s -> %s", rec_name, rec["content"])
 
     return SyncResult(
-        created=created, updated=updated, deleted=deleted,
-        unchanged=unchanged, errors=errors,
+        created=created,
+        updated=updated,
+        deleted=deleted,
+        unchanged=unchanged,
+        errors=errors,
         ok=errors == 0,
     )

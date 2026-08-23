@@ -22,6 +22,7 @@ from notifier._types import Level, NotificationContext
 def _dashboard_link() -> str:
     """Build a link to the local dashboard."""
     import socket
+
     try:
         hostname = socket.gethostname()
     except Exception:
@@ -55,7 +56,9 @@ def startup() -> tuple[str, Level, NotificationContext | None]:
     return "\n".join(lines), Level.INFO, None
 
 
-def shutdown(reason: str = "arret manuel") -> tuple[str, Level, NotificationContext | None]:
+def shutdown(
+    reason: str = "arret manuel",
+) -> tuple[str, Level, NotificationContext | None]:
     msg = (
         f"Le service de surveillance internet s'est arrete.\n"
         f"Raison : {reason}\n"
@@ -101,11 +104,13 @@ def reboot_launching(
     if traceroute_summary:
         lines.extend(["", f"Diagnostic : {traceroute_summary}"])
 
-    lines.extend([
-        "",
-        f"Le routeur va redemarrer. Coupure reseau de ~2 min attendue.",
-        f"Prochain check dans {POST_REBOOT_GRACE}s (grace post-reboot).",
-    ])
+    lines.extend(
+        [
+            "",
+            f"Le routeur va redemarrer. Coupure reseau de ~2 min attendue.",
+            f"Prochain check dans {POST_REBOOT_GRACE}s (grace post-reboot).",
+        ]
+    )
 
     ctx = NotificationContext(
         score=score,
@@ -125,7 +130,11 @@ def recovery_with_reboot(
     reboot_count: int,
     helped: bool,
 ) -> tuple[str, Level, NotificationContext]:
-    verdict = "Le redemarrage a resolu le probleme." if helped else "Le probleme s'est resolu seul (le redemarrage n'a pas aide)."
+    verdict = (
+        "Le redemarrage a resolu le probleme."
+        if helped
+        else "Le probleme s'est resolu seul (le redemarrage n'a pas aide)."
+    )
     lines = [
         f"Connexion internet retablie apres {duration} de coupure.",
         "",
@@ -256,8 +265,7 @@ def divergence_detected(
         "",
         f"Cette machine : score={local_score} "
         f"gw={'OK' if local_gw else 'KO'} inet={local_inet}",
-        f"Peer          : score={peer_score} "
-        f"gw={peer_gw} inet={peer_inet}",
+        f"Peer          : score={peer_score} gw={peer_gw} inet={peer_inet}",
         "",
         diagnosis,
     ]
@@ -376,13 +384,15 @@ def backup_failed(
     ]
     if filename:
         lines.append(f"Fichier : {filename}")
-    lines.extend([
-        "",
-        "Verifier :",
-        "  - rclone est installe et configure",
-        "  - La destination remote est accessible",
-        "  - Le repertoire de backup UniFi existe",
-    ])
+    lines.extend(
+        [
+            "",
+            "Verifier :",
+            "  - rclone est installe et configure",
+            "  - La destination remote est accessible",
+            "  - Le repertoire de backup UniFi existe",
+        ]
+    )
     return "\n".join(lines), Level.WARNING, None
 
 
@@ -449,9 +459,11 @@ def ddns_failed(
     ]
     for err in errors:
         lines.append(f"  - {err}")
-    lines.extend([
-        "",
-        "Les records DNS pointent encore vers l'ancienne IP.",
-        "Verifier le token Cloudflare et les records dans le dashboard Cloudflare.",
-    ])
+    lines.extend(
+        [
+            "",
+            "Les records DNS pointent encore vers l'ancienne IP.",
+            "Verifier le token Cloudflare et les records dans le dashboard Cloudflare.",
+        ]
+    )
     return "\n".join(lines), Level.WARNING, None

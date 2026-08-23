@@ -22,7 +22,9 @@ def is_configured() -> bool:
     if not SLACK_WEBHOOK_URL:
         return False
     if not _SLACK_URL_RE.match(SLACK_WEBHOOK_URL):
-        logging.warning("Slack: URL webhook invalide -- doit etre https://hooks.slack.com/services/...")
+        logging.warning(
+            "Slack: URL webhook invalide -- doit etre https://hooks.slack.com/services/..."
+        )
         return False
     return True
 
@@ -31,15 +33,29 @@ def _build_context_elements(ctx: NotificationContext) -> list[dict]:
     """Build Slack context block elements from NotificationContext."""
     elements: list[dict] = []
     if ctx.score is not None:
-        elements.append({"type": "mrkdwn", "text": f"*Score:* {ctx.score}/{ctx.threshold or '?'}"})
+        elements.append(
+            {"type": "mrkdwn", "text": f"*Score:* {ctx.score}/{ctx.threshold or '?'}"}
+        )
     if ctx.gateway_ok is not None:
-        elements.append({"type": "mrkdwn", "text": f"*GW:* {'OK' if ctx.gateway_ok else 'KO'}"})
+        elements.append(
+            {"type": "mrkdwn", "text": f"*GW:* {'OK' if ctx.gateway_ok else 'KO'}"}
+        )
     if ctx.internet_ok_count is not None:
-        elements.append({"type": "mrkdwn", "text": f"*Internet:* {ctx.internet_ok_count}/{ctx.internet_total or '?'}"})
+        elements.append(
+            {
+                "type": "mrkdwn",
+                "text": f"*Internet:* {ctx.internet_ok_count}/{ctx.internet_total or '?'}",
+            }
+        )
     if ctx.reboot_count is not None:
         elements.append({"type": "mrkdwn", "text": f"*Reboots:* {ctx.reboot_count}"})
     if ctx.reboots_today is not None:
-        elements.append({"type": "mrkdwn", "text": f"*Reboots/jour:* {ctx.reboots_today}/{ctx.max_reboots_per_day or '?'}"})
+        elements.append(
+            {
+                "type": "mrkdwn",
+                "text": f"*Reboots/jour:* {ctx.reboots_today}/{ctx.max_reboots_per_day or '?'}",
+            }
+        )
     if ctx.duration is not None:
         elements.append({"type": "mrkdwn", "text": f"*Duree:* {ctx.duration}"})
     for k, v in ctx.extra.items():
@@ -59,7 +75,7 @@ def send(
     blocks: list[dict] = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": f"{emoji} USG Watchdog"},
+            "text": {"type": "plain_text", "text": f"{emoji} Vigil"},
         },
         {
             "type": "section",
@@ -72,10 +88,12 @@ def send(
         if ctx_elements:
             blocks.append({"type": "context", "elements": ctx_elements})
 
-    blocks.append({
-        "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"_{hostname} -- {timestamp}_"}],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"_{hostname} -- {timestamp}_"}],
+        }
+    )
 
     payload = {"blocks": blocks}
 

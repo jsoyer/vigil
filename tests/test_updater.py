@@ -67,6 +67,7 @@ class TestFindLatestTag:
         ]
         # Mock UPDATE_CHANNEL to stable
         import update
+
         original = update.UPDATE_CHANNEL
         update.UPDATE_CHANNEL = "stable"
         try:
@@ -84,6 +85,7 @@ class TestFindLatestTag:
             {"name": "v1.0.0-rc.1"},
         ]
         import update
+
         original = update.UPDATE_CHANNEL
         update.UPDATE_CHANNEL = "dev"
         try:
@@ -97,6 +99,7 @@ class TestFindLatestTag:
     def test_returns_none_when_no_match(self):
         tags = [{"name": "v1.0.0-dev.1"}]
         import update
+
         original = update.UPDATE_CHANNEL
         update.UPDATE_CHANNEL = "stable"
         try:

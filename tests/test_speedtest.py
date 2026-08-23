@@ -16,14 +16,18 @@ class TestSpeedtestResult:
         assert r.duration_ms is None
 
     def test_to_dict_successful(self):
-        r = SpeedtestResult(download_mbps=42.5, duration_ms=200, url="http://x.com", ok=True)
+        r = SpeedtestResult(
+            download_mbps=42.5, duration_ms=200, url="http://x.com", ok=True
+        )
         d = r.to_dict()
         assert d["ok"] is True
         assert d["download_mbps"] == 42.5
         assert d["duration_ms"] == 200
 
     def test_to_dict_rounds_mbps(self):
-        r = SpeedtestResult(download_mbps=12.3456789, duration_ms=100, url="http://x.com", ok=True)
+        r = SpeedtestResult(
+            download_mbps=12.3456789, duration_ms=100, url="http://x.com", ok=True
+        )
         d = r.to_dict()
         assert d["download_mbps"] == round(12.3456789, 2)
 

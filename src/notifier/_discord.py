@@ -12,9 +12,9 @@ from notifier._types import Level, NotificationContext
 _DISCORD_URL_RE = re.compile(r"^https://discord\.com/api/webhooks/\d+/[\w-]+$")
 
 _LEVEL_COLORS: dict[Level, int] = {
-    Level.INFO: 0x3498DB,       # blue
-    Level.WARNING: 0xF39C12,    # orange
-    Level.CRITICAL: 0xE74C3C,   # red
+    Level.INFO: 0x3498DB,  # blue
+    Level.WARNING: 0xF39C12,  # orange
+    Level.CRITICAL: 0xE74C3C,  # red
 }
 
 
@@ -22,7 +22,9 @@ def is_configured() -> bool:
     if not DISCORD_WEBHOOK_URL:
         return False
     if not _DISCORD_URL_RE.match(DISCORD_WEBHOOK_URL):
-        logging.warning("Discord: URL webhook invalide -- doit etre https://discord.com/api/webhooks/...")
+        logging.warning(
+            "Discord: URL webhook invalide -- doit etre https://discord.com/api/webhooks/..."
+        )
         return False
     return True
 
@@ -31,15 +33,41 @@ def _build_fields(ctx: NotificationContext) -> list[dict]:
     """Build Discord embed fields from context."""
     fields: list[dict] = []
     if ctx.score is not None:
-        fields.append({"name": "Score", "value": f"{ctx.score}/{ctx.threshold or '?'}", "inline": True})
+        fields.append(
+            {
+                "name": "Score",
+                "value": f"{ctx.score}/{ctx.threshold or '?'}",
+                "inline": True,
+            }
+        )
     if ctx.gateway_ok is not None:
-        fields.append({"name": "Gateway", "value": "OK" if ctx.gateway_ok else "KO", "inline": True})
+        fields.append(
+            {
+                "name": "Gateway",
+                "value": "OK" if ctx.gateway_ok else "KO",
+                "inline": True,
+            }
+        )
     if ctx.internet_ok_count is not None:
-        fields.append({"name": "Internet", "value": f"{ctx.internet_ok_count}/{ctx.internet_total or '?'}", "inline": True})
+        fields.append(
+            {
+                "name": "Internet",
+                "value": f"{ctx.internet_ok_count}/{ctx.internet_total or '?'}",
+                "inline": True,
+            }
+        )
     if ctx.reboot_count is not None:
-        fields.append({"name": "Reboots", "value": str(ctx.reboot_count), "inline": True})
+        fields.append(
+            {"name": "Reboots", "value": str(ctx.reboot_count), "inline": True}
+        )
     if ctx.reboots_today is not None:
-        fields.append({"name": "Reboots/jour", "value": f"{ctx.reboots_today}/{ctx.max_reboots_per_day or '?'}", "inline": True})
+        fields.append(
+            {
+                "name": "Reboots/jour",
+                "value": f"{ctx.reboots_today}/{ctx.max_reboots_per_day or '?'}",
+                "inline": True,
+            }
+        )
     if ctx.duration is not None:
         fields.append({"name": "Duree", "value": ctx.duration, "inline": True})
     for k, v in ctx.extra.items():
@@ -56,7 +84,7 @@ def send(
 ) -> bool:
     """Send a Discord webhook notification. Never raises."""
     embed: dict = {
-        "title": "USG Watchdog",
+        "title": "Vigil",
         "description": message,
         "color": _LEVEL_COLORS.get(level, 0x95A5A6),
         "footer": {"text": f"{hostname} -- {timestamp}"},

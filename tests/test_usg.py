@@ -52,7 +52,7 @@ class TestGetSshClient:
         assert _get_ssh_client() is None
 
     @mock.patch("src.usg.paramiko")
-    @mock.patch("src.usg.USG_SSH_KEY", "/opt/usg-watchdog/.ssh/usg_ed25519")
+    @mock.patch("src.usg.USG_SSH_KEY", "/opt/vigil/.ssh/usg_ed25519")
     def test_connects_with_key(self, mock_paramiko):
         mock_client = mock.Mock()
         mock_paramiko.SSHClient.return_value = mock_client
@@ -63,7 +63,7 @@ class TestGetSshClient:
         assert result is mock_client
         mock_client.connect.assert_called_once()
         connect_kwargs = mock_client.connect.call_args[1]
-        assert connect_kwargs["key_filename"] == "/opt/usg-watchdog/.ssh/usg_ed25519"
+        assert connect_kwargs["key_filename"] == "/opt/vigil/.ssh/usg_ed25519"
 
     @mock.patch("src.usg.paramiko")
     @mock.patch("src.usg.USG_SSH_KEY", "")

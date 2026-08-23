@@ -40,9 +40,13 @@ class TestNotificationContext:
 class TestFormatContextInline:
     def test_full_context(self):
         ctx = NotificationContext(
-            score=12, threshold=10, gateway_ok=False,
-            internet_ok_count=0, internet_total=3,
-            reboot_count=3, duration="2h30",
+            score=12,
+            threshold=10,
+            gateway_ok=False,
+            internet_ok_count=0,
+            internet_total=3,
+            reboot_count=3,
+            duration="2h30",
         )
         result = format_context_inline(ctx)
         assert "score=12/10" in result
@@ -69,6 +73,7 @@ class TestFormatContextInline:
 # Helpers
 # ===================================================================
 
+
 def _mock_response(status: int = 200, body: bytes = b"{}") -> mock.MagicMock:
     """Build a mock urllib response context manager."""
     resp = mock.MagicMock()
@@ -89,18 +94,21 @@ class TestTelegram:
     @mock.patch("src.notifier._telegram.TELEGRAM_CHAT_ID", "")
     def test_not_configured_when_empty(self):
         from src.notifier._telegram import is_configured
+
         assert is_configured() is False
 
     @mock.patch("src.notifier._telegram.TELEGRAM_BOT_TOKEN", "fake")
     @mock.patch("src.notifier._telegram.TELEGRAM_CHAT_ID", "123")
     def test_configured_when_set(self):
         from src.notifier._telegram import is_configured
+
         assert is_configured() is True
 
     @mock.patch("src.notifier._telegram.TELEGRAM_BOT_TOKEN", "fake")
     @mock.patch("src.notifier._telegram.TELEGRAM_CHAT_ID", "123")
     def test_sends_html_message(self):
         from src.notifier._telegram import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             result = send("test msg", Level.INFO, None, "myhost", "31/03/2026 12:00:00")
@@ -114,6 +122,7 @@ class TestTelegram:
     @mock.patch("src.notifier._telegram.TELEGRAM_CHAT_ID", "123")
     def test_includes_context_in_message(self):
         from src.notifier._telegram import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             ctx = NotificationContext(score=12, threshold=10)
@@ -127,7 +136,10 @@ class TestTelegram:
     def test_returns_false_on_timeout(self):
         from src.notifier._telegram import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")):
+
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")
+        ):
             assert send("test", Level.INFO, None, "h", "t") is False
 
     @mock.patch("src.notifier._telegram.TELEGRAM_BOT_TOKEN", "fake")
@@ -135,7 +147,11 @@ class TestTelegram:
     def test_returns_false_on_connection_error(self):
         from src.notifier._telegram import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
             assert send("test", Level.INFO, None, "h", "t") is False
 
 
@@ -148,11 +164,16 @@ class TestDiscord:
     @mock.patch("src.notifier._discord.DISCORD_WEBHOOK_URL", "")
     def test_not_configured_when_empty(self):
         from src.notifier._discord import is_configured
+
         assert is_configured() is False
 
-    @mock.patch("src.notifier._discord.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/abc")
+    @mock.patch(
+        "src.notifier._discord.DISCORD_WEBHOOK_URL",
+        "https://discord.com/api/webhooks/123/abc",
+    )
     def test_sends_embed_with_color(self):
         from src.notifier._discord import send
+
         resp = _mock_response(204)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             result = send("test msg", Level.CRITICAL, None, "host", "ts")
@@ -163,12 +184,22 @@ class TestDiscord:
         assert embed["color"] == 0xE74C3C
         assert embed["description"] == "test msg"
 
-    @mock.patch("src.notifier._discord.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/abc-def")
+    @mock.patch(
+        "src.notifier._discord.DISCORD_WEBHOOK_URL",
+        "https://discord.com/api/webhooks/123/abc-def",
+    )
     def test_includes_context_fields(self):
         from src.notifier._discord import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
-            ctx = NotificationContext(score=8, threshold=10, gateway_ok=True, internet_ok_count=1, internet_total=3)
+            ctx = NotificationContext(
+                score=8,
+                threshold=10,
+                gateway_ok=True,
+                internet_ok_count=1,
+                internet_total=3,
+            )
             send("msg", Level.WARNING, ctx, "host", "ts")
         req = mock_open.call_args[0][0]
         embed = json.loads(req.data.decode())["embeds"][0]
@@ -177,30 +208,51 @@ class TestDiscord:
         assert "Gateway" in field_names
         assert "Internet" in field_names
 
-    @mock.patch("src.notifier._discord.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/abc")
+    @mock.patch(
+        "src.notifier._discord.DISCORD_WEBHOOK_URL",
+        "https://discord.com/api/webhooks/123/abc",
+    )
     def test_handles_rate_limit(self):
         from src.notifier._discord import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(None, 429, "rate limited", {}, None)):
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(None, 429, "rate limited", {}, None),
+        ):
             assert send("msg", Level.INFO, None, "h", "t") is False
 
-    @mock.patch("src.notifier._discord.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/abc")
+    @mock.patch(
+        "src.notifier._discord.DISCORD_WEBHOOK_URL",
+        "https://discord.com/api/webhooks/123/abc",
+    )
     def test_returns_false_on_timeout(self):
         from src.notifier._discord import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")):
+
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")
+        ):
             assert send("msg", Level.INFO, None, "h", "t") is False
 
-    @mock.patch("src.notifier._discord.DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123/abc")
+    @mock.patch(
+        "src.notifier._discord.DISCORD_WEBHOOK_URL",
+        "https://discord.com/api/webhooks/123/abc",
+    )
     def test_returns_false_on_connection_error(self):
         from src.notifier._discord import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
             assert send("msg", Level.INFO, None, "h", "t") is False
 
     @mock.patch("src.notifier._discord.DISCORD_WEBHOOK_URL", "https://evil.com/steal")
     def test_rejects_invalid_webhook_url(self):
         from src.notifier._discord import is_configured
+
         assert is_configured() is False
 
 
@@ -215,11 +267,13 @@ class TestSlack:
     @mock.patch("src.notifier._slack.SLACK_WEBHOOK_URL", "")
     def test_not_configured_when_empty(self):
         from src.notifier._slack import is_configured
+
         assert is_configured() is False
 
     @mock.patch("src.notifier._slack.SLACK_WEBHOOK_URL", _VALID_SLACK_URL)
     def test_sends_block_kit_message(self):
         from src.notifier._slack import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             result = send("test msg", Level.WARNING, None, "host", "ts")
@@ -234,6 +288,7 @@ class TestSlack:
     @mock.patch("src.notifier._slack.SLACK_WEBHOOK_URL", _VALID_SLACK_URL)
     def test_includes_context_elements(self):
         from src.notifier._slack import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             ctx = NotificationContext(score=12, threshold=10, reboot_count=2)
@@ -248,19 +303,27 @@ class TestSlack:
     def test_returns_false_on_timeout(self):
         from src.notifier._slack import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")):
+
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")
+        ):
             assert send("msg", Level.INFO, None, "h", "t") is False
 
     @mock.patch("src.notifier._slack.SLACK_WEBHOOK_URL", _VALID_SLACK_URL)
     def test_returns_false_on_connection_error(self):
         from src.notifier._slack import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
             assert send("msg", Level.INFO, None, "h", "t") is False
 
     @mock.patch("src.notifier._slack.SLACK_WEBHOOK_URL", "https://evil.com/steal")
     def test_rejects_invalid_webhook_url(self):
         from src.notifier._slack import is_configured
+
         assert is_configured() is False
 
 
@@ -274,12 +337,14 @@ class TestNtfy:
     @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "")
     def test_not_configured_when_empty(self):
         from src.notifier._ntfy import is_configured
+
         assert is_configured() is False
 
     @mock.patch("src.notifier._ntfy.NTFY_URL", "https://ntfy.sh")
     @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "test-topic")
     def test_sends_with_priority(self):
         from src.notifier._ntfy import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             result = send("test msg", Level.CRITICAL, None, "host", "ts")
@@ -292,6 +357,7 @@ class TestNtfy:
     @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "watchdog")
     def test_self_hosted_url(self):
         from src.notifier._ntfy import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             send("test", Level.INFO, None, "h", "t")
@@ -303,7 +369,10 @@ class TestNtfy:
     def test_returns_false_on_timeout(self):
         from src.notifier._ntfy import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")):
+
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")
+        ):
             assert send("test", Level.INFO, None, "h", "t") is False
 
     @mock.patch("src.notifier._ntfy.NTFY_URL", "https://ntfy.sh")
@@ -311,13 +380,18 @@ class TestNtfy:
     def test_returns_false_on_connection_error(self):
         from src.notifier._ntfy import send
         import urllib.error
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
             assert send("test", Level.INFO, None, "h", "t") is False
 
     @mock.patch("src.notifier._ntfy.NTFY_URL", "https://ntfy.sh")
     @mock.patch("src.notifier._ntfy.NTFY_TOPIC", "test")
     def test_includes_context(self):
         from src.notifier._ntfy import send
+
         resp = _mock_response(200)
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
             ctx = NotificationContext(score=12, threshold=10)
@@ -391,7 +465,11 @@ class TestDispatch:
         tg = self._make_channel(True)
         dc = self._make_channel(True)
         sl = self._make_channel(True)
-        channels = [("telegram", tg, "INFO"), ("discord", dc, "INFO"), ("slack", sl, "INFO")]
+        channels = [
+            ("telegram", tg, "INFO"),
+            ("discord", dc, "INFO"),
+            ("slack", sl, "INFO"),
+        ]
         with mock.patch("notifier._dispatch._get_channels", return_value=channels):
             results = notify("test", Level.WARNING)
         assert results == {"telegram": True, "discord": True, "slack": True}

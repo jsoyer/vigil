@@ -20,6 +20,7 @@ SPEEDTEST_INTERVAL_CYCLES = max(1, 600 // CHECK_INTERVAL)
 @dataclass(frozen=True)
 class SpeedtestResult:
     """Result of a download speed test."""
+
     download_mbps: float | None = None
     duration_ms: int | None = None
     url: str = ""
@@ -27,7 +28,9 @@ class SpeedtestResult:
 
     def to_dict(self) -> dict:
         return {
-            "download_mbps": round(self.download_mbps, 2) if self.download_mbps else None,
+            "download_mbps": round(self.download_mbps, 2)
+            if self.download_mbps
+            else None,
             "duration_ms": self.duration_ms,
             "ok": self.ok,
         }
@@ -42,7 +45,7 @@ def run_speedtest(url: str | None = None, timeout: int = 15) -> SpeedtestResult:
         url = _TEST_URLS[0]
 
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "usg-watchdog-speedtest"})
+        req = urllib.request.Request(url, headers={"User-Agent": "vigil-speedtest"})
         start = time.monotonic()
 
         with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -58,7 +61,9 @@ def run_speedtest(url: str | None = None, timeout: int = 15) -> SpeedtestResult:
 
         logging.debug(
             "Speedtest: %.2f Mbps (%d bytes in %dms)",
-            mbps, bytes_downloaded, int(elapsed * 1000),
+            mbps,
+            bytes_downloaded,
+            int(elapsed * 1000),
         )
 
         return SpeedtestResult(

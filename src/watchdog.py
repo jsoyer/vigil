@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-USG Watchdog -- Surveillance de connexion fibre + reboot automatique USG Ubiquiti
+Vigil -- Surveillance de connexion fibre + reboot automatique USG Ubiquiti
 
 Systeme de scoring avec circuit breaker :
 - Scoring : penalites par cycle (gateway KO, internet KO), recuperation si OK
@@ -54,10 +54,18 @@ from notifier import notify, Level
 from state import WatchdogState, StateHolder, CMD_PAUSE, CMD_RESUME, CMD_REBOOT
 from http_server import start_http_server
 from peer import should_reboot as peer_should_reboot, get_peer_info, check_divergence
-from report import generate_daily_report, format_report_notification, generate_weekly_report, format_weekly_report
+from report import (
+    generate_daily_report,
+    format_report_notification,
+    generate_weekly_report,
+    format_weekly_report,
+)
 from diagnostics import run_traceroute
 from connectivity import internet_latency
-from ddns_cloudflare import check_and_update as ddns_check, is_configured as ddns_configured
+from ddns_cloudflare import (
+    check_and_update as ddns_check,
+    is_configured as ddns_configured,
+)
 from backup_unifi import run_backup as unifi_backup, is_configured as backup_configured
 from tailscale_dns import sync_tailscale_dns, is_configured as tailscale_configured
 from mqtt_publisher import MqttPublisher
@@ -154,7 +162,7 @@ def compute_effective_cooldown(consecutive_reboots: int) -> int:
     Reboot 5+: cap a MAX_REBOOT_COOLDOWN (4h)
     """
     exponent = min(consecutive_reboots, 5)
-    cooldown = REBOOT_COOLDOWN * (2 ** exponent)
+    cooldown = REBOOT_COOLDOWN * (2**exponent)
     return min(cooldown, MAX_REBOOT_COOLDOWN)
 
 
@@ -194,6 +202,7 @@ def main() -> None:
 
     # Validate config coherence
     from config import validate as validate_config
+
     config_errors = validate_config()
     for err in config_errors:
         logging.warning("Config: %s", err)
@@ -231,7 +240,12 @@ def main() -> None:
     # Coordination
     threshold_reached_time = 0.0
     start_time = time.time()
-    peer_info: dict[str, str | int] = {"status": "unknown", "score": 0, "gateway": "", "internet": ""}
+    peer_info: dict[str, str | int] = {
+        "status": "unknown",
+        "score": 0,
+        "gateway": "",
+        "internet": "",
+    }
     divergence_notified = False
     last_report_date = datetime.now().date()
     last_weekly_report_week = datetime.now().isocalendar()[1]
@@ -269,7 +283,7 @@ def main() -> None:
     cycle_count = 0
 
     logging.info("=" * 60)
-    logging.info("USG Watchdog demarre")
+    logging.info("Vigil demarre")
     logging.info("   Instance : priority=%d", INSTANCE_PRIORITY)
     if PEER_IP:
         logging.info("   Peer : %s:%d", PEER_IP, HTTP_PORT)
@@ -278,12 +292,14 @@ def main() -> None:
     logging.info("   Check toutes les %ds", CHECK_INTERVAL)
     logging.info(
         "   Seuil de reboot : score >= %d (max %d)",
-        REBOOT_SCORE_THRESHOLD, MAX_SCORE,
+        REBOOT_SCORE_THRESHOLD,
+        MAX_SCORE,
     )
     logging.info("   Grace post-reboot : %ds", POST_REBOOT_GRACE)
     logging.info(
         "   Cooldown : %ds (backoff jusqu'a %ds)",
-        REBOOT_COOLDOWN, MAX_REBOOT_COOLDOWN,
+        REBOOT_COOLDOWN,
+        MAX_REBOOT_COOLDOWN,
     )
     logging.info("   Max reboots/jour : %d", MAX_REBOOTS_PER_DAY)
     logging.info("   HTTP state : port %d", HTTP_PORT)
@@ -300,7 +316,9 @@ def main() -> None:
         # --- Monitor daemon threads ---
         if http_thread is not None and not http_thread.is_alive():
             logging.error("HTTP server thread mort -- redemarrage")
-            http_thread = start_http_server(state_holder, HTTP_PORT, event_log, history_buffer)
+            http_thread = start_http_server(
+                state_holder, HTTP_PORT, event_log, history_buffer
+            )
 
         # Reset daily reboot counter at midnight
         current_date = datetime.now().date()
@@ -372,19 +390,25 @@ def main() -> None:
                 bresult = unifi_backup(source="scheduled")
                 if bresult.ok:
                     text_b, level_b, ctx_b = msg.backup_ok(
-                        bresult.filename, bresult.to_dict()["size_mb"],
-                        bresult.destination, "quotidien",
+                        bresult.filename,
+                        bresult.to_dict()["size_mb"],
+                        bresult.destination,
+                        "quotidien",
                     )
                 else:
-                    text_b, level_b, ctx_b = msg.backup_failed(bresult.error, bresult.filename)
+                    text_b, level_b, ctx_b = msg.backup_failed(
+                        bresult.error, bresult.filename
+                    )
                 notify(text_b, level_b, ctx_b)
                 event_log.record(
                     "backup_ok" if bresult.ok else "backup_failed",
-                    filename=bresult.filename, size=bresult.size_bytes,
+                    filename=bresult.filename,
+                    size=bresult.size_bytes,
                 )
                 if bresult.stale:
                     text_s, level_s, ctx_s = msg.backup_stale(
-                        bresult.filename, bresult.stale_hours,
+                        bresult.filename,
+                        bresult.stale_hours,
                         UNIFI_BACKUP_MAX_AGE_HOURS,
                     )
                     notify(text_s, level_s, ctx_s)
@@ -422,7 +446,9 @@ def main() -> None:
                 reboots_today += 1
                 outage_reboot_count += 1
                 event_log.record(REBOOT, attempt=consecutive_reboots, source="api")
-                logging.info("Reboot USG envoye via API -- Grace %ds", POST_REBOOT_GRACE)
+                logging.info(
+                    "Reboot USG envoye via API -- Grace %ds", POST_REBOOT_GRACE
+                )
                 for _ in range(USG_REBOOT_WAIT):
                     time.sleep(1)
             else:
@@ -473,13 +499,16 @@ def main() -> None:
                 elapsed = now - isp_pattern_start
                 if elapsed >= ISP_OUTAGE_DETECTION_DELAY:
                     isp_outage_detected = True
-                    event_log.record(ISP_OUTAGE, duration=_format_duration(int(elapsed)))
+                    event_log.record(
+                        ISP_OUTAGE, duration=_format_duration(int(elapsed))
+                    )
                     logging.warning(
                         "Probable panne ISP detectee (gw OK + inet KO depuis %s)",
                         _format_duration(int(elapsed)),
                     )
                     text, level, ctx = msg.isp_outage_detected(
-                        _format_duration(int(elapsed)), result.internet_total,
+                        _format_duration(int(elapsed)),
+                        result.internet_total,
                     )
                     notify(text, level, ctx)
         else:
@@ -526,21 +555,32 @@ def main() -> None:
         # --- Peer status + divergence detection ---
         peer_info = get_peer_info()
 
-        if failure_score > 0 or (peer_info["status"] not in ("standalone", "unreachable", "unknown") and peer_info["score"] > 0):
+        if failure_score > 0 or (
+            peer_info["status"] not in ("standalone", "unreachable", "unknown")
+            and peer_info["score"] > 0
+        ):
             divergence_raw = check_divergence(
-                failure_score, result.gateway_ok, result.internet_ok_count,
+                failure_score,
+                result.gateway_ok,
+                result.internet_ok_count,
             )
             if divergence_raw and not divergence_notified:
                 divergence_notified = True
                 logging.warning("Divergence peer detectee")
                 text, level, ctx = msg.divergence_detected(
-                    failure_score, result.gateway_ok, result.internet_ok_count,
+                    failure_score,
+                    result.gateway_ok,
+                    result.internet_ok_count,
                     int(peer_info.get("score", 0)),
                     str(peer_info.get("gateway", "?")),
                     str(peer_info.get("internet", "?")),
                 )
                 notify(text, level, ctx)
-                event_log.record("divergence", local_score=failure_score, peer_score=peer_info["score"])
+                event_log.record(
+                    "divergence",
+                    local_score=failure_score,
+                    peer_score=peer_info["score"],
+                )
         else:
             divergence_notified = False
 
@@ -550,11 +590,17 @@ def main() -> None:
 
         # --- Recovery detection ---
         if was_degraded and failure_score == 0:
-            dur = _format_duration(int(now - outage_start_time)) if outage_start_time > 0 else "?"
+            dur = (
+                _format_duration(int(now - outage_start_time))
+                if outage_start_time > 0
+                else "?"
+            )
 
             if outage_reboot_count > 0:
                 text, level, ctx = msg.recovery_with_reboot(
-                    dur, outage_reboot_count, outage_reboot_helped,
+                    dur,
+                    outage_reboot_count,
+                    outage_reboot_helped,
                 )
             else:
                 text, level, ctx = msg.recovery_no_reboot(dur)
@@ -582,17 +628,23 @@ def main() -> None:
                 if ddns_result and ddns_result.changed:
                     if ddns_result.records_failed == 0:
                         text_d, level_d, ctx_d = msg.ddns_updated(
-                            ddns_result.previous_ip, ddns_result.current_ip,
+                            ddns_result.previous_ip,
+                            ddns_result.current_ip,
                             ddns_result.records_updated,
-                            ", ".join(r.strip() for r in CLOUDFLARE_RECORD_NAMES.split(",")),
+                            ", ".join(
+                                r.strip() for r in CLOUDFLARE_RECORD_NAMES.split(",")
+                            ),
                         )
                     else:
                         text_d, level_d, ctx_d = msg.ddns_failed(
-                            ddns_result.current_ip, list(ddns_result.errors),
+                            ddns_result.current_ip,
+                            list(ddns_result.errors),
                         )
                     notify(text_d, level_d, ctx_d)
                     event_log.record(
-                        "dns_updated" if ddns_result.records_failed == 0 else "dns_update_failed",
+                        "dns_updated"
+                        if ddns_result.records_failed == 0
+                        else "dns_update_failed",
                         old_ip=ddns_result.previous_ip,
                         new_ip=ddns_result.current_ip,
                         records=ddns_result.records_updated,
@@ -676,10 +728,14 @@ def main() -> None:
 
             # Peer coordination check
             current_state = _build_state(
-                failure_score=failure_score, threshold=REBOOT_SCORE_THRESHOLD,
-                was_degraded=was_degraded, last_reboot_time=last_reboot_time,
-                grace_until=grace_until, consecutive_reboots=consecutive_reboots,
-                reboots_today=reboots_today, surveillance_only=surveillance_only,
+                failure_score=failure_score,
+                threshold=REBOOT_SCORE_THRESHOLD,
+                was_degraded=was_degraded,
+                last_reboot_time=last_reboot_time,
+                grace_until=grace_until,
+                consecutive_reboots=consecutive_reboots,
+                reboots_today=reboots_today,
+                surveillance_only=surveillance_only,
                 consecutive_ssh_failures=consecutive_ssh_failures,
                 last_ssh_attempt_time=last_ssh_attempt_time,
                 isp_outage_detected=isp_outage_detected,
@@ -757,8 +813,10 @@ def main() -> None:
                 outage_reboot_count += 1
 
                 event_log.record(
-                    REBOOT, attempt=consecutive_reboots,
-                    score=failure_score, reboots_today=reboots_today,
+                    REBOOT,
+                    attempt=consecutive_reboots,
+                    score=failure_score,
+                    reboots_today=reboots_today,
                 )
                 next_cooldown = compute_effective_cooldown(consecutive_reboots)
                 reboot_time_str = datetime.now().strftime("%H:%M:%S")
@@ -795,7 +853,8 @@ def main() -> None:
                 event_log.record(REBOOT_FAILED, ssh_failures=consecutive_ssh_failures)
                 if consecutive_ssh_failures == SSH_FAILURE_BACKOFF_START:
                     text, level, ctx = msg.ssh_failure(
-                        consecutive_ssh_failures, _format_duration(ssh_delay),
+                        consecutive_ssh_failures,
+                        _format_duration(ssh_delay),
                     )
                     notify(text, level, ctx)
                 logging.error(
@@ -810,18 +869,25 @@ def main() -> None:
             if ddns_result and ddns_result.changed:
                 if ddns_result.records_failed == 0:
                     text_d, level_d, ctx_d = msg.ddns_updated(
-                        ddns_result.previous_ip, ddns_result.current_ip,
+                        ddns_result.previous_ip,
+                        ddns_result.current_ip,
                         ddns_result.records_updated,
-                        ", ".join(r.strip() for r in CLOUDFLARE_RECORD_NAMES.split(",")),
+                        ", ".join(
+                            r.strip() for r in CLOUDFLARE_RECORD_NAMES.split(",")
+                        ),
                     )
                 else:
                     text_d, level_d, ctx_d = msg.ddns_failed(
-                        ddns_result.current_ip, list(ddns_result.errors),
+                        ddns_result.current_ip,
+                        list(ddns_result.errors),
                     )
                 notify(text_d, level_d, ctx_d)
                 event_log.record(
-                    "dns_updated" if ddns_result.records_failed == 0 else "dns_update_failed",
-                    old_ip=ddns_result.previous_ip, new_ip=ddns_result.current_ip,
+                    "dns_updated"
+                    if ddns_result.records_failed == 0
+                    else "dns_update_failed",
+                    old_ip=ddns_result.previous_ip,
+                    new_ip=ddns_result.current_ip,
                     records=ddns_result.records_updated,
                 )
 
@@ -832,7 +898,8 @@ def main() -> None:
                 if usg_metrics.reachable and usg_metrics.is_stressed():
                     logging.warning(
                         "USG sous stress : CPU=%s%% RAM=%s%%",
-                        usg_metrics.cpu_percent, usg_metrics.memory_percent,
+                        usg_metrics.cpu_percent,
+                        usg_metrics.memory_percent,
                     )
                     event_log.record(
                         "usg_stressed",
@@ -900,7 +967,9 @@ def main() -> None:
         if tailscale_configured() and failure_score == 0:
             try:
                 ts_result = sync_tailscale_dns()
-                if ts_result and (ts_result.created or ts_result.updated or ts_result.deleted):
+                if ts_result and (
+                    ts_result.created or ts_result.updated or ts_result.deleted
+                ):
                     logging.info("Tailscale DNS: %s", ts_result.summary())
                     event_log.record(
                         "tailscale_dns_sync",
@@ -914,14 +983,20 @@ def main() -> None:
         cycle_count += 1
 
         # Record history data point
-        history_buffer.record(failure_score, result.gateway_rtt_ms, result.internet_avg_rtt_ms)
+        history_buffer.record(
+            failure_score, result.gateway_rtt_ms, result.internet_avg_rtt_ms
+        )
 
         # Publish state for HTTP server + peer queries
         state_holder.state = _build_state(
-            failure_score=failure_score, threshold=REBOOT_SCORE_THRESHOLD,
-            was_degraded=was_degraded, last_reboot_time=last_reboot_time,
-            grace_until=grace_until, consecutive_reboots=consecutive_reboots,
-            reboots_today=reboots_today, surveillance_only=surveillance_only,
+            failure_score=failure_score,
+            threshold=REBOOT_SCORE_THRESHOLD,
+            was_degraded=was_degraded,
+            last_reboot_time=last_reboot_time,
+            grace_until=grace_until,
+            consecutive_reboots=consecutive_reboots,
+            reboots_today=reboots_today,
+            surveillance_only=surveillance_only,
             consecutive_ssh_failures=consecutive_ssh_failures,
             last_ssh_attempt_time=last_ssh_attempt_time,
             isp_outage_detected=isp_outage_detected,
@@ -958,7 +1033,7 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        logging.info("USG Watchdog arrete manuellement")
+        logging.info("Vigil arrete manuellement")
         if _event_log:
             _event_log.record(SHUTDOWN, reason="manual")
             _event_log.persist_now()

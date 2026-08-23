@@ -34,19 +34,25 @@ class TestEscalationTrackerOnCritical:
 class TestEscalationTrackerShouldEscalate:
     def test_returns_true_after_delay_passes(self):
         tracker = EscalationTracker()
-        with mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True), \
-             mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 5):
+        with (
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True),
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 5),
+        ):
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0):
                 tracker.on_critical()
             # 5 minutes + 1 second later
-            with mock.patch("src.alert_escalation.time.time", return_value=1000.0 + 5 * 60 + 1):
+            with mock.patch(
+                "src.alert_escalation.time.time", return_value=1000.0 + 5 * 60 + 1
+            ):
                 result = tracker.should_escalate()
         assert result is True
 
     def test_returns_false_when_not_enough_time_elapsed(self):
         tracker = EscalationTracker()
-        with mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True), \
-             mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 5):
+        with (
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True),
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 5),
+        ):
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0):
                 tracker.on_critical()
             # Only 1 minute has passed, delay is 5
@@ -62,18 +68,24 @@ class TestEscalationTrackerShouldEscalate:
 
     def test_returns_false_when_disabled_via_config(self):
         tracker = EscalationTracker()
-        with mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", False), \
-             mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1):
+        with (
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", False),
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1),
+        ):
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0):
                 tracker.on_critical()
-            with mock.patch("src.alert_escalation.time.time", return_value=1000.0 + 60 + 1):
+            with mock.patch(
+                "src.alert_escalation.time.time", return_value=1000.0 + 60 + 1
+            ):
                 result = tracker.should_escalate()
         assert result is False
 
     def test_fires_only_once(self):
         tracker = EscalationTracker()
-        with mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True), \
-             mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1):
+        with (
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True),
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1),
+        ):
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0):
                 tracker.on_critical()
             far_future = 1000.0 + 10 * 60
@@ -85,8 +97,10 @@ class TestEscalationTrackerShouldEscalate:
 
     def test_escalated_flag_set_after_trigger(self):
         tracker = EscalationTracker()
-        with mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True), \
-             mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1):
+        with (
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True),
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1),
+        ):
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0):
                 tracker.on_critical()
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0 + 61):
@@ -106,8 +120,10 @@ class TestEscalationTrackerOnRecovery:
 
     def test_should_escalate_returns_false_after_recovery(self):
         tracker = EscalationTracker()
-        with mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True), \
-             mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1):
+        with (
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True),
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1),
+        ):
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0):
                 tracker.on_critical()
             tracker.on_recovery()
@@ -117,8 +133,10 @@ class TestEscalationTrackerOnRecovery:
 
     def test_can_escalate_again_after_recovery_and_new_critical(self):
         tracker = EscalationTracker()
-        with mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True), \
-             mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1):
+        with (
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_ENABLED", True),
+            mock.patch("src.alert_escalation.ALERT_ESCALATION_DELAY", 1),
+        ):
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0):
                 tracker.on_critical()
             with mock.patch("src.alert_escalation.time.time", return_value=1000.0 + 61):

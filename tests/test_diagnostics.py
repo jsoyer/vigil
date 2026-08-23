@@ -100,6 +100,7 @@ class TestRunTraceroute:
     @mock.patch("src.diagnostics.subprocess.run")
     def test_returns_none_on_timeout(self, mock_run):
         import subprocess
+
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="traceroute", timeout=15)
         assert run_traceroute() is None
 

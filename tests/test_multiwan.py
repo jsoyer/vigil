@@ -7,6 +7,7 @@ import pytest
 
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
@@ -14,9 +15,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 # WanStatus helpers
 # ---------------------------------------------------------------------------
 
+
 class TestWanStatus:
     def test_default_values(self):
         from multiwan import WanStatus
+
         w = WanStatus()
         assert w.primary_up is True
         assert w.failover_active is False
@@ -25,7 +28,13 @@ class TestWanStatus:
 
     def test_to_dict(self):
         from multiwan import WanStatus
-        w = WanStatus(primary_up=True, failover_active=False, active_interface="eth0", reachable=True)
+
+        w = WanStatus(
+            primary_up=True,
+            failover_active=False,
+            active_interface="eth0",
+            reachable=True,
+        )
         d = w.to_dict()
         assert d["primary_up"] is True
         assert d["failover_active"] is False
@@ -34,19 +43,32 @@ class TestWanStatus:
 
     def test_summary_unreachable(self):
         from multiwan import WanStatus
+
         w = WanStatus(reachable=False)
         assert "injoignable" in w.summary()
 
     def test_summary_primary_active(self):
         from multiwan import WanStatus
-        w = WanStatus(primary_up=True, failover_active=False, active_interface="eth0", reachable=True)
+
+        w = WanStatus(
+            primary_up=True,
+            failover_active=False,
+            active_interface="eth0",
+            reachable=True,
+        )
         s = w.summary()
         assert "eth0" in s
         assert "failover" not in s.lower()
 
     def test_summary_failover_active(self):
         from multiwan import WanStatus
-        w = WanStatus(primary_up=False, failover_active=True, active_interface="eth2", reachable=True)
+
+        w = WanStatus(
+            primary_up=False,
+            failover_active=True,
+            active_interface="eth2",
+            reachable=True,
+        )
         s = w.summary()
         assert "failover" in s.lower()
         assert "eth2" in s
@@ -56,10 +78,12 @@ class TestWanStatus:
 # check_wan_status -- paramiko not available
 # ---------------------------------------------------------------------------
 
+
 class TestCheckWanStatusNoParamiko:
     def test_returns_unreachable_when_paramiko_none(self):
         with patch("multiwan.paramiko", None):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is False
 
@@ -67,6 +91,7 @@ class TestCheckWanStatusNoParamiko:
 # ---------------------------------------------------------------------------
 # check_wan_status -- known_hosts missing
 # ---------------------------------------------------------------------------
+
 
 class TestCheckWanStatusKnownHostsMissing:
     def test_returns_unreachable_when_known_hosts_missing(self):
@@ -78,6 +103,7 @@ class TestCheckWanStatusKnownHostsMissing:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is False
 
@@ -85,6 +111,7 @@ class TestCheckWanStatusKnownHostsMissing:
 # ---------------------------------------------------------------------------
 # check_wan_status -- SSH success, eth0 (primary)
 # ---------------------------------------------------------------------------
+
 
 class TestCheckWanStatusEth0:
     def _make_paramiko(self, route_output: str):
@@ -100,11 +127,14 @@ class TestCheckWanStatusEth0:
         return mock_paramiko, mock_client
 
     def test_eth0_primary_active(self):
-        output = "default via 192.168.1.254 dev eth0 proto dhcp src 192.168.1.1 metric 100"
+        output = (
+            "default via 192.168.1.254 dev eth0 proto dhcp src 192.168.1.1 metric 100"
+        )
         mock_paramiko, _ = self._make_paramiko(output)
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is True
             assert result.active_interface == "eth0"
@@ -117,6 +147,7 @@ class TestCheckWanStatusEth0:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is True
             assert result.active_interface == "eth2"
@@ -129,6 +160,7 @@ class TestCheckWanStatusEth0:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.active_interface == "ppp1"
             assert result.failover_active is True
@@ -138,6 +170,7 @@ class TestCheckWanStatusEth0:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is True
             assert result.active_interface == "unknown"
@@ -148,6 +181,7 @@ class TestCheckWanStatusEth0:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             # bond0 doesn't start with eth or ppp, so interface remains "unknown"
             assert result.active_interface == "unknown"
@@ -159,6 +193,7 @@ class TestCheckWanStatusEth0:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             check_wan_status()
             mock_client.close.assert_called_once()
 
@@ -166,6 +201,7 @@ class TestCheckWanStatusEth0:
 # ---------------------------------------------------------------------------
 # check_wan_status -- connection failure
 # ---------------------------------------------------------------------------
+
 
 class TestCheckWanStatusConnectionFailed:
     def test_returns_unreachable_on_auth_error(self):
@@ -178,6 +214,7 @@ class TestCheckWanStatusConnectionFailed:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is False
 
@@ -191,6 +228,7 @@ class TestCheckWanStatusConnectionFailed:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is False
 
@@ -204,6 +242,7 @@ class TestCheckWanStatusConnectionFailed:
 
         with patch("multiwan.paramiko", mock_paramiko):
             from multiwan import check_wan_status
+
             result = check_wan_status()
             assert result.reachable is False
 
@@ -218,12 +257,15 @@ class TestCheckWanStatusConnectionFailed:
         mock_stdout.read.return_value = b"default via 1.2.3.4 dev eth0"
         mock_client.exec_command.return_value = (MagicMock(), mock_stdout, MagicMock())
 
-        with patch("multiwan.paramiko", mock_paramiko), \
-             patch("multiwan.USG_IP", "192.168.1.1"), \
-             patch("multiwan.USG_USER", "admin"), \
-             patch("multiwan.USG_SSH_KEY", "/path/to/key"), \
-             patch("multiwan.SSH_TIMEOUT", 15):
+        with (
+            patch("multiwan.paramiko", mock_paramiko),
+            patch("multiwan.USG_IP", "192.168.1.1"),
+            patch("multiwan.USG_USER", "admin"),
+            patch("multiwan.USG_SSH_KEY", "/path/to/key"),
+            patch("multiwan.SSH_TIMEOUT", 15),
+        ):
             from multiwan import check_wan_status
+
             check_wan_status()
             connect_kwargs = mock_client.connect.call_args[1]
             assert connect_kwargs["hostname"] == "192.168.1.1"
@@ -242,9 +284,12 @@ class TestCheckWanStatusConnectionFailed:
         mock_stdout.read.return_value = b"default via 1.2.3.4 dev eth0"
         mock_client.exec_command.return_value = (MagicMock(), mock_stdout, MagicMock())
 
-        with patch("multiwan.paramiko", mock_paramiko), \
-             patch("multiwan.USG_SSH_KEY", ""):
+        with (
+            patch("multiwan.paramiko", mock_paramiko),
+            patch("multiwan.USG_SSH_KEY", ""),
+        ):
             from multiwan import check_wan_status
+
             check_wan_status()
             connect_kwargs = mock_client.connect.call_args[1]
             assert connect_kwargs["key_filename"] is None

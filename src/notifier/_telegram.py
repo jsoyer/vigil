@@ -32,7 +32,7 @@ def send(
     escaped_msg = html.escape(message)
     escaped_host = html.escape(hostname)
 
-    body = f"<b>{icon} USG Watchdog</b>\n<i>{escaped_host} -- {timestamp}</i>\n\n{escaped_msg}"
+    body = f"<b>{icon} Vigil</b>\n<i>{escaped_host} -- {timestamp}</i>\n\n{escaped_msg}"
 
     if context is not None:
         ctx_str = format_context_inline(context)
@@ -65,5 +65,7 @@ def send(
         else:
             logging.warning("Telegram: erreur reseau (normal si connexion DOWN)")
     except Exception:
-        logging.warning("Telegram: erreur inattendue (details masques pour proteger le token)")
+        logging.warning(
+            "Telegram: erreur inattendue (details masques pour proteger le token)"
+        )
     return False

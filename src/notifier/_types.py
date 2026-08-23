@@ -7,6 +7,7 @@ from typing import Protocol
 
 class Level(IntEnum):
     """Notification severity. IntEnum for easy comparison."""
+
     INFO = 0
     WARNING = 1
     CRITICAL = 2
@@ -30,6 +31,7 @@ class NotificationChannel(Protocol):
 @dataclass(frozen=True)
 class NotificationContext:
     """Structured context attached to a notification."""
+
     score: int | None = None
     threshold: int | None = None
     gateway_ok: bool | None = None
@@ -54,7 +56,9 @@ def format_context_inline(ctx: NotificationContext) -> str:
     if ctx.reboot_count is not None:
         parts.append(f"reboots={ctx.reboot_count}")
     if ctx.reboots_today is not None:
-        parts.append(f"reboots_today={ctx.reboots_today}/{ctx.max_reboots_per_day or '?'}")
+        parts.append(
+            f"reboots_today={ctx.reboots_today}/{ctx.max_reboots_per_day or '?'}"
+        )
     if ctx.duration is not None:
         parts.append(f"duree={ctx.duration}")
     for k, v in ctx.extra.items():

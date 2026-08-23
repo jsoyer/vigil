@@ -27,6 +27,7 @@ def is_configured() -> bool:
 @dataclass(frozen=True)
 class BackupResult:
     """Result of a backup operation."""
+
     ok: bool
     filename: str = ""
     size_bytes: int = 0
@@ -40,7 +41,9 @@ class BackupResult:
             "ok": self.ok,
             "filename": self.filename,
             "size_bytes": self.size_bytes,
-            "size_mb": round(self.size_bytes / (1024 * 1024), 1) if self.size_bytes > 0 else 0,
+            "size_mb": round(self.size_bytes / (1024 * 1024), 1)
+            if self.size_bytes > 0
+            else 0,
             "destination": self.destination,
         }
         if self.error:
@@ -70,7 +73,9 @@ def find_latest_backup() -> Path | None:
         logging.warning("Backup UniFi: repertoire introuvable : %s", UNIFI_BACKUP_DIR)
         return None
 
-    unf_files = sorted(backup_dir.glob("*.unf"), key=lambda f: f.stat().st_mtime, reverse=True)
+    unf_files = sorted(
+        backup_dir.glob("*.unf"), key=lambda f: f.stat().st_mtime, reverse=True
+    )
     if not unf_files:
         logging.warning("Backup UniFi: aucun fichier .unf dans %s", UNIFI_BACKUP_DIR)
         return None
@@ -99,15 +104,24 @@ def check_backup_size(backup_path: Path) -> tuple[bool, int]:
     return size < 1024, size
 
 
-def upload_backup(backup_path: Path, destination: str = UNIFI_BACKUP_RCLONE_DEST) -> bool:
+def upload_backup(
+    backup_path: Path, destination: str = UNIFI_BACKUP_RCLONE_DEST
+) -> bool:
     """Upload a backup file via rclone.
 
     Returns True on success. Never raises.
     """
     try:
         result = subprocess.run(
-            ["rclone", "copy", str(backup_path), destination,
-             "--checksum", "--transfers", "1"],
+            [
+                "rclone",
+                "copy",
+                str(backup_path),
+                destination,
+                "--checksum",
+                "--transfers",
+                "1",
+            ],
             capture_output=True,
             text=True,
             timeout=300,
@@ -135,9 +149,15 @@ def prune_old_backups(destination: str = UNIFI_BACKUP_RCLONE_DEST) -> bool:
     """
     try:
         result = subprocess.run(
-            ["rclone", "delete", destination,
-             "--min-age", f"{UNIFI_BACKUP_RETENTION_DAYS}d",
-             "--include", "*.unf"],
+            [
+                "rclone",
+                "delete",
+                destination,
+                "--min-age",
+                f"{UNIFI_BACKUP_RETENTION_DAYS}d",
+                "--include",
+                "*.unf",
+            ],
             capture_output=True,
             text=True,
             timeout=120,
@@ -145,7 +165,11 @@ def prune_old_backups(destination: str = UNIFI_BACKUP_RCLONE_DEST) -> bool:
         if result.returncode != 0:
             logging.warning("Prune rclone echoue : %s", result.stderr[:200])
             return False
-        logging.info("Prune OK : backups > %d jours supprimes de %s", UNIFI_BACKUP_RETENTION_DAYS, destination)
+        logging.info(
+            "Prune OK : backups > %d jours supprimes de %s",
+            UNIFI_BACKUP_RETENTION_DAYS,
+            destination,
+        )
         return True
     except Exception as e:
         logging.warning("Prune rclone erreur : %s", e)
@@ -175,13 +199,17 @@ def run_backup(source: str = "scheduled") -> BackupResult:
     if is_stale:
         logging.warning(
             "Backup UniFi perime : %s date de %dh (max %dh)",
-            filename, age_hours, UNIFI_BACKUP_MAX_AGE_HOURS,
+            filename,
+            age_hours,
+            UNIFI_BACKUP_MAX_AGE_HOURS,
         )
 
     # Check size
     is_suspicious, size_bytes = check_backup_size(backup_path)
     if is_suspicious:
-        logging.error("Backup UniFi suspect : %s fait %d bytes (< 1KB)", filename, size_bytes)
+        logging.error(
+            "Backup UniFi suspect : %s fait %d bytes (< 1KB)", filename, size_bytes
+        )
         return BackupResult(
             ok=False,
             filename=filename,
@@ -192,7 +220,9 @@ def run_backup(source: str = "scheduled") -> BackupResult:
         )
 
     # Upload
-    logging.info("Backup UniFi [%s] : upload %s (%d bytes)", source, filename, size_bytes)
+    logging.info(
+        "Backup UniFi [%s] : upload %s (%d bytes)", source, filename, size_bytes
+    )
     if not upload_backup(backup_path):
         return BackupResult(
             ok=False,

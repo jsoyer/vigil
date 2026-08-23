@@ -338,8 +338,7 @@ class TestMaxRebootsPerDay:
 
         # Should have sent surveillance mode notification
         surveillance_calls = [
-            c for c in mock_notify.call_args_list
-            if "surveillance" in str(c).lower()
+            c for c in mock_notify.call_args_list if "surveillance" in str(c).lower()
         ]
         assert len(surveillance_calls) >= 1
 
@@ -416,7 +415,8 @@ class TestIspOutageDetection:
 
         # ISP notification should have been sent
         isp_calls = [
-            c for c in mock_notify.call_args_list
+            c
+            for c in mock_notify.call_args_list
             if "fournisseur" in str(c).lower() or "panne" in str(c).lower()
         ]
         assert len(isp_calls) >= 1
@@ -460,7 +460,8 @@ class TestRecoverySummary:
 
         # Find recovery summary notification
         recovery_calls = [
-            c for c in mock_notify.call_args_list
+            c
+            for c in mock_notify.call_args_list
             if "retablie" in str(c) and "redemarrage" in str(c).lower()
         ]
         assert len(recovery_calls) >= 1
@@ -491,7 +492,8 @@ class TestRecoverySummary:
 
         # Recovery notification should mention no reboot needed
         recovery_calls = [
-            c for c in mock_notify.call_args_list
+            c
+            for c in mock_notify.call_args_list
             if "redemarrage" in str(c).lower() and "retablie" in str(c).lower()
         ]
         assert len(recovery_calls) >= 1
@@ -500,6 +502,7 @@ class TestRecoverySummary:
 class TestSetupLogging:
     def test_no_duplicate_handlers(self):
         import logging
+
         root = logging.getLogger()
         root.handlers.clear()
         watchdog.setup_logging()
@@ -511,6 +514,7 @@ class TestSetupLogging:
     def test_permission_error_falls_back_to_console_only(self):
         """Lines 100-101: PermissionError on log file -> logs warning, no crash."""
         import logging
+
         root = logging.getLogger()
         root.handlers.clear()
         with mock.patch(
@@ -594,10 +598,19 @@ class TestDailyReport:
     @mock.patch("src.watchdog.reboot_usg")
     @mock.patch("src.watchdog.check_connectivity")
     @mock.patch("src.watchdog.generate_daily_report")
-    @mock.patch("src.watchdog.format_report_notification", return_value="daily report text")
+    @mock.patch(
+        "src.watchdog.format_report_notification", return_value="daily report text"
+    )
     @mock.patch("src.watchdog.datetime")
     def test_daily_report_sent_on_new_day(
-        self, mock_dt, mock_fmt, mock_gen, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_dt,
+        mock_fmt,
+        mock_gen,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 301-309: daily report sent when date changes and hour >= DAILY_REPORT_HOUR."""
         from datetime import date, datetime as real_dt
@@ -631,7 +644,9 @@ class TestDailyReport:
     @mock.patch("src.watchdog.notify")
     @mock.patch("src.watchdog.reboot_usg")
     @mock.patch("src.watchdog.check_connectivity")
-    @mock.patch("src.watchdog.generate_daily_report", side_effect=RuntimeError("db error"))
+    @mock.patch(
+        "src.watchdog.generate_daily_report", side_effect=RuntimeError("db error")
+    )
     @mock.patch("src.watchdog.datetime")
     def test_daily_report_exception_does_not_crash_loop(
         self, mock_dt, mock_gen, mock_conn, mock_reboot, mock_notify, mock_sleep
@@ -675,7 +690,14 @@ class TestWeeklyReport:
     @mock.patch("src.watchdog.format_weekly_report", return_value="weekly report text")
     @mock.patch("src.watchdog.datetime")
     def test_weekly_report_sent_on_new_week_monday(
-        self, mock_dt, mock_fmt, mock_gen, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_dt,
+        mock_fmt,
+        mock_gen,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 317-331: weekly report sent when week changes on the configured weekday."""
         from datetime import date, datetime as real_dt
@@ -741,7 +763,9 @@ class TestWeeklyReport:
 # ===================================================================
 
 
-def _make_backup_result(ok: bool, stale: bool = False, error: str = "") -> mock.MagicMock:
+def _make_backup_result(
+    ok: bool, stale: bool = False, error: str = ""
+) -> mock.MagicMock:
     """Build a mock BackupResult."""
     r = mock.MagicMock()
     r.ok = ok
@@ -765,7 +789,14 @@ class TestScheduledBackup:
     @mock.patch("src.watchdog.unifi_backup")
     @mock.patch("src.watchdog.datetime")
     def test_scheduled_backup_ok_notifies(
-        self, mock_dt, mock_backup, mock_bcfg, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_dt,
+        mock_backup,
+        mock_bcfg,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 363-377: successful scheduled backup sends notification."""
         from datetime import date, datetime as real_dt
@@ -800,7 +831,14 @@ class TestScheduledBackup:
     @mock.patch("src.watchdog.unifi_backup")
     @mock.patch("src.watchdog.datetime")
     def test_scheduled_backup_failed_notifies(
-        self, mock_dt, mock_backup, mock_bcfg, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_dt,
+        mock_backup,
+        mock_bcfg,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 371-373: failed scheduled backup sends notification."""
         from datetime import date, datetime as real_dt
@@ -835,7 +873,14 @@ class TestScheduledBackup:
     @mock.patch("src.watchdog.unifi_backup")
     @mock.patch("src.watchdog.datetime")
     def test_scheduled_backup_stale_sends_extra_notify(
-        self, mock_dt, mock_backup, mock_bcfg, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_dt,
+        mock_backup,
+        mock_bcfg,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 378-384: stale backup file triggers additional notification."""
         from datetime import date, datetime as real_dt
@@ -871,7 +916,14 @@ class TestScheduledBackup:
     @mock.patch("src.watchdog.unifi_backup", side_effect=RuntimeError("disk full"))
     @mock.patch("src.watchdog.datetime")
     def test_scheduled_backup_exception_does_not_crash_loop(
-        self, mock_dt, mock_backup, mock_bcfg, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_dt,
+        mock_backup,
+        mock_bcfg,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 385-386: exception in unifi_backup is caught."""
         from datetime import date, datetime as real_dt
@@ -937,7 +989,8 @@ class TestCommandProcessing:
                 watchdog.main()
 
         pause_calls = [
-            c for c in mock_notify.call_args_list
+            c
+            for c in mock_notify.call_args_list
             if "pause" in str(c).lower() or "surveillance" in str(c).lower()
         ]
         assert len(pause_calls) >= 1
@@ -964,8 +1017,10 @@ class TestCommandProcessing:
                 watchdog.main()
 
         resume_calls = [
-            c for c in mock_notify.call_args_list
-            if "reprise" in str(c).lower() or "resume" in str(c).lower()
+            c
+            for c in mock_notify.call_args_list
+            if "reprise" in str(c).lower()
+            or "resume" in str(c).lower()
             or "desactive" in str(c).lower()
         ]
         assert len(resume_calls) >= 1
@@ -1040,8 +1095,7 @@ class TestCommandProcessing:
                 watchdog.main()
 
         maintenance_calls = [
-            c for c in mock_notify.call_args_list
-            if "maintenance" in str(c).lower()
+            c for c in mock_notify.call_args_list if "maintenance" in str(c).lower()
         ]
         assert len(maintenance_calls) >= 1
 
@@ -1099,7 +1153,8 @@ class TestCommandProcessing:
                 watchdog.main()
 
         end_calls = [
-            c for c in mock_notify.call_args_list
+            c
+            for c in mock_notify.call_args_list
             if "termine" in str(c).lower() or "maintenance" in str(c).lower()
         ]
         assert len(end_calls) >= 1
@@ -1147,8 +1202,10 @@ class TestIspOutageRecovery:
 
         # ISP outage detected then cleared -> ISP notification sent
         isp_calls = [
-            c for c in mock_notify.call_args_list
-            if "isp" in str(c).lower() or "fournisseur" in str(c).lower()
+            c
+            for c in mock_notify.call_args_list
+            if "isp" in str(c).lower()
+            or "fournisseur" in str(c).lower()
             or "panne" in str(c).lower()
         ]
         assert len(isp_calls) >= 1
@@ -1164,7 +1221,9 @@ class TestLoggingDeltaZero:
     @mock.patch("src.watchdog.notify")
     @mock.patch("src.watchdog.reboot_usg")
     @mock.patch("src.watchdog.check_connectivity")
-    def test_delta_zero_uses_debug_log(self, mock_conn, mock_reboot, mock_notify, mock_sleep):
+    def test_delta_zero_uses_debug_log(
+        self, mock_conn, mock_reboot, mock_notify, mock_sleep
+    ):
         """Line 509: delta==0 (gateway ok, internet partial with score==0) uses debug log."""
         # gateway ok, 1 internet = delta +1 -1 = 0
         mock_conn.return_value = _make_result(True, 1)
@@ -1267,7 +1326,14 @@ class TestDdnsOnRecovery:
     @mock.patch("src.watchdog.ddns_check")
     @mock.patch("src.watchdog.time.time")
     def test_ddns_update_sent_on_recovery_with_ip_change(
-        self, mock_time, mock_ddns, mock_dcfg, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_time,
+        mock_ddns,
+        mock_dcfg,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 574-587: DDNS check runs on recovery; if IP changed, sends notification."""
         from src.ddns_cloudflare import DdnsResult
@@ -1306,7 +1372,8 @@ class TestDdnsOnRecovery:
 
         # DDNS notify should have been sent
         ddns_calls = [
-            c for c in mock_notify.call_args_list
+            c
+            for c in mock_notify.call_args_list
             if "ip" in str(c).lower() or "dns" in str(c).lower()
         ]
         assert len(ddns_calls) >= 1
@@ -1322,7 +1389,14 @@ class TestDdnsOnRecovery:
     @mock.patch("src.watchdog.ddns_check")
     @mock.patch("src.watchdog.time.time")
     def test_ddns_update_failed_records_sends_failure_notification(
-        self, mock_time, mock_ddns, mock_dcfg, mock_conn, mock_reboot, mock_notify, mock_sleep
+        self,
+        mock_time,
+        mock_ddns,
+        mock_dcfg,
+        mock_conn,
+        mock_reboot,
+        mock_notify,
+        mock_sleep,
     ):
         """Lines 583-586: DDNS update with records_failed > 0 sends failure notification."""
         from src.ddns_cloudflare import DdnsResult
@@ -1600,7 +1674,9 @@ class TestSnmpCheck:
     @mock.patch("src.watchdog.notify")
     @mock.patch("src.watchdog.reboot_usg")
     @mock.patch("src.watchdog.check_connectivity")
-    @mock.patch("src.watchdog.read_usg_metrics", side_effect=RuntimeError("SNMP timeout"))
+    @mock.patch(
+        "src.watchdog.read_usg_metrics", side_effect=RuntimeError("SNMP timeout")
+    )
     def test_snmp_exception_does_not_crash_loop(
         self, mock_snmp, mock_conn, mock_reboot, mock_notify, mock_sleep
     ):
@@ -1698,7 +1774,8 @@ class TestAlertEscalation:
                 watchdog.main()
 
         escalation_calls = [
-            c for c in mock_notify.call_args_list
+            c
+            for c in mock_notify.call_args_list
             if "escalade" in str(c).lower() or "critique" in str(c).lower()
         ]
         assert len(escalation_calls) >= 1
@@ -1805,7 +1882,9 @@ class TestTailscaleDnsSync:
     @mock.patch("src.watchdog.reboot_usg")
     @mock.patch("src.watchdog.check_connectivity")
     @mock.patch("src.watchdog.tailscale_configured", return_value=True)
-    @mock.patch("src.watchdog.sync_tailscale_dns", side_effect=RuntimeError("API error"))
+    @mock.patch(
+        "src.watchdog.sync_tailscale_dns", side_effect=RuntimeError("API error")
+    )
     def test_tailscale_sync_exception_does_not_crash_loop(
         self, mock_sync, mock_tcfg, mock_conn, mock_reboot, mock_notify, mock_sleep
     ):
@@ -1838,10 +1917,12 @@ class TestShutdownHandlers:
                 watchdog.main()
             except KeyboardInterrupt:
                 import logging as _logging
-                _logging.info("USG Watchdog arrete manuellement")
+
+                _logging.info("Vigil arrete manuellement")
                 if watchdog._event_log:
                     watchdog._event_log.record("shutdown", reason="manual")
                 from src import messages as _msg
+
                 text, level, ctx = _msg.shutdown("arret manuel")
                 watchdog.notify(text, level, ctx)
 
@@ -1863,6 +1944,7 @@ class TestShutdownHandlers:
                 if watchdog._event_log:
                     watchdog._event_log.record("shutdown", reason="crash")
                 from src import messages as _msg
+
                 text, level, ctx = _msg.shutdown("crash")
                 watchdog.notify(text, level, ctx)
 
@@ -1879,6 +1961,7 @@ class TestSetupLoggingPermissionError:
     def test_permission_error_on_rotating_handler_only_console_handler(self):
         """Lines 100-101: PermissionError on RotatingFileHandler -> only StreamHandler added."""
         import logging
+
         root = logging.getLogger()
         root.handlers.clear()
         with mock.patch(
@@ -1977,7 +2060,9 @@ class TestPreRebootBackupFailedResult:
             return _make_result(True, 3)
 
         mock_conn.side_effect = conn_side
-        mock_backup.return_value = _make_backup_result(ok=False, error="connection refused")
+        mock_backup.return_value = _make_backup_result(
+            ok=False, error="connection refused"
+        )
         mock_sleep.side_effect = [None] * 100 + [KeyboardInterrupt]
 
         with pytest.raises(KeyboardInterrupt):
@@ -2008,19 +2093,23 @@ class TestMainBlockShutdown:
                     watchdog.main()
                 except KeyboardInterrupt:
                     import logging as _lg
-                    _lg.info("USG Watchdog arrete manuellement")
+
+                    _lg.info("Vigil arrete manuellement")
                     if watchdog._event_log:
                         watchdog._event_log.record("shutdown", reason="manual")
                     import messages as _msg
+
                     text, level, ctx = _msg.shutdown("arret manuel")
                     watchdog.notify(text, level, ctx)
                     watchdog.sys.exit(0)
                 except Exception:
                     import logging as _lg
+
                     _lg.critical("Erreur fatale", exc_info=True)
                     if watchdog._event_log:
                         watchdog._event_log.record("shutdown", reason="crash")
                     import messages as _msg
+
                     text, level, ctx = _msg.shutdown("crash")
                     watchdog.notify(text, level, ctx)
                     watchdog.sys.exit(1)
@@ -2046,6 +2135,7 @@ class TestSetupLoggingSuccessPath:
     def test_file_handler_added_when_log_path_is_writable(self, tmp_path):
         """Lines 100-101: RotatingFileHandler.setFormatter + addHandler called on writable path."""
         import logging
+
         root = logging.getLogger()
         root.handlers.clear()
         log_file = str(tmp_path / "watchdog.log")
@@ -2062,7 +2152,10 @@ class TestPeerStanddown:
     @mock.patch("src.watchdog.notify")
     @mock.patch("src.watchdog.reboot_usg")
     @mock.patch("src.watchdog.check_connectivity")
-    @mock.patch("src.watchdog.peer_should_reboot", return_value=(False, "peer already rebooting"))
+    @mock.patch(
+        "src.watchdog.peer_should_reboot",
+        return_value=(False, "peer already rebooting"),
+    )
     def test_peer_standdown_defers_reboot(
         self, mock_peer_reboot, mock_conn, mock_reboot, mock_notify, mock_sleep
     ):

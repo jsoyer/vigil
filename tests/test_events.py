@@ -27,7 +27,9 @@ class TestEvent:
 
 class TestEventLog:
     def test_record_and_get_all(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record("reboot", attempt=1)
         log.record("recovery", duration="5min")
 
@@ -39,7 +41,9 @@ class TestEventLog:
         assert events[1]["data"]["duration"] == "5min"
 
     def test_ring_buffer_evicts_oldest(self, tmp_path):
-        log = EventLog(max_events=3, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=3, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record("a")
         log.record("b")
         log.record("c")
@@ -51,7 +55,9 @@ class TestEventLog:
         assert events[2]["type"] == "d"
 
     def test_get_recent(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         for i in range(10):
             log.record(f"event_{i}")
 
@@ -61,7 +67,9 @@ class TestEventLog:
         assert recent[2]["type"] == "event_9"
 
     def test_get_by_type(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(REBOOT, attempt=1)
         log.record(RECOVERY, duration="5min")
         log.record(REBOOT, attempt=2)
@@ -89,7 +97,9 @@ class TestEventLog:
 
     def test_persist_handles_permission_error(self, tmp_path):
         # Non-writable path should not crash
-        log = EventLog(max_events=10, persist_path="/root/nope/events.json", persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path="/root/nope/events.json", persist_interval=9999
+        )
         log.record("test")
         log.persist_now()  # should not raise
 
@@ -104,14 +114,18 @@ class TestEventLog:
         assert log.get_all() == []
 
     def test_serialize_non_primitive(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record("test", some_list=[1, 2, 3])
         events = log.get_all()
         # Non-primitive values get str() conversion
         assert events[0]["data"]["some_list"] == "[1, 2, 3]"
 
     def test_count_today(self, tmp_path):
-        log = EventLog(max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999)
+        log = EventLog(
+            max_events=10, persist_path=str(tmp_path / "e.json"), persist_interval=9999
+        )
         log.record(REBOOT, attempt=1)
         log.record(REBOOT, attempt=2)
         log.record(RECOVERY)

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-USG Watchdog Auto-Updater
+Vigil Auto-Updater
 
 Checks GitHub for new tagged releases, downloads, validates, and applies
 updates with automatic rollback on failure.
 
 This script runs as a separate systemd one-shot service (not inside the watchdog).
-It has write access to /opt/usg-watchdog/ while the watchdog itself has read-only.
+It has write access to /opt/vigil/ while the watchdog itself has read-only.
 
 Usage:
   python3 updater/update.py              # check + apply if available
@@ -33,8 +33,8 @@ from pathlib import Path
 
 GITHUB_REPO = os.getenv("UPDATER_GITHUB_REPO", "jsoyer/vigil")
 UPDATE_CHANNEL = os.getenv("UPDATE_CHANNEL", "stable")  # stable or dev
-INSTALL_DIR = Path(os.getenv("UPDATER_INSTALL_DIR", "/opt/usg-watchdog"))
-SERVICE_NAME = "usg-watchdog"
+INSTALL_DIR = Path(os.getenv("UPDATER_INSTALL_DIR", "/opt/vigil"))
+SERVICE_NAME = "vigil"
 HEALTH_CHECK_URL = os.getenv("UPDATER_HEALTH_URL", "http://localhost:9000/health")
 HEALTH_CHECK_TIMEOUT = 60  # seconds to wait for healthy after restart
 RELEASES_KEEP = 3
@@ -103,7 +103,7 @@ def fetch_tags() -> list[dict]:
         url,
         headers={
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "usg-watchdog-updater",
+            "User-Agent": "vigil-updater",
         },
     )
 
@@ -141,7 +141,7 @@ def download_tarball(tag_name: str, dest: Path) -> bool:
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "usg-watchdog-updater",
+            "User-Agent": "vigil-updater",
         },
     )
     token = os.getenv("GITHUB_TOKEN", "")
@@ -461,7 +461,7 @@ def main() -> int:
     force = "--force" in sys.argv
 
     log.info("=" * 50)
-    log.info("USG Watchdog Updater")
+    log.info("Vigil Updater")
     log.info("  Repo    : %s", GITHUB_REPO)
     log.info("  Channel : %s", UPDATE_CHANNEL)
     log.info("  Install : %s", INSTALL_DIR)

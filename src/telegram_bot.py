@@ -24,7 +24,9 @@ def _api(method: str, params: dict | None = None) -> dict | None:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
     if params:
         data = json.dumps(params).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}
+        )
     else:
         req = urllib.request.Request(url)
 
@@ -63,7 +65,7 @@ def _handle_command(
             status = "OK"
 
         lines = [
-            f"<b>USG Watchdog</b>",
+            f"<b>Vigil</b>",
             "",
             f"Status : <b>{status}</b>",
             f"Score : {state.failure_score}/{state.threshold}",
@@ -74,17 +76,22 @@ def _handle_command(
             lines.append(f"Latence GW : {round(state.gateway_rtt_ms, 1)}ms")
         if state.internet_avg_rtt_ms is not None:
             lines.append(f"Latence Internet : {round(state.internet_avg_rtt_ms, 1)}ms")
-        lines.extend([
-            f"Reboots aujourd'hui : {state.reboots_today}",
-            f"ISP : {'PANNE' if state.isp_outage_detected else 'OK'}",
-            f"Peer : {state.peer_status}",
-            f"Uptime : {int(state.uptime_seconds // 3600)}h",
-        ])
+        lines.extend(
+            [
+                f"Reboots aujourd'hui : {state.reboots_today}",
+                f"ISP : {'PANNE' if state.isp_outage_detected else 'OK'}",
+                f"Peer : {state.peer_status}",
+                f"Uptime : {int(state.uptime_seconds // 3600)}h",
+            ]
+        )
         _send(chat_id, "\n".join(lines))
 
     elif cmd == "/pause":
         holder.send_command(CMD_PAUSE)
-        _send(chat_id, "Mode surveillance active. Le watchdog ne redemarrera plus le routeur.")
+        _send(
+            chat_id,
+            "Mode surveillance active. Le watchdog ne redemarrera plus le routeur.",
+        )
 
     elif cmd == "/resume":
         holder.send_command(CMD_RESUME)
@@ -96,6 +103,7 @@ def _handle_command(
 
     elif cmd == "/ddns":
         from ddns_cloudflare import check_and_update, is_configured as ddns_ok
+
         if not ddns_ok():
             _send(chat_id, "DDNS non configure.")
             return
@@ -103,12 +111,15 @@ def _handle_command(
         if result is None:
             _send(chat_id, "Impossible de determiner l'IP publique.")
         elif result.changed:
-            _send(chat_id, f"IP mise a jour : {result.previous_ip} -> {result.current_ip}")
+            _send(
+                chat_id, f"IP mise a jour : {result.previous_ip} -> {result.current_ip}"
+            )
         else:
             _send(chat_id, f"IP inchangee : {result.current_ip}")
 
     elif cmd == "/backup":
         from backup_unifi import run_backup, is_configured as backup_ok
+
         if not backup_ok():
             _send(chat_id, "Backup UniFi non configure.")
             return
@@ -118,6 +129,7 @@ def _handle_command(
 
     elif cmd == "/tailscale":
         from tailscale_dns import sync_tailscale_dns, is_configured as ts_ok
+
         if not ts_ok():
             _send(chat_id, "Tailscale DNS sync non configure.")
             return
@@ -129,7 +141,8 @@ def _handle_command(
             _send(chat_id, ts_result.summary())
 
     elif cmd == "/help":
-        _send(chat_id,
+        _send(
+            chat_id,
             "<b>Commandes disponibles :</b>\n\n"
             "/status - Etat du watchdog\n"
             "/pause - Mode surveillance (plus de reboot)\n"
@@ -138,7 +151,7 @@ def _handle_command(
             "/ddns - Forcer une MAJ DNS Cloudflare\n"
             "/tailscale - Forcer une sync DNS Tailscale\n"
             "/backup - Lancer un backup UniFi\n"
-            "/help - Cette aide"
+            "/help - Cette aide",
         )
 
     else:
@@ -175,11 +188,14 @@ class TelegramBot:
                 time.sleep(10)
 
     def _poll_updates(self) -> None:
-        result = _api("getUpdates", {
-            "offset": self._offset,
-            "timeout": 30,
-            "allowed_updates": ["message"],
-        })
+        result = _api(
+            "getUpdates",
+            {
+                "offset": self._offset,
+                "timeout": 30,
+                "allowed_updates": ["message"],
+            },
+        )
 
         if result is None or not result.get("ok"):
             time.sleep(5)

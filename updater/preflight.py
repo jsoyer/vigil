@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-flight check for USG Watchdog -- run via ExecStartPre in systemd.
+"""Pre-flight check for Vigil -- run via ExecStartPre in systemd.
 
 Verifies that the watchdog can start successfully:
 1. Python version compatible
@@ -34,6 +34,7 @@ def check_imports() -> bool:
         import connectivity  # noqa: F401
         import watchdog  # noqa: F401
         import usg  # noqa: F401
+
         return True
     except Exception as e:
         print(f"PREFLIGHT FAIL: Import error: {e}", file=sys.stderr)
@@ -47,7 +48,10 @@ def check_port(port: int = 9000) -> bool:
             result = s.connect_ex(("127.0.0.1", port))
             if result == 0:
                 # Port is already in use -- another instance?
-                print(f"PREFLIGHT WARN: Port {port} deja en cours d'utilisation", file=sys.stderr)
+                print(
+                    f"PREFLIGHT WARN: Port {port} deja en cours d'utilisation",
+                    file=sys.stderr,
+                )
                 # Not fatal -- could be the previous instance shutting down
             return True
     except Exception:

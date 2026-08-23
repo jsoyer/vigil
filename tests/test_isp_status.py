@@ -65,7 +65,9 @@ class TestGetEffectiveUrls:
 
     @mock.patch("src.isp_status.config")
     def test_overrides_specific_isp_url(self, mock_cfg):
-        mock_cfg.ISP_STATUS_URLS = json.dumps({"Free": "https://custom.free.example.com"})
+        mock_cfg.ISP_STATUS_URLS = json.dumps(
+            {"Free": "https://custom.free.example.com"}
+        )
         urls = _get_effective_urls()
         assert urls["Free"] == "https://custom.free.example.com"
         # Other ISPs keep their defaults
@@ -133,7 +135,9 @@ class TestIspCheckResult:
             IspStatus("Free", "u", True, ["panne"], None, "2026-01-01T00:00:00+00:00"),
             IspStatus("Orange", "u", False, [], None, "2026-01-01T00:00:00+00:00"),
         ]
-        result = IspCheckResult(statuses=statuses, any_incident=True, summary="Incident: Free")
+        result = IspCheckResult(
+            statuses=statuses, any_incident=True, summary="Incident: Free"
+        )
         assert result.any_incident is True
 
 
@@ -163,7 +167,9 @@ class TestCheckSingleIsp:
         mock_urlopen.return_value = _make_mock_response(
             "<html><body>Un incident en cours affecte votre connexion.</body></html>"
         )
-        result = _check_single_isp("Orange", "https://orange.fr", ["incident en cours", "panne"])
+        result = _check_single_isp(
+            "Orange", "https://orange.fr", ["incident en cours", "panne"]
+        )
         assert result.has_incident is True
         assert "incident en cours" in result.keywords_found
         assert result.error is None
@@ -184,8 +190,11 @@ class TestCheckSingleIsp:
     def test_http_error_returns_no_incident_with_error(self, mock_urlopen, mock_cfg):
         mock_cfg.ISP_STATUS_TIMEOUT = 10
         mock_urlopen.side_effect = urllib.error.HTTPError(
-            url="https://sfr.fr", code=503, msg="Service Unavailable",
-            hdrs=None, fp=None,
+            url="https://sfr.fr",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=None,
+            fp=None,
         )
         result = _check_single_isp("SFR", "https://sfr.fr", ["incident"])
         assert result.has_incident is False
@@ -204,7 +213,9 @@ class TestCheckSingleIsp:
 
     @mock.patch("src.isp_status.config")
     @mock.patch("src.isp_status.urllib.request.urlopen")
-    def test_generic_exception_returns_no_incident_with_error(self, mock_urlopen, mock_cfg):
+    def test_generic_exception_returns_no_incident_with_error(
+        self, mock_urlopen, mock_cfg
+    ):
         mock_cfg.ISP_STATUS_TIMEOUT = 10
         mock_urlopen.side_effect = RuntimeError("unexpected error")
         result = _check_single_isp("Free", "https://free.fr", ["incident"])
@@ -218,7 +229,9 @@ class TestCheckSingleIsp:
         mock_urlopen.return_value = _make_mock_response(
             "<html><body>incident et panne detectes sur le reseau SFR.</body></html>"
         )
-        result = _check_single_isp("SFR", "https://sfr.fr", ["incident", "panne", "perturbation"])
+        result = _check_single_isp(
+            "SFR", "https://sfr.fr", ["incident", "panne", "perturbation"]
+        )
         assert result.has_incident is True
         assert "incident" in result.keywords_found
         assert "panne" in result.keywords_found
@@ -232,6 +245,7 @@ class TestCheckSingleIsp:
         result = _check_single_isp("Free", "https://free.fr", [])
         # Should parse as ISO datetime without raising
         from datetime import datetime, timezone
+
         dt = datetime.fromisoformat(result.checked_at)
         assert dt.tzinfo is not None
 
@@ -255,7 +269,9 @@ class TestCheckIspStatus:
     @mock.patch("src.isp_status._check_single_isp")
     @mock.patch("src.isp_status._get_effective_urls")
     def test_no_incidents_any_incident_false(self, mock_urls, mock_check):
-        mock_urls.return_value = {name: f"https://{name}.example.com" for name in ISP_CONFIGS}
+        mock_urls.return_value = {
+            name: f"https://{name}.example.com" for name in ISP_CONFIGS
+        }
         mock_check.return_value = self._mock_single_isp("Free", False)
 
         result = check_isp_status()
@@ -266,7 +282,9 @@ class TestCheckIspStatus:
     @mock.patch("src.isp_status._check_single_isp")
     @mock.patch("src.isp_status._get_effective_urls")
     def test_one_incident_any_incident_true(self, mock_urls, mock_check):
-        mock_urls.return_value = {name: f"https://{name}.example.com" for name in ISP_CONFIGS}
+        mock_urls.return_value = {
+            name: f"https://{name}.example.com" for name in ISP_CONFIGS
+        }
 
         def side_effect(name, url, keywords):
             return self._mock_single_isp(name, name == "Free")
@@ -280,7 +298,9 @@ class TestCheckIspStatus:
     @mock.patch("src.isp_status._check_single_isp")
     @mock.patch("src.isp_status._get_effective_urls")
     def test_summary_lists_incident_isps(self, mock_urls, mock_check):
-        mock_urls.return_value = {name: f"https://{name}.example.com" for name in ISP_CONFIGS}
+        mock_urls.return_value = {
+            name: f"https://{name}.example.com" for name in ISP_CONFIGS
+        }
 
         def side_effect(name, url, keywords):
             return self._mock_single_isp(name, name in ("Free", "SFR"))
@@ -294,10 +314,14 @@ class TestCheckIspStatus:
     @mock.patch("src.isp_status._check_single_isp")
     @mock.patch("src.isp_status._get_effective_urls")
     def test_partial_errors_still_returns_result(self, mock_urls, mock_check):
-        mock_urls.return_value = {name: f"https://{name}.example.com" for name in ISP_CONFIGS}
+        mock_urls.return_value = {
+            name: f"https://{name}.example.com" for name in ISP_CONFIGS
+        }
 
         def side_effect(name, url, keywords):
-            return self._mock_single_isp(name, False, error="HTTP 503" if name == "Orange" else None)
+            return self._mock_single_isp(
+                name, False, error="HTTP 503" if name == "Orange" else None
+            )
 
         mock_check.side_effect = side_effect
 
@@ -309,7 +333,9 @@ class TestCheckIspStatus:
     @mock.patch("src.isp_status._check_single_isp")
     @mock.patch("src.isp_status._get_effective_urls")
     def test_returns_isp_check_result_type(self, mock_urls, mock_check):
-        mock_urls.return_value = {name: f"https://{name}.example.com" for name in ISP_CONFIGS}
+        mock_urls.return_value = {
+            name: f"https://{name}.example.com" for name in ISP_CONFIGS
+        }
         mock_check.return_value = self._mock_single_isp("Free", False)
 
         result = check_isp_status()
@@ -318,7 +344,9 @@ class TestCheckIspStatus:
     @mock.patch("src.isp_status._check_single_isp")
     @mock.patch("src.isp_status._get_effective_urls")
     def test_all_errors_produces_no_incident_summary(self, mock_urls, mock_check):
-        mock_urls.return_value = {name: f"https://{name}.example.com" for name in ISP_CONFIGS}
+        mock_urls.return_value = {
+            name: f"https://{name}.example.com" for name in ISP_CONFIGS
+        }
         mock_check.return_value = self._mock_single_isp("Free", False, error="timeout")
 
         result = check_isp_status()

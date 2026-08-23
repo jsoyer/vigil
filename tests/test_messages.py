@@ -62,9 +62,18 @@ class TestShutdown:
 class TestRebootLaunching:
     def test_contains_all_details(self):
         text, level, ctx = reboot_launching(
-            attempt=2, score=12, gateway_ok=True,
-            inet_count=0, inet_total=3, reboots_today=2,
-            peer_info={"status": "healthy", "score": 0, "gateway": "OK", "internet": "3/3"},
+            attempt=2,
+            score=12,
+            gateway_ok=True,
+            inet_count=0,
+            inet_total=3,
+            reboots_today=2,
+            peer_info={
+                "status": "healthy",
+                "score": 0,
+                "gateway": "OK",
+                "internet": "3/3",
+            },
         )
         assert "redemarrage" in text.lower()
         assert "#2" in text
@@ -77,9 +86,18 @@ class TestRebootLaunching:
 
     def test_no_peer_line_standalone(self):
         text, _, _ = reboot_launching(
-            attempt=1, score=10, gateway_ok=False,
-            inet_count=0, inet_total=3, reboots_today=1,
-            peer_info={"status": "standalone", "score": 0, "gateway": "", "internet": ""},
+            attempt=1,
+            score=10,
+            gateway_ok=False,
+            inet_count=0,
+            inet_total=3,
+            reboots_today=1,
+            peer_info={
+                "status": "standalone",
+                "score": 0,
+                "gateway": "",
+                "internet": "",
+            },
         )
         assert "Peer" not in text
 
@@ -186,12 +204,14 @@ class TestDashboardLink:
 
     def test_contains_port(self):
         from unittest import mock
+
         with mock.patch("socket.gethostname", return_value="myhost"):
             link = _dashboard_link()
         assert "myhost" in link
 
     def test_falls_back_on_socket_error(self):
         from unittest import mock
+
         with mock.patch("socket.gethostname", side_effect=OSError("fail")):
             link = _dashboard_link()
         assert "localhost" in link
@@ -200,12 +220,14 @@ class TestDashboardLink:
 class TestPeerLabel:
     def test_with_peer_ip(self):
         from unittest import mock
+
         with mock.patch("src.messages.PEER_IP", "10.0.0.2"):
             label = _peer_label()
         assert "10.0.0.2" in label
 
     def test_standalone(self):
         from unittest import mock
+
         with mock.patch("src.messages.PEER_IP", ""):
             label = _peer_label()
         assert "standalone" in label
@@ -267,7 +289,9 @@ class TestBackupStale:
 
 class TestDdnsUpdated:
     def test_contains_both_ips(self):
-        text, level, ctx = ddns_updated("1.2.3.4", "5.6.7.8", 2, "home.example.com, vpn.example.com")
+        text, level, ctx = ddns_updated(
+            "1.2.3.4", "5.6.7.8", 2, "home.example.com, vpn.example.com"
+        )
         assert "1.2.3.4" in text
         assert "5.6.7.8" in text
         assert "2" in text
@@ -282,7 +306,10 @@ class TestDdnsUpdated:
 
 class TestDdnsFailed:
     def test_contains_ip_and_errors(self):
-        errors = ["home.example.com: record ID introuvable", "vpn.example.com: update echoue"]
+        errors = [
+            "home.example.com: record ID introuvable",
+            "vpn.example.com: update echoue",
+        ]
         text, level, ctx = ddns_failed("5.6.7.8", errors)
         assert "5.6.7.8" in text
         assert "home.example.com" in text

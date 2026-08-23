@@ -9,10 +9,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from config import _resolve_install_path
+
 
 @dataclass(frozen=True)
 class Event:
     """A single watchdog event."""
+
     ts: str
     type: str
     data: dict = field(default_factory=dict)
@@ -43,7 +46,9 @@ class EventLog:
     def __init__(
         self,
         max_events: int = 50,
-        persist_path: str = "/var/log/usg-watchdog-events.json",
+        persist_path: str = _resolve_install_path(
+            "/var/log/vigil-events.json", "/var/log/usg-watchdog-events.json"
+        ),
         persist_interval: int = 3600,
     ) -> None:
         self._events: deque[Event] = deque(maxlen=max_events)
@@ -87,7 +92,8 @@ class EventLog:
         today = datetime.now().date().isoformat()
         with self._lock:
             return sum(
-                1 for e in self._events
+                1
+                for e in self._events
                 if e.type == event_type and e.ts.startswith(today)
             )
 
@@ -108,10 +114,14 @@ class EventLog:
             data = self.get_all()
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self._persist_path.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+            tmp_path.write_text(
+                json.dumps(data, separators=(",", ":")), encoding="utf-8"
+            )
             tmp_path.rename(self._persist_path)
             self._last_persist = time.time()
-            logging.debug("Events persisted: %d events -> %s", len(data), self._persist_path)
+            logging.debug(
+                "Events persisted: %d events -> %s", len(data), self._persist_path
+            )
         except PermissionError:
             logging.debug("Events: impossible d'ecrire %s", self._persist_path)
         except Exception as e:
@@ -134,10 +144,14 @@ class EventLog:
                     )
                     self._events.append(event)
             logging.debug(
-                "Events loaded: %d events from %s", len(self._events), self._persist_path
+                "Events loaded: %d events from %s",
+                len(self._events),
+                self._persist_path,
             )
         except (json.JSONDecodeError, PermissionError) as e:
-            logging.debug("Events: impossible de charger %s -- %s", self._persist_path, e)
+            logging.debug(
+                "Events: impossible de charger %s -- %s", self._persist_path, e
+            )
 
 
 def _serialize(value: object) -> object:

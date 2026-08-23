@@ -15,7 +15,7 @@ class TestManifestJson:
     def test_contains_name_field(self):
         parsed = json.loads(MANIFEST_JSON)
         assert "name" in parsed
-        assert parsed["name"] == "USG Watchdog"
+        assert parsed["name"] == "Vigil"
 
     def test_contains_short_name(self):
         parsed = json.loads(MANIFEST_JSON)
@@ -31,7 +31,12 @@ class TestManifestJson:
     def test_contains_display_field(self):
         parsed = json.loads(MANIFEST_JSON)
         assert "display" in parsed
-        assert parsed["display"] in ("standalone", "fullscreen", "minimal-ui", "browser")
+        assert parsed["display"] in (
+            "standalone",
+            "fullscreen",
+            "minimal-ui",
+            "browser",
+        )
 
     def test_contains_background_color(self):
         parsed = json.loads(MANIFEST_JSON)

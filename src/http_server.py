@@ -22,6 +22,7 @@ def _get_dashboard_html() -> str:
     global _dashboard_html
     if _dashboard_html is None:
         from dashboard import DASHBOARD_HTML
+
         _dashboard_html = DASHBOARD_HTML
     return _dashboard_html
 
@@ -30,6 +31,7 @@ def _get_manifest_json() -> str:
     global _manifest_json
     if _manifest_json is None:
         from pwa import MANIFEST_JSON
+
         _manifest_json = MANIFEST_JSON
     return _manifest_json
 
@@ -38,8 +40,10 @@ def _get_service_worker_js() -> str:
     global _service_worker_js
     if _service_worker_js is None:
         from pwa import SERVICE_WORKER_JS
+
         _service_worker_js = SERVICE_WORKER_JS
     return _service_worker_js
+
 
 import config as _config
 
@@ -57,9 +61,13 @@ def _make_handler_class(
                 if self.path == "/" or self.path == "/dashboard":
                     self._handle_dashboard()
                 elif self.path == "/manifest.json":
-                    self._respond_text("application/manifest+json", _get_manifest_json())
+                    self._respond_text(
+                        "application/manifest+json", _get_manifest_json()
+                    )
                 elif self.path == "/sw.js":
-                    self._respond_text("application/javascript", _get_service_worker_js())
+                    self._respond_text(
+                        "application/javascript", _get_service_worker_js()
+                    )
                 elif self.path == "/health":
                     self._handle_health()
                 elif self.path == "/api/stream":
@@ -97,7 +105,9 @@ def _make_handler_class(
         def _check_auth(self) -> bool:
             """Check API token. Returns True if authorized."""
             if not _config.API_TOKEN:
-                self._respond_json(403, {"error": "API_TOKEN non configure -- POST desactive"})
+                self._respond_json(
+                    403, {"error": "API_TOKEN non configure -- POST desactive"}
+                )
                 return False
             auth = self.headers.get("Authorization", "")
             if auth == f"Bearer {_config.API_TOKEN}":
@@ -164,8 +174,12 @@ def _make_handler_class(
                 "isp_outage": snapshot.isp_outage_detected,
                 "uptime": int(snapshot.uptime_seconds),
                 "latency": {
-                    "gateway_ms": round(snapshot.gateway_rtt_ms, 1) if snapshot.gateway_rtt_ms is not None else None,
-                    "internet_avg_ms": round(snapshot.internet_avg_rtt_ms, 1) if snapshot.internet_avg_rtt_ms is not None else None,
+                    "gateway_ms": round(snapshot.gateway_rtt_ms, 1)
+                    if snapshot.gateway_rtt_ms is not None
+                    else None,
+                    "internet_avg_ms": round(snapshot.internet_avg_rtt_ms, 1)
+                    if snapshot.internet_avg_rtt_ms is not None
+                    else None,
                     "degraded": snapshot.latency_degraded,
                 },
                 "version": snapshot.version,
@@ -192,8 +206,8 @@ def _make_handler_class(
             The loop exits cleanly on client disconnect (BrokenPipeError /
             ConnectionResetError).
             """
-            SSE_POLL_INTERVAL = 5       # seconds between state checks
-            SSE_KEEPALIVE_INTERVAL = 15 # seconds between keepalive comments
+            SSE_POLL_INTERVAL = 5  # seconds between state checks
+            SSE_KEEPALIVE_INTERVAL = 15  # seconds between keepalive comments
 
             try:
                 self.send_response(200)
@@ -318,15 +332,19 @@ def _make_handler_class(
             if snapshot is None:
                 self._respond_json(503, {"error": "not ready"})
                 return
-            self._respond_json(200, {
-                "checked": snapshot.isp_status_checked,
-                "any_incident": snapshot.isp_status_any_incident,
-                "summary": snapshot.isp_status_summary,
-            })
+            self._respond_json(
+                200,
+                {
+                    "checked": snapshot.isp_status_checked,
+                    "any_incident": snapshot.isp_status_any_incident,
+                    "summary": snapshot.isp_status_summary,
+                },
+            )
 
         def _handle_get_backup_unifi(self) -> None:
             """Return last backup info."""
             from backup_unifi import is_configured, find_latest_backup, check_backup_age
+
             if not is_configured():
                 self._respond_json(200, {"configured": False})
                 return
@@ -335,39 +353,61 @@ def _make_handler_class(
                 self._respond_json(200, {"configured": True, "latest": None})
                 return
             is_stale, age_hours = check_backup_age(latest)
-            self._respond_json(200, {
-                "configured": True,
-                "latest": latest.name,
-                "size_bytes": latest.stat().st_size,
-                "size_mb": round(latest.stat().st_size / (1024 * 1024), 1),
-                "age_hours": age_hours,
-                "stale": is_stale,
-            })
+            self._respond_json(
+                200,
+                {
+                    "configured": True,
+                    "latest": latest.name,
+                    "size_bytes": latest.stat().st_size,
+                    "size_mb": round(latest.stat().st_size / (1024 * 1024), 1),
+                    "age_hours": age_hours,
+                    "stale": is_stale,
+                },
+            )
 
         def _handle_backup_unifi(self) -> None:
             """Force a backup via API."""
             from backup_unifi import is_configured, run_backup
+
             if not is_configured():
                 self._respond_json(200, {"ok": False, "error": "not configured"})
                 return
             result = run_backup(source="api")
             self._respond_json(200, {"ok": result.ok, **result.to_dict()})
 
-        _EXPORT_SAFE_KEYS = frozenset({
-            "CHECK_INTERVAL", "REBOOT_SCORE_THRESHOLD", "MAX_SCORE",
-            "SCORE_GATEWAY_DOWN", "SCORE_INTERNET_ALL_DOWN", "SCORE_INTERNET_PARTIAL",
-            "SCORE_DECAY_OK", "SCORE_DECAY_PARTIAL", "POST_REBOOT_GRACE",
-            "REBOOT_COOLDOWN", "MAX_REBOOT_COOLDOWN", "MAX_REBOOTS_PER_DAY",
-            "PING_TARGETS", "PING_TIMEOUT", "INSTANCE_PRIORITY",
-            "HTTP_PORT", "PEER_PORT", "PEER_TAKEOVER_DELAY",
-            "DAILY_REPORT_HOUR", "WEEKLY_REPORT_DAY",
-            "DDNS_CHECK_INTERVAL", "LOG_LEVEL",
-            "ISP_OUTAGE_DETECTION_DELAY", "ALERT_ESCALATION_DELAY",
-        })
+        _EXPORT_SAFE_KEYS = frozenset(
+            {
+                "CHECK_INTERVAL",
+                "REBOOT_SCORE_THRESHOLD",
+                "MAX_SCORE",
+                "SCORE_GATEWAY_DOWN",
+                "SCORE_INTERNET_ALL_DOWN",
+                "SCORE_INTERNET_PARTIAL",
+                "SCORE_DECAY_OK",
+                "SCORE_DECAY_PARTIAL",
+                "POST_REBOOT_GRACE",
+                "REBOOT_COOLDOWN",
+                "MAX_REBOOT_COOLDOWN",
+                "MAX_REBOOTS_PER_DAY",
+                "PING_TARGETS",
+                "PING_TIMEOUT",
+                "INSTANCE_PRIORITY",
+                "HTTP_PORT",
+                "PEER_PORT",
+                "PEER_TAKEOVER_DELAY",
+                "DAILY_REPORT_HOUR",
+                "WEEKLY_REPORT_DAY",
+                "DDNS_CHECK_INTERVAL",
+                "LOG_LEVEL",
+                "ISP_OUTAGE_DETECTION_DELAY",
+                "ALERT_ESCALATION_DELAY",
+            }
+        )
 
         def _handle_export_config(self) -> None:
             """Export safe config + events as JSON backup."""
             from datetime import datetime as dt
+
             snapshot = holder.state
             export = {
                 "version": snapshot.version if snapshot else "unknown",
@@ -381,21 +421,38 @@ def _make_handler_class(
                     export["config"][key] = val
             self._respond_json(200, export)
 
-        _SAFE_RELOAD_KEYS = frozenset({
-            "CHECK_INTERVAL", "REBOOT_SCORE_THRESHOLD", "MAX_SCORE",
-            "SCORE_GATEWAY_DOWN", "SCORE_INTERNET_ALL_DOWN", "SCORE_INTERNET_PARTIAL",
-            "SCORE_DECAY_OK", "SCORE_DECAY_PARTIAL", "POST_REBOOT_GRACE",
-            "REBOOT_COOLDOWN", "MAX_REBOOT_COOLDOWN", "MAX_REBOOTS_PER_DAY",
-            "LOG_LEVEL", "DAILY_REPORT_HOUR", "WEEKLY_REPORT_DAY",
-            "DDNS_CHECK_INTERVAL", "PING_TIMEOUT",
-        })
+        _SAFE_RELOAD_KEYS = frozenset(
+            {
+                "CHECK_INTERVAL",
+                "REBOOT_SCORE_THRESHOLD",
+                "MAX_SCORE",
+                "SCORE_GATEWAY_DOWN",
+                "SCORE_INTERNET_ALL_DOWN",
+                "SCORE_INTERNET_PARTIAL",
+                "SCORE_DECAY_OK",
+                "SCORE_DECAY_PARTIAL",
+                "POST_REBOOT_GRACE",
+                "REBOOT_COOLDOWN",
+                "MAX_REBOOT_COOLDOWN",
+                "MAX_REBOOTS_PER_DAY",
+                "LOG_LEVEL",
+                "DAILY_REPORT_HOUR",
+                "WEEKLY_REPORT_DAY",
+                "DDNS_CHECK_INTERVAL",
+                "PING_TIMEOUT",
+            }
+        )
 
         def _handle_config_reload(self) -> None:
             """Reload safe tuning parameters from .env file."""
             import importlib
+
             try:
-                env_path = "/opt/usg-watchdog/.env"
+                env_path = _config._resolve_install_path(
+                    "/opt/vigil/.env", "/opt/usg-watchdog/.env"
+                )
                 import os
+
                 reloaded = []
                 if os.path.exists(env_path):
                     with open(env_path) as f:
@@ -405,7 +462,9 @@ def _make_handler_class(
                                 key, _, value = line.partition("=")
                                 key = key.strip()
                                 if key in self._SAFE_RELOAD_KEYS:
-                                    os.environ[key] = value.strip().strip('"').strip("'")
+                                    os.environ[key] = (
+                                        value.strip().strip('"').strip("'")
+                                    )
                                     reloaded.append(key)
                 importlib.reload(_config)
                 self._respond_json(200, {"ok": True, "reloaded": reloaded})
@@ -415,6 +474,7 @@ def _make_handler_class(
         def _handle_tailscale_sync(self) -> None:
             """Force Tailscale DNS sync."""
             from tailscale_dns import sync_tailscale_dns, is_configured
+
             if not is_configured():
                 self._respond_json(200, {"ok": False, "error": "not configured"})
                 return
@@ -427,6 +487,7 @@ def _make_handler_class(
         def _handle_ddns_update(self) -> None:
             """Force a DDNS update."""
             from ddns_cloudflare import check_and_update, is_configured
+
             if not is_configured():
                 self._respond_json(200, {"ok": False, "error": "DDNS not configured"})
                 return
@@ -441,7 +502,7 @@ def _make_handler_class(
             snapshot = holder.state
             maint = {
                 "surveillance_only": snapshot.surveillance_only if snapshot else False,
-                "info": "POST /api/maintenance avec JSON {\"duration_minutes\": N} pour programmer une pause",
+                "info": 'POST /api/maintenance avec JSON {"duration_minutes": N} pour programmer une pause',
             }
             self._respond_json(200, maint)
 
@@ -449,22 +510,33 @@ def _make_handler_class(
             """Schedule a maintenance pause."""
             try:
                 MAX_BODY = 8192
-                content_length = min(int(self.headers.get("Content-Length", 0)), MAX_BODY)
-                body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+                content_length = min(
+                    int(self.headers.get("Content-Length", 0)), MAX_BODY
+                )
+                body = (
+                    self.rfile.read(content_length).decode("utf-8")
+                    if content_length > 0
+                    else "{}"
+                )
                 data = json.loads(body)
                 duration_min = int(data.get("duration_minutes", 60))
                 duration_min = max(1, min(duration_min, 1440))  # 1 min to 24h
             except (json.JSONDecodeError, ValueError, TypeError):
-                self._respond_json(400, {"error": "JSON invalide. Format: {\"duration_minutes\": 60}"})
+                self._respond_json(
+                    400, {"error": 'JSON invalide. Format: {"duration_minutes": 60}'}
+                )
                 return
 
             # Send pause command + schedule resume via a maintenance command
             holder.send_command(f"maintenance:{duration_min}")
-            self._respond_json(200, {
-                "ok": True,
-                "command": "maintenance",
-                "duration_minutes": duration_min,
-            })
+            self._respond_json(
+                200,
+                {
+                    "ok": True,
+                    "command": "maintenance",
+                    "duration_minutes": duration_min,
+                },
+            )
 
         def _handle_metrics(self) -> None:
             """Prometheus exposition format."""
@@ -479,7 +551,9 @@ def _make_handler_class(
             """Generate and return today's report."""
             snapshot = holder.state
             report = generate_daily_report(
-                event_log=event_log if event_log else EventLog(max_events=0, persist_path="/dev/null"),
+                event_log=event_log
+                if event_log
+                else EventLog(max_events=0, persist_path="/dev/null"),
                 uptime_seconds=snapshot.uptime_seconds if snapshot else 0,
                 current_score=snapshot.failure_score if snapshot else 0,
                 peer_status=snapshot.peer_status if snapshot else "unknown",
@@ -527,7 +601,9 @@ def start_http_server(
     except OSError as e:
         logging.error(
             "HTTP server: impossible de binder le port %d -- %s "
-            "(watchdog continue en mode standalone)", port, e
+            "(watchdog continue en mode standalone)",
+            port,
+            e,
         )
         return None
 

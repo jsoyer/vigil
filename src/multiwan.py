@@ -18,6 +18,7 @@ from config import USG_IP, USG_USER, USG_SSH_KEY, USG_KNOWN_HOSTS, SSH_TIMEOUT
 @dataclass(frozen=True)
 class WanStatus:
     """WAN interface status."""
+
     primary_up: bool = True
     failover_active: bool = False
     active_interface: str = "unknown"

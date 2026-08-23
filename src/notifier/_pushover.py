@@ -9,9 +9,9 @@ from config import PUSHOVER_USER_KEY, PUSHOVER_API_TOKEN, PUSHOVER_TIMEOUT
 from notifier._types import Level, NotificationContext, format_context_inline
 
 _LEVEL_PRIORITY: dict[Level, int] = {
-    Level.INFO: -1,      # lowest
-    Level.WARNING: 0,    # normal
-    Level.CRITICAL: 1,   # high (bypasses quiet hours)
+    Level.INFO: -1,  # lowest
+    Level.WARNING: 0,  # normal
+    Level.CRITICAL: 1,  # high (bypasses quiet hours)
 }
 
 
@@ -37,7 +37,7 @@ def send(
         "token": PUSHOVER_API_TOKEN,
         "user": PUSHOVER_USER_KEY,
         "message": body,
-        "title": "USG Watchdog",
+        "title": "Vigil",
         "priority": str(_LEVEL_PRIORITY.get(level, 0)),
     }
 

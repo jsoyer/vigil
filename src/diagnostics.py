@@ -9,6 +9,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class TracerouteHop:
     """A single hop in a traceroute."""
+
     hop_number: int
     host: str
     rtt_ms: float | None  # None if timeout (*)
@@ -17,6 +18,7 @@ class TracerouteHop:
 @dataclass(frozen=True)
 class TracerouteResult:
     """Complete traceroute result."""
+
     target: str
     hops: tuple[TracerouteHop, ...]
     last_responsive_hop: int

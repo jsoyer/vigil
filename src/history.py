@@ -35,7 +35,9 @@ class HistoryBuffer:
             score=score,
             gateway_rtt=round(gateway_rtt, 1) if gateway_rtt is not None else None,
             internet_rtt=round(internet_rtt, 1) if internet_rtt is not None else None,
-            download_mbps=round(download_mbps, 2) if download_mbps is not None else None,
+            download_mbps=round(download_mbps, 2)
+            if download_mbps is not None
+            else None,
         )
         with self._lock:
             self._points.append(point)

@@ -41,6 +41,7 @@ def is_configured() -> bool:
 @dataclass(frozen=True)
 class DdnsResult:
     """Result of a DDNS update check."""
+
     current_ip: str
     previous_ip: str
     changed: bool
@@ -76,7 +77,7 @@ def get_public_ip(timeout: int = 10) -> str | None:
     """
     for url in _IP_SERVICES:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "usg-watchdog-ddns"})
+            req = urllib.request.Request(url, headers={"User-Agent": "vigil-ddns"})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 ip = resp.read().decode("utf-8").strip()
                 if _IP_REGEX.match(ip):
@@ -93,10 +94,15 @@ def _cf_api(method: str, path: str, data: dict | None = None) -> dict | None:
     url = f"https://api.cloudflare.com/client/v4/{path}"
     body = json.dumps(data).encode("utf-8") if data else None
 
-    req = urllib.request.Request(url, data=body, method=method, headers={
-        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
-        "Content-Type": "application/json",
-    })
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
 
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -151,7 +157,11 @@ def check_and_update(force: bool = False) -> DdnsResult | None:
 
     # Rate limit periodic checks
     now = time.time()
-    if not force and _last_check_time > 0 and (now - _last_check_time) < DDNS_CHECK_INTERVAL:
+    if (
+        not force
+        and _last_check_time > 0
+        and (now - _last_check_time) < DDNS_CHECK_INTERVAL
+    ):
         return None
     _last_check_time = now
 

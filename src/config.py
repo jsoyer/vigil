@@ -1,5 +1,5 @@
 """
-Configuration du USG Watchdog.
+Configuration de Vigil.
 Toutes les valeurs peuvent etre surchargees via variables d'environnement.
 """
 
@@ -41,6 +41,26 @@ def _get_int_env(*names: str, default: int, minimum: int = 1) -> int:
         )
         return minimum
     return value
+
+
+def _resolve_install_path(new_default: str, old_default: str) -> str:
+    """Resout un chemin par defaut avec repli de compatibilite pendant la
+    migration progressive /opt/usg-watchdog -> /opt/vigil (PRD 2.0.0).
+
+    Si /opt/vigil existe, utilise le nouveau chemin (meme si l'ancien
+    /opt/usg-watchdog existe aussi). Si /opt/vigil est absent et
+    /opt/usg-watchdog present, retombe sur l'ancien chemin -- le service
+    demarre au lieu de tomber en boucle de redemarrage sur une machine
+    partiellement migree. Si aucun des deux n'existe (ex. environnement de
+    dev), utilise le nouveau chemin.
+
+    Repli temporaire : retrait prevu en 2.1.0, pas dans ce PRD.
+    """
+    if os.path.isdir("/opt/vigil"):
+        return new_default
+    if os.path.isdir("/opt/usg-watchdog"):
+        return old_default
+    return new_default
 
 
 # ---------------------------------------------
@@ -162,18 +182,22 @@ def _detect_ssh_key() -> str:
     explicit = os.getenv("USG_SSH_KEY", "")
     if explicit:
         return explicit
+    ssh_dir = _resolve_install_path("/opt/vigil/.ssh", "/opt/usg-watchdog/.ssh")
     for name in ("usg_ed25519", "usg_rsa", "id_ed25519", "id_rsa"):
-        path = f"/opt/usg-watchdog/.ssh/{name}"
+        path = f"{ssh_dir}/{name}"
         if os.path.isfile(path):
             return path
-    return "/opt/usg-watchdog/.ssh/usg_ed25519"
+    return f"{ssh_dir}/usg_ed25519"
 
 
 USG_SSH_KEY: str = _detect_ssh_key()
 
 # Fichier known_hosts pour verification de la cle hote du USG
 USG_KNOWN_HOSTS: str = os.getenv(
-    "USG_KNOWN_HOSTS", "/opt/usg-watchdog/.ssh/known_hosts"
+    "USG_KNOWN_HOSTS",
+    _resolve_install_path(
+        "/opt/vigil/.ssh/known_hosts", "/opt/usg-watchdog/.ssh/known_hosts"
+    ),
 )
 
 # Mot de passe SSH (deconseille -- preferer la cle SSH)
@@ -222,7 +246,7 @@ SLACK_MIN_LEVEL: str = os.getenv("SLACK_MIN_LEVEL", "INFO")
 
 # URL du serveur Ntfy (cloud: https://ntfy.sh, self-hosted: http://pi:8080)
 NTFY_URL: str = os.getenv("NTFY_URL", "")
-# Topic Ntfy (ex: usg-watchdog)
+# Topic Ntfy (ex: vigil)
 NTFY_TOPIC: str = os.getenv("NTFY_TOPIC", "")
 NTFY_TIMEOUT: int = _get_int_env("NTFY_TIMEOUT", default=5, minimum=2)
 NTFY_MIN_LEVEL: str = os.getenv("NTFY_MIN_LEVEL", "INFO")
@@ -317,7 +341,7 @@ INSTANCE_ID: str = _normalize_instance_id(
 # Adresse du broker MQTT (vide = desactive)
 MQTT_BROKER: str = os.getenv("MQTT_BROKER", "")
 MQTT_PORT: int = _get_int_env("MQTT_PORT", default=1883, minimum=1)
-MQTT_TOPIC_PREFIX: str = os.getenv("MQTT_TOPIC_PREFIX", "usg-watchdog")
+MQTT_TOPIC_PREFIX: str = os.getenv("MQTT_TOPIC_PREFIX", "vigil")
 MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "")
 # Envoyer les configs auto-discovery Home Assistant
@@ -430,7 +454,9 @@ WEEKLY_REPORT_DAY: int = _get_int_env("WEEKLY_REPORT_DAY", default=0, minimum=-1
 # ---------------------------------------------
 
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-LOG_FILE: str = os.getenv("LOG_FILE", "/var/log/usg-watchdog.log")
+LOG_FILE: str = os.getenv(
+    "LOG_FILE", _resolve_install_path("/var/log/vigil.log", "/var/log/usg-watchdog.log")
+)
 
 
 # ---------------------------------------------

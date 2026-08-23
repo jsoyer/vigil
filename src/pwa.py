@@ -1,8 +1,8 @@
 """PWA assets -- manifest and service worker for installable dashboard."""
 
 MANIFEST_JSON = """{
-  "name": "USG Watchdog",
-  "short_name": "Watchdog",
+  "name": "Vigil",
+  "short_name": "Vigil",
   "description": "Surveillance internet et reboot automatique USG",
   "start_url": "/",
   "display": "standalone",

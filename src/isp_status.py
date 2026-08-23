@@ -26,7 +26,12 @@ ISP_CONFIGS: dict[str, dict[str, str | list[str]]] = {
     },
     "Orange": {
         "url": "https://assistance.orange.fr",
-        "keywords": ["incident en cours", "perturbation", "panne", "interruption de service"],
+        "keywords": [
+            "incident en cours",
+            "perturbation",
+            "panne",
+            "interruption de service",
+        ],
     },
     "SFR": {
         "url": "https://assistance.sfr.fr",
@@ -41,7 +46,7 @@ ISP_CONFIGS: dict[str, dict[str, str | list[str]]] = {
 _USER_AGENT = (
     "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 "
-    "usg-watchdog/1.0"
+    "vigil/1.0"
 )
 
 
@@ -132,7 +137,8 @@ def _check_single_isp(name: str, url: str, keywords: list[str]) -> IspStatus:
         if has_incident:
             logging.info(
                 "Statut FAI %s : incident potentiel detecte (mots-cles: %s)",
-                name, ", ".join(found),
+                name,
+                ", ".join(found),
             )
         else:
             logging.debug("Statut FAI %s : aucun incident detecte", name)
@@ -210,14 +216,16 @@ def check_isp_status() -> IspCheckResult:
             except Exception as e:
                 isp_name = futures[future]
                 logging.debug("Statut FAI %s : exception future -- %s", isp_name, e)
-                statuses.append(IspStatus(
-                    name=isp_name,
-                    url=effective_urls.get(isp_name, ""),
-                    has_incident=False,
-                    keywords_found=[],
-                    error=str(e),
-                    checked_at=datetime.now(timezone.utc).isoformat(),
-                ))
+                statuses.append(
+                    IspStatus(
+                        name=isp_name,
+                        url=effective_urls.get(isp_name, ""),
+                        has_incident=False,
+                        keywords_found=[],
+                        error=str(e),
+                        checked_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                )
 
     any_incident = any(s.has_incident for s in statuses)
 

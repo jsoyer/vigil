@@ -4,7 +4,15 @@ import logging
 import smtplib
 from email.mime.text import MIMEText
 
-from config import SMTP_HOST, SMTP_PORT, SMTP_FROM, SMTP_TO, SMTP_USERNAME, SMTP_PASSWORD, SMTP_TIMEOUT
+from config import (
+    SMTP_HOST,
+    SMTP_PORT,
+    SMTP_FROM,
+    SMTP_TO,
+    SMTP_USERNAME,
+    SMTP_PASSWORD,
+    SMTP_TIMEOUT,
+)
 from notifier._types import Level, NotificationContext, format_context_inline
 
 _LEVEL_PREFIX: dict[Level, str] = {
@@ -27,7 +35,7 @@ def send(
 ) -> bool:
     """Send an email notification via SMTP. Never raises."""
     prefix = _LEVEL_PREFIX.get(level, "")
-    subject = f"{prefix} USG Watchdog -- {hostname}"
+    subject = f"{prefix} Vigil -- {hostname}"
 
     body = f"{message}\n\n{hostname} -- {timestamp}"
     if context is not None:
@@ -37,7 +45,7 @@ def send(
 
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
-    msg["From"] = SMTP_FROM or f"usg-watchdog@{hostname}"
+    msg["From"] = SMTP_FROM or f"vigil@{hostname}"
     msg["To"] = SMTP_TO
 
     try:

@@ -246,7 +246,7 @@ class TestPrometheusFormatCompliance:
             if line.startswith("# TYPE "):
                 assert i > 0
                 assert lines[i - 1].startswith("# HELP "), (
-                    f"# TYPE line at {i} not preceded by # HELP: {lines[i-1]!r}"
+                    f"# TYPE line at {i} not preceded by # HELP: {lines[i - 1]!r}"
                 )
 
     def test_metric_line_after_type_line(self):

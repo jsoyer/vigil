@@ -46,7 +46,10 @@ def query_peer(
         except urllib.error.URLError:
             logging.debug(
                 "Peer %s:%d injoignable (tentative %d/%d)",
-                peer_ip, peer_port, attempt + 1, retries,
+                peer_ip,
+                peer_port,
+                attempt + 1,
+                retries,
             )
         except (json.JSONDecodeError, ValueError) as e:
             logging.debug("Peer %s:%d reponse invalide -- %s", peer_ip, peer_port, e)
@@ -56,7 +59,9 @@ def query_peer(
         if attempt < retries - 1:
             time.sleep(1)
 
-    logging.info("Peer %s:%d injoignable apres %d tentatives", peer_ip, peer_port, retries)
+    logging.info(
+        "Peer %s:%d injoignable apres %d tentatives", peer_ip, peer_port, retries
+    )
     return None
 
 
@@ -103,7 +108,10 @@ def should_reboot(
 
         # I have higher priority (or equal) -> proceed
         if my_state.instance_priority <= peer_state.instance_priority:
-            return True, f"priorite {my_state.instance_priority} (peer={peer_state.instance_priority})"
+            return (
+                True,
+                f"priorite {my_state.instance_priority} (peer={peer_state.instance_priority})",
+            )
 
         # I am secondary, peer is primary but not acting
         # (peer score below threshold or peer in surveillance mode)
@@ -115,7 +123,10 @@ def should_reboot(
 
         # Peer is primary, score at threshold, but in surveillance mode
         if peer_state.surveillance_only:
-            return True, "peer primary en mode surveillance -- secondary prend le relais"
+            return (
+                True,
+                "peer primary en mode surveillance -- secondary prend le relais",
+            )
 
         return True, "peer actif, conditions remplies"
 
@@ -142,8 +153,7 @@ def should_reboot(
         )
 
     return True, (
-        f"secondary takeover -- peer injoignable, "
-        f"delai {PEER_TAKEOVER_DELAY}s ecoule"
+        f"secondary takeover -- peer injoignable, delai {PEER_TAKEOVER_DELAY}s ecoule"
     )
 
 

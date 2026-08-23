@@ -7,8 +7,12 @@ from datetime import datetime
 from notifier._types import Level, NotificationContext, NotificationChannel
 
 from config import (
-    TELEGRAM_MIN_LEVEL, DISCORD_MIN_LEVEL, SLACK_MIN_LEVEL,
-    NTFY_MIN_LEVEL, SMTP_MIN_LEVEL, PUSHOVER_MIN_LEVEL,
+    TELEGRAM_MIN_LEVEL,
+    DISCORD_MIN_LEVEL,
+    SLACK_MIN_LEVEL,
+    NTFY_MIN_LEVEL,
+    SMTP_MIN_LEVEL,
+    PUSHOVER_MIN_LEVEL,
 )
 
 
@@ -25,15 +29,17 @@ def _parse_level(raw: str) -> Level:
 def _get_hostname() -> str:
     try:
         import socket
+
         return socket.gethostname()
     except Exception:
-        return "usg-watchdog"
+        return "vigil"
 
 
 @functools.cache
 def _get_channels() -> tuple[tuple[str, NotificationChannel, str], ...]:
     """Build channel list once and cache it. Returns tuple for hashability."""
     from notifier import _telegram, _discord, _slack, _ntfy, _email, _pushover
+
     return (
         ("telegram", _telegram, TELEGRAM_MIN_LEVEL),
         ("discord", _discord, DISCORD_MIN_LEVEL),
@@ -63,7 +69,9 @@ def dispatch(
 
         min_level = _parse_level(min_level_str)
         if level < min_level:
-            logging.debug("%s: niveau %s < min %s -- ignore", name, level.name, min_level.name)
+            logging.debug(
+                "%s: niveau %s < min %s -- ignore", name, level.name, min_level.name
+            )
             results[name] = False
             continue
 

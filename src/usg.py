@@ -26,15 +26,20 @@ from config import (
     USG_KNOWN_HOSTS,
 )
 
-_ALLOWED_REBOOT_COMMANDS: frozenset[str] = frozenset({
-    "reboot",
-    "sudo reboot",
-    "/sbin/reboot",
-    "sudo /sbin/reboot",
-})
+_ALLOWED_REBOOT_COMMANDS: frozenset[str] = frozenset(
+    {
+        "reboot",
+        "sudo reboot",
+        "/sbin/reboot",
+        "sudo /sbin/reboot",
+    }
+)
 
 _CONNECTION_RESET_MARKERS = (
-    "Connection reset", "EOF", "Socket is closed", "Broken pipe",
+    "Connection reset",
+    "EOF",
+    "Socket is closed",
+    "Broken pipe",
 )
 
 
@@ -102,7 +107,8 @@ def _get_ssh_client() -> Optional["paramiko.SSHClient"]:
     except socket.timeout:
         logging.error(
             "Timeout SSH (%ds) vers %s -- USG accessible sur le reseau local ?",
-            SSH_TIMEOUT, USG_IP,
+            SSH_TIMEOUT,
+            USG_IP,
         )
     except socket.error as e:
         logging.error("Erreur reseau vers %s : %s", USG_IP, e)

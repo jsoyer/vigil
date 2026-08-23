@@ -6,7 +6,7 @@ DASHBOARD_HTML = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>USG Watchdog</title>
+<title>Vigil</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#58a6ff">
 <style>
@@ -157,7 +157,7 @@ h1 { font-size: 1.4rem; margin-bottom: 1rem; color: #58a6ff; }
 </head>
 <body>
 <div class="container">
-  <h1>USG Watchdog</h1>
+  <h1>Vigil</h1>
   <div id="error-banner" class="error-banner"></div>
 
   <div class="controls">

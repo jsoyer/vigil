@@ -23,6 +23,7 @@ TCP_CHECK_TARGETS = [("8.8.8.8", 53), ("1.1.1.1", 443)]
 @dataclass(frozen=True)
 class PingResult:
     """Result of a single ping."""
+
     ok: bool
     rtt_ms: float | None = None  # None if ping failed
 
@@ -30,6 +31,7 @@ class PingResult:
 @dataclass(frozen=True)
 class ConnectivityResult:
     """Resultat d'un cycle de verification."""
+
     gateway_ok: bool
     internet_ok_count: int
     internet_total: int
@@ -188,7 +190,9 @@ def check_dns(domain: str = DNS_CHECK_DOMAIN, timeout: int = 3) -> bool:
     return ok
 
 
-def check_tcp(targets: list[tuple[str, int]] | None = None, timeout: int = 3) -> tuple[int, int]:
+def check_tcp(
+    targets: list[tuple[str, int]] | None = None, timeout: int = 3
+) -> tuple[int, int]:
     """Check TCP connectivity by attempting connections to IP:port pairs.
 
     Returns (ok_count, total). Never raises.

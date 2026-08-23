@@ -18,24 +18,28 @@ class TestPushoverIsConfigured:
     @mock.patch("src.notifier._pushover.PUSHOVER_API_TOKEN", "")
     def test_not_configured_when_both_empty(self):
         from src.notifier._pushover import is_configured
+
         assert is_configured() is False
 
     @mock.patch("src.notifier._pushover.PUSHOVER_USER_KEY", "user123")
     @mock.patch("src.notifier._pushover.PUSHOVER_API_TOKEN", "")
     def test_not_configured_when_token_missing(self):
         from src.notifier._pushover import is_configured
+
         assert is_configured() is False
 
     @mock.patch("src.notifier._pushover.PUSHOVER_USER_KEY", "")
     @mock.patch("src.notifier._pushover.PUSHOVER_API_TOKEN", "token456")
     def test_not_configured_when_user_key_missing(self):
         from src.notifier._pushover import is_configured
+
         assert is_configured() is False
 
     @mock.patch("src.notifier._pushover.PUSHOVER_USER_KEY", "user123")
     @mock.patch("src.notifier._pushover.PUSHOVER_API_TOKEN", "token456")
     def test_configured_when_both_set(self):
         from src.notifier._pushover import is_configured
+
         assert is_configured() is True
 
 
@@ -72,6 +76,7 @@ def _patch_config(**overrides):
 class TestPushoverSendSuccess:
     def test_send_success_returns_true(self):
         from src.notifier._pushover import send
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp):
@@ -86,6 +91,7 @@ class TestPushoverSendSuccess:
 
     def test_sends_to_pushover_api_url(self):
         from src.notifier._pushover import send
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -103,6 +109,7 @@ class TestPushoverSendSuccess:
     def test_info_level_sends_priority_minus_one(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -120,6 +127,7 @@ class TestPushoverSendSuccess:
     def test_warning_level_sends_priority_zero(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -137,6 +145,7 @@ class TestPushoverSendSuccess:
     def test_critical_level_sends_priority_one(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -154,6 +163,7 @@ class TestPushoverSendSuccess:
     def test_body_contains_message_and_hostname(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -172,6 +182,7 @@ class TestPushoverSendSuccess:
     def test_body_includes_context_when_provided(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         ctx = NotificationContext(score=9, threshold=10, gateway_ok=False)
@@ -188,9 +199,10 @@ class TestPushoverSendSuccess:
         assert "score=9/10" in fields["message"]
         assert "gw=KO" in fields["message"]
 
-    def test_title_is_usg_watchdog(self):
+    def test_title_is_vigil(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -203,11 +215,12 @@ class TestPushoverSendSuccess:
                     p.stop()
         req = mock_open.call_args[0][0]
         fields = dict(urllib.parse.parse_qsl(req.data.decode("utf-8")))
-        assert fields["title"] == "USG Watchdog"
+        assert fields["title"] == "Vigil"
 
     def test_payload_contains_credentials(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -225,6 +238,7 @@ class TestPushoverSendSuccess:
 
     def test_non_200_status_returns_false(self):
         from src.notifier._pushover import send
+
         resp = _mock_response(500)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp):
@@ -240,6 +254,7 @@ class TestPushoverSendSuccess:
     def test_context_none_body_does_not_contain_none_string(self):
         from src.notifier._pushover import send
         import urllib.parse
+
         resp = _mock_response(200)
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", return_value=resp) as mock_open:
@@ -263,8 +278,11 @@ class TestPushoverSendSuccess:
 class TestPushoverSendErrors:
     def test_returns_false_on_timeout(self):
         from src.notifier._pushover import send
+
         patches = _patch_config()
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")):
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")
+        ):
             for p in patches:
                 p.start()
             try:
@@ -276,8 +294,12 @@ class TestPushoverSendErrors:
 
     def test_returns_false_on_connection_error(self):
         from src.notifier._pushover import send
+
         patches = _patch_config()
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
             for p in patches:
                 p.start()
             try:
@@ -289,6 +311,7 @@ class TestPushoverSendErrors:
 
     def test_returns_false_on_http_error(self):
         from src.notifier._pushover import send
+
         patches = _patch_config()
         with mock.patch(
             "urllib.request.urlopen",
@@ -305,8 +328,11 @@ class TestPushoverSendErrors:
 
     def test_returns_false_on_unexpected_exception(self):
         from src.notifier._pushover import send
+
         patches = _patch_config()
-        with mock.patch("urllib.request.urlopen", side_effect=RuntimeError("unexpected")):
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=RuntimeError("unexpected")
+        ):
             for p in patches:
                 p.start()
             try:
@@ -318,6 +344,7 @@ class TestPushoverSendErrors:
 
     def test_never_raises(self):
         from src.notifier._pushover import send
+
         patches = _patch_config()
         with mock.patch("urllib.request.urlopen", side_effect=Exception("boom")):
             for p in patches:

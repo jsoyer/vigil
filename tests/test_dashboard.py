@@ -17,7 +17,7 @@ class TestDashboardHtml:
         assert DASHBOARD_HTML.startswith("<!DOCTYPE html>")
 
     def test_has_title(self):
-        assert "<title>USG Watchdog</title>" in DASHBOARD_HTML
+        assert "<title>Vigil</title>" in DASHBOARD_HTML
 
     def test_has_manifest_link(self):
         assert 'href="/manifest.json"' in DASHBOARD_HTML

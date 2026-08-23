@@ -37,6 +37,7 @@ class TestQueryPeer:
     @mock.patch("src.peer.urllib.request.urlopen")
     def test_returns_none_after_retries(self, mock_urlopen):
         import urllib.error
+
         mock_urlopen.side_effect = urllib.error.URLError("connection refused")
 
         result = query_peer("192.168.1.11", 9000, retries=2, timeout=1)
@@ -221,7 +222,9 @@ class TestCheckDivergence:
     @mock.patch("src.peer.PEER_IP", "192.168.1.11")
     @mock.patch("src.peer.query_peer")
     def test_divergence_local_problem(self, mock_query):
-        mock_query.return_value = _make_state(failure_score=0, threshold=10, gateway_ok=True)
+        mock_query.return_value = _make_state(
+            failure_score=0, threshold=10, gateway_ok=True
+        )
         result = check_divergence(10, True, 0)
         assert result is not None
         assert "cette machine" in result
@@ -229,7 +232,9 @@ class TestCheckDivergence:
     @mock.patch("src.peer.PEER_IP", "192.168.1.11")
     @mock.patch("src.peer.query_peer")
     def test_divergence_peer_problem(self, mock_query):
-        mock_query.return_value = _make_state(failure_score=12, threshold=10, gateway_ok=False)
+        mock_query.return_value = _make_state(
+            failure_score=12, threshold=10, gateway_ok=False
+        )
         result = check_divergence(0, True, 3)
         assert result is not None
         assert "peer" in result

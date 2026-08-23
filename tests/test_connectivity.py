@@ -61,7 +61,9 @@ class TestPingHost:
 
 class TestParseRtt:
     def test_standard_format(self):
-        assert _parse_rtt("64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=1.23 ms") == 1.23
+        assert (
+            _parse_rtt("64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=1.23 ms") == 1.23
+        )
 
     def test_less_than_format(self):
         assert _parse_rtt("time<1 ms") == 1.0
@@ -158,7 +160,9 @@ class TestCheckInternet:
 
 class TestCheckConnectivity:
     @mock.patch("src.connectivity.check_internet", return_value=(3, (5.0, 10.0, 8.0)))
-    @mock.patch("src.connectivity.ping_gateway", return_value=PingResult(ok=True, rtt_ms=1.0))
+    @mock.patch(
+        "src.connectivity.ping_gateway", return_value=PingResult(ok=True, rtt_ms=1.0)
+    )
     def test_full_result(self, mock_gw, mock_inet):
         result = check_connectivity()
         assert result.gateway_ok is True
