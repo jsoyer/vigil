@@ -3,3 +3,9 @@ paramiko==3.5.0
 # (Client(client_id=...), on_connect a 4 arguments) -- paho-mqtt 2.x
 # casse cette signature (CallbackAPIVersion obligatoire).
 paho-mqtt==1.6.1
+# Pilotage TP-Link MR110 (A1, src/drivers/tplink.py). Version validee sur
+# materiel reel aux deux sites lors du spike -- voir
+# docs/spikes/2026-08-23-mr110-compat.md. Import strictement paresseux dans
+# le driver (invariant C1) : cette dependance est optionnelle pour tout le
+# reste de l'application.
+tplinkrouterc6u==5.31.1

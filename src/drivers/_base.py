@@ -48,7 +48,7 @@ class RouterHealth:
     """
 
     reachable: bool
-    internet_ok: bool
+    internet_ok: bool | None  # None = pas de preuve (jamais True sans preuve de chemin)
     rtt_ms: float | None = None
     failed_hop: Hop | None = None  # None si tout repond
     detail: str = ""
