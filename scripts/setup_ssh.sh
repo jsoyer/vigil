@@ -17,7 +17,18 @@ KEY_FILE="${SSH_DIR}/usg_ed25519"
 KNOWN_HOSTS="${SSH_DIR}/known_hosts"
 KEY_COMMENT="vigil@$(hostname)"
 
-USG_IP="${USG_IP:-192.168.1.1}"
+# Resolution de USG_IP : env explicite > /opt/vigil/.env > /opt/usg-watchdog/.env
+# > defaut 192.168.1.1. Les fichiers .env sont 600 root (le script tourne en
+# root) -- on lit UNIQUEMENT la ligne USG_IP via grep, jamais un source complet.
+_USG_IP_FROM_ENV=""
+for _env_candidate in /opt/vigil/.env /opt/usg-watchdog/.env; do
+    if [[ -z "${_USG_IP_FROM_ENV}" && -r "${_env_candidate}" ]]; then
+        _USG_IP_FROM_ENV="$(grep -m1 -E '^USG_IP=' "${_env_candidate}" 2>/dev/null | cut -d'=' -f2-)"
+    fi
+done
+USG_IP="${USG_IP:-${_USG_IP_FROM_ENV:-192.168.1.1}}"
+unset _env_candidate _USG_IP_FROM_ENV
+
 USG_USER="${USG_USER:-maintenance}"
 # -----------------------------------------------------------------------------
 

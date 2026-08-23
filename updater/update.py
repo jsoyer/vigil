@@ -191,7 +191,13 @@ def extract_tarball(tarball: Path, dest: Path) -> bool:
                 if member.issym() or member.islnk():
                     log.warning("Tarball: symlink ignore: %s", member.name)
                     continue
-                tar.extract(member, dest)
+                try:
+                    tar.extract(member, dest, filter="data")
+                except TypeError:
+                    # Python < 3.11.4 : parametre filter absent, repli sur
+                    # l'appel historique (protection path-traversal maison
+                    # deja appliquee ci-dessus dans les deux cas).
+                    tar.extract(member, dest)
 
         log.info("Extrait dans %s", dest)
         return True
@@ -341,6 +347,35 @@ def apply_update(version: str, staged_dir: Path) -> bool:
 
     log.info("Symlink mis a jour : current -> releases/v%s", version)
     return True
+
+
+def update_own_copy(release_dir: Path) -> None:
+    """Rafraichit la copie de l'updater lui-meme depuis la release bascule.
+
+    Appelee apres la bascule du symlink 'current' et avant le restart du
+    service : si la release contient un dossier updater/, ses *.py sont
+    copies vers INSTALL_DIR/updater/ (celle que le timer systemd invoque a
+    chaque cycle). Ecraser les fichiers du process en cours d'execution est
+    sans effet sur ce process sous Linux -- seul le prochain declenchement
+    du timer utilisera la nouvelle version.
+
+    Un echec de copie est degrade en WARNING, jamais en echec de la mise a
+    jour : le coeur applicatif (code sous current/) est deja bascule et
+    fonctionnel a ce stade.
+    """
+    staged_updater = release_dir / "updater"
+    if not staged_updater.exists():
+        log.info("Pas de dossier updater/ dans la release -- copie ignoree")
+        return
+
+    dest_dir = INSTALL_DIR / "updater"
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for py_file in sorted(staged_updater.glob("*.py")):
+            shutil.copy2(py_file, dest_dir / py_file.name)
+        log.info("Copie de l'updater rafraichie : %s -> %s", staged_updater, dest_dir)
+    except OSError as e:
+        log.warning("Echec copie updater (non bloquant) : %s", e)
 
 
 def restart_service() -> bool:
@@ -568,6 +603,11 @@ def main() -> int:
         if not apply_update(latest_version, staged):
             log.error("Echec application -- MAJ annulee")
             return 1
+
+        # Rafraichir la copie de l'updater lui-meme (dette : /opt/vigil/updater/
+        # n'etait sinon jamais reecrit hors deploy.sh). Non bloquant.
+        release_dir = INSTALL_DIR / "releases" / f"v{latest_version}"
+        update_own_copy(release_dir)
 
         # Restart service
         if not restart_service():
