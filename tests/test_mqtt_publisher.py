@@ -1053,6 +1053,17 @@ class TestUnavailableNotUnpublished:
 
         assert _tplink_entity_value("etat_usage", {}, None) == "unknown"
 
+    def test_sur_secours_absent_is_unavailable(self):
+        from mqtt_publisher import _tplink_entity_value
+
+        assert _tplink_entity_value("sur_secours", {}, None) is None
+
+    def test_sur_secours_follows_on_backup(self):
+        from mqtt_publisher import _tplink_entity_value
+
+        assert _tplink_entity_value("sur_secours", {"on_backup": True}, None) == "ON"
+        assert _tplink_entity_value("sur_secours", {"on_backup": False}, None) == "OFF"
+
 
 class TestSinglePublisher:
     """C12 -- seule l'instance elue publie les entites d'un equipement."""

@@ -460,6 +460,10 @@ class ManagedDeviceRegistry:
             # l'endpoint `/api/tplink/<id>` existant.
             status["usage_state"] = self._usage_tracker.confirmed_state(device_id)
             status["in_use"] = in_use
+            # in_use = trafic 4G confirme. on_backup = le site tourne
+            # vraiment sur ce secours (USG constate HS). Distingues pour
+            # que HA/automations ne declenchent pas un runbook sur un burst.
+            status["on_backup"] = on_backup
             status["probe_result"] = self._last_probe_result.get(device_id)
             status["probe_result_at"] = self._last_probe_result_at.get(device_id)
 
@@ -488,13 +492,13 @@ class ManagedDeviceRegistry:
         lock = self._get_device_lock(device_id)
         with lock:
             health = driver.health()
-            result = driver.probe_end_to_end()
+            result = driver.probe_end_to_end(record=False)
             if result is ProbeResult.UNKNOWN:
                 logging.warning(
                     "TPLINK '%s' : sonde bout-en-bout indisponible, un seul reessai",
                     cfg.label,
                 )
-                result = driver.probe_end_to_end()
+                result = driver.probe_end_to_end(record=False)
 
         # La lecture du statut n'invalide pas le cache de check() -- la
         # sonde peut avoir fait bouger les compteurs de trafic.
@@ -778,6 +782,12 @@ class ManagedDeviceRegistry:
             reason = (
                 "; ".join(readiness.reasons) if readiness.reasons else "raison inconnue"
             )
+            # La sonde a son propre canal (tplink_link_down / leak).
+            # Un DEGRADED uniquement pour FAIL/LEAK produirait un doublon.
+            if readiness.reasons and all(
+                "sonde de bout en bout" in r for r in readiness.reasons
+            ):
+                return
             text, level, ctx = messages.backup_degraded(cfg.label, reason, in_use)
             notify(text, level, ctx)
             if self._event_log is not None:

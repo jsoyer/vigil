@@ -407,12 +407,18 @@ class TestProbeLeak:
         assert driver.probe_end_to_end() is ProbeResult.LEAK
 
     def test_probe_leak_rapportee_comme_defaut_config_pas_panne_secours(self):
-        """LEAK ne degrade pas la readiness comme une panne du MR110 -- pas
-        de reason mentionnant le secours lui-meme, uniquement le chemin de
-        test."""
+        """LEAK ne degrade pas la readiness -- defaut du chemin de test."""
+        from src.drivers._base import Readiness
         from src.drivers.tplink import ProbeResult
 
         mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
         mock_client.get_status.return_value = {"total_statistics": 1000}
         driver, _ = _make_driver(
             client=mock_client,
@@ -422,7 +428,35 @@ class TestProbeLeak:
         result = driver.probe_end_to_end()
         assert result is ProbeResult.LEAK
         readiness = driver.readiness()
-        assert any("chemin de test" in r or "fuite" in r for r in readiness.reasons)
+        assert readiness.state is Readiness.OK
+        assert not any("fuite" in r or "chemin de test" in r for r in readiness.reasons)
+
+    def test_probe_end_to_end_record_false_n_ecrit_pas_le_cache(self):
+        """Bouton Verifier : un FAIL diagnostique ne doit pas empoisonner
+        readiness() via le cache 60s."""
+        from src.drivers._base import Readiness
+        from src.drivers.tplink import ProbeResult
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, _ = _make_driver(
+            client=mock_client,
+            local_command_fn=Mock(return_value=(True, "not-an-ip")),
+            get_public_ip_fn=Mock(return_value="198.51.100.1"),
+        )
+        result = driver.probe_end_to_end(record=False)
+        assert result is ProbeResult.FAIL
+        assert driver._last_probe_result is None
+        readiness = driver.readiness()
+        assert readiness.state is Readiness.OK
+        assert not any("sonde de bout en bout" in r for r in readiness.reasons)
 
 
 class TestAttachedWithoutData:

@@ -184,6 +184,12 @@ _TPLINK_ENTITY_SPECS: tuple[dict, ...] = (
         "device_class": "enum",
     },
     {
+        "key": "sur_secours",
+        "platform": "binary_sensor",
+        "name": "Site sur le secours",
+        "device_class": "safety",
+    },
+    {
         "key": "saut_panne",
         "platform": "sensor",
         "name": "Saut en panne",
@@ -653,6 +659,10 @@ def _tplink_entity_value(key: str, status: dict, quota: dict | None) -> object:
         return None if v is None else round(v / 1000, 1)
     if key == "etat_usage":
         return status.get("usage_state") or "unknown"
+    if key == "sur_secours":
+        if "on_backup" not in status:
+            return None
+        return "ON" if status["on_backup"] else "OFF"
     if key == "saut_panne":
         if "failed_hop" not in status:
             return None

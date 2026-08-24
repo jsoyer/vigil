@@ -170,6 +170,14 @@ def _render_tplink_metrics(gauge) -> None:
                 labels,
             )
 
+        if "on_backup" in d and d.get("on_backup") is not None:
+            gauge(
+                "vigil_tplink_on_backup",
+                "Whether the site is running on this 4G backup (USG down)",
+                int(bool(d["on_backup"])),
+                labels,
+            )
+
         failed_hop = d.get("failed_hop")
         if reachable is False and failed_hop:
             gauge(
