@@ -308,6 +308,13 @@ class TestDashboardTplinkDeviceCard:
         assert "100000" in DASHBOARD_HTML
         assert "rx > 0 || tx > 0 || clients > 0" not in DASHBOARD_HTML
 
+    def test_usage_state_prefers_api_confirmed_value(self):
+        """Le bandeau doit suivre usage_state confirme par l'API, pas un
+        recalcul local du debit instantane (pic 1 cycle != En service)."""
+        assert "d.usage_state === 'idle'" in DASHBOARD_HTML
+        assert "d.usage_state === 'in_use'" in DASHBOARD_HTML
+        assert "d.usage_state === 'saturated'" in DASHBOARD_HTML
+
     def test_quota_block_identifiers_present(self):
         assert "tplink-quota-bar" in DASHBOARD_HTML
         assert "tplink-quota-bar-fill" in DASHBOARD_HTML

@@ -755,6 +755,12 @@ function tplinkSignalLine(d) {
 // src/managed_devices.py and src/metrics.py -- these values must stay in
 // sync with those files.
 function tplinkUsageState(d) {
+  // L'API expose usage_state deja confirme (anti-rebond 2 cycles).
+  // Le recalcul local sur le debit instantane faisait apparaitre
+  // "En service" sur un pic alors que ntfy restait silencieux.
+  if (d.usage_state === 'idle' || d.usage_state === 'in_use' || d.usage_state === 'saturated') {
+    return d.usage_state;
+  }
   var rx = typeof d.rx_speed_bps === 'number' ? d.rx_speed_bps : null;
   var tx = typeof d.tx_speed_bps === 'number' ? d.tx_speed_bps : null;
   var clients = typeof d.clients_total === 'number' ? d.clients_total : null;

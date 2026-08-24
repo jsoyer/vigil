@@ -159,9 +159,14 @@ def _render_tplink_metrics(gauge) -> None:
                 labels,
             )
 
-        usage = _classify_tplink_usage(
-            rx_speed_bps, tx_speed_bps, d.get("clients_total")
-        )
+        # Preferer l'etat confirme par le registre (anti-rebond 2 cycles)
+        # plutot que reclasseer le debit instantane -- sinon Grafana
+        # affiche in_use sur un pic alors que MQTT/ntfy restent idle.
+        usage = d.get("usage_state")
+        if usage not in _USAGE_NUMERIC:
+            usage = _classify_tplink_usage(
+                rx_speed_bps, tx_speed_bps, d.get("clients_total")
+            )
         if usage in _USAGE_NUMERIC:
             gauge(
                 "vigil_tplink_usage_state",

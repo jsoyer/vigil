@@ -658,6 +658,20 @@ class TestTplinkMetricsLabeled:
         assert 'vigil_tplink_on_backup{device="tp1",label="A"} 1' in result
         assert 'vigil_tplink_on_backup{device="tp2",label="B"} 0' in result
 
+    def test_usage_state_prefers_registry_over_instant_speeds(self, monkeypatch):
+        """Un pic instantane ne doit pas ecraser l'etat confirme idle."""
+        d = _fake_tplink_device(
+            id="tp1",
+            label="A",
+            rx_speed_bps=5_000_000,
+            tx_speed_bps=0,
+            clients_total=2,
+            usage_state="idle",
+        )
+        self._mock_devices(monkeypatch, [d])
+        result = render_metrics(_default_state())
+        assert 'vigil_tplink_usage_state{device="tp1",label="A"} 0' in result
+
     def test_failed_hop_only_for_unreachable_device(self, monkeypatch):
         d1 = _fake_tplink_device(id="tp1", label="A", reachable=True, failed_hop=None)
         d2 = _fake_tplink_device(
