@@ -426,9 +426,13 @@ class ManagedDeviceRegistry:
                 if cached is not None:
                     return cached
 
-            health = driver.health()
-            readiness = driver.readiness()
-            metrics = driver.metrics()
+            snapshot = getattr(driver, "snapshot", None)
+            if callable(snapshot):
+                health, readiness, metrics = snapshot()
+            else:
+                health = driver.health()
+                readiness = driver.readiness()
+                metrics = driver.metrics()
             status = _status_dict(device_id, cfg, health, readiness, metrics)
 
             self._last_reachable[device_id] = health.reachable

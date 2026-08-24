@@ -761,6 +761,77 @@ class TestTimeout:
         assert result is ProbeResult.UNKNOWN
 
 
+class TestSnapshotUneSession:
+    """get_status() ne doit plus ouvrir 3 sessions admin par cycle."""
+
+    def test_snapshot_autorise_une_seule_fois(self):
+        from src.drivers._base import Readiness
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, client = _make_driver(client=mock_client)
+        health, readiness, metrics = driver.snapshot()
+        assert health.reachable is True
+        assert readiness.state is Readiness.OK
+        assert metrics.rsrp == -95
+        assert client.authorize.call_count == 1
+        assert client.logout.call_count == 1
+
+    def test_snapshot_ping_ko_n_ouvre_pas_de_session(self):
+        mock_client = Mock()
+        driver, client = _make_driver(
+            client=mock_client, ping_fn=Mock(return_value=(False, None))
+        )
+        health, readiness, _metrics = driver.snapshot()
+        assert health.reachable is False
+        assert client.authorize.call_count == 0
+
+    def test_registry_get_status_uses_single_session(self):
+        from managed_devices import ManagedDeviceRegistry
+        from config import TplinkDeviceConfig
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {
+            "total_statistics": 1000,
+            "clients_total": 0,
+            "cur_rx_speed": 0,
+            "cur_tx_speed": 0,
+        }
+        driver, client = _make_driver(client=mock_client)
+        cfg = TplinkDeviceConfig(
+            index=1,
+            label="mr110-test",
+            host="192.168.10.1",
+            password="s3cr3t",
+            mode="bridged",
+            bridge_host="",
+            rsrp_min=-110,
+            rsrq_min=-20,
+            snr_min=-100,
+        )
+        registry = ManagedDeviceRegistry(
+            devices=[cfg], driver_factory=lambda _cfg: driver
+        )
+        status = registry.get_status("1", force=True)
+        assert status is not None
+        assert status["reachable"] is True
+        assert client.authorize.call_count == 1
+
+
 class TestNoTplinkConfigured:
     """Volet config.py de l'invariant 'aucun equipement declare => comportement
     identique a la 1.8' (INVARIANTS.md) -- moitie TplinkDriver hors scope."""
