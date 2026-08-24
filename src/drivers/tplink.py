@@ -359,24 +359,19 @@ class TplinkDriver:
         )
         return ok, rtt, detail
 
-    def health(self) -> RouterHealth:
-        """Sonde de joignabilite avec attribution de panne. Ne leve jamais.
+    def _probe_l1(self) -> RouterHealth:
+        """Etages BRIDGE + ping. Aucune session admin.
 
-        L'etage BRIDGE est un signal de diagnostic, jamais un veto (bugfix
-        2026-08-22) : un echec de resolution de route locale ne bloque pas la
-        suite de la sonde. Il n'est attribue comme `failed_hop` que si le
-        device ne repond PAS non plus au ping -- sinon un etage anterieur en
-        echec "soft" contredirait un device qui repond reellement (auth +
-        metriques OK), ce qui rendrait `reachable` incoherent avec la
-        realite observee par les etages suivants.
+        Si ping KO : health unreachable (BRIDGE / ROUTE / WIRELESS).
+        Si ping OK : health reachable provisoire -- l'appelant confirme
+        l'admin dans la meme session (`snapshot`) ou une session dediee
+        (`health`).
         """
         bridge_ok, bridge_rtt, bridge_detail = self._check_bridge()
 
         wireless_ok, wireless_rtt = self._ping_fn(self.host, self.timeout)
         if not wireless_ok:
             if not bridge_ok:
-                # Route locale absente ET device injoignable : l'etage
-                # BRIDGE est la cause la plus actionnable, on l'attribue.
                 return RouterHealth(
                     reachable=False,
                     internet_ok=None,  # type: ignore[arg-type]
@@ -385,8 +380,6 @@ class TplinkDriver:
                     detail=bridge_detail,
                 )
             if self.mode == "remote" and not self._ever_reachable:
-                # C8 : jamais joignable depuis cette instance -> defaut de
-                # configuration (route/NAT absents), pas une panne du secours.
                 return RouterHealth(
                     reachable=False,
                     internet_ok=None,  # type: ignore[arg-type]
@@ -412,26 +405,11 @@ class TplinkDriver:
         self._ever_reachable = True
 
         if not bridge_ok:
-            # Le device repond au ping malgre un etage BRIDGE en echec : ne
-            # jamais laisser ce signal anterieur contredire un secours sain.
-            # Reste un defaut de configuration local a diagnostiquer (route
-            # absente alors que le device est joignable par un autre chemin),
-            # journalise pour observabilite mais n'affecte pas `reachable`.
             logging.info(
                 "TPLINK '%s' : etage bridge en echec (%s) mais le device "
                 "repond au ping -- signal ignore pour 'reachable'",
                 self.label,
                 bridge_detail,
-            )
-
-        authorized, _ = self._with_session(lambda client: None)
-        if not authorized:
-            return RouterHealth(
-                reachable=False,
-                internet_ok=None,  # type: ignore[arg-type]
-                rtt_ms=wireless_rtt,
-                failed_hop=Hop.DEVICE,
-                detail=f"MR110 '{self.label}' repond au ping mais pas a l'admin",
             )
 
         return RouterHealth(
@@ -441,6 +419,56 @@ class TplinkDriver:
             failed_hop=None,
             detail="chemin d'audit sain",
         )
+
+    def _device_unreachable(self, rtt_ms: float | None) -> RouterHealth:
+        return RouterHealth(
+            reachable=False,
+            internet_ok=None,  # type: ignore[arg-type]
+            rtt_ms=rtt_ms,
+            failed_hop=Hop.DEVICE,
+            detail=f"MR110 '{self.label}' repond au ping mais pas a l'admin",
+        )
+
+    def health(self) -> RouterHealth:
+        """Sonde de joignabilite avec attribution de panne. Ne leve jamais.
+
+        L'etage BRIDGE est un signal de diagnostic, jamais un veto (bugfix
+        2026-08-22) : un echec de resolution de route locale ne bloque pas la
+        suite de la sonde. Il n'est attribue comme `failed_hop` que si le
+        device ne repond PAS non plus au ping -- sinon un etage anterieur en
+        echec "soft" contredirait un device qui repond reellement (auth +
+        metriques OK), ce qui rendrait `reachable` incoherent avec la
+        realite observee par les etages suivants.
+        """
+        l1 = self._probe_l1()
+        if not l1.reachable:
+            return l1
+
+        authorized, _ = self._with_session(lambda client: None)
+        if not authorized:
+            return self._device_unreachable(l1.rtt_ms)
+        return l1
+
+    def snapshot(self) -> tuple[RouterHealth, RouterReadiness, RouterMetrics]:
+        """Un poll complet en une seule session admin (C5).
+
+        `get_status()` ouvrait 3 sessions (health authorize + readiness
+        metrics + metrics) toutes les 30s ; le MR110 n'en accepte qu'une.
+        Ping/bridge restent hors session ; authorize + lecture LTE tiennent
+        dans le meme `_with_session`.
+        """
+        l1 = self._probe_l1()
+        if not l1.reachable:
+            return l1, RouterReadiness(state=Readiness.UNKNOWN, reasons=()), RouterMetrics()
+
+        ok, metrics = self._with_session(self._collect_metrics)
+        if not ok or metrics is None:
+            return (
+                self._device_unreachable(l1.rtt_ms),
+                RouterReadiness(state=Readiness.UNKNOWN, reasons=()),
+                RouterMetrics(),
+            )
+        return l1, self._readiness_from_metrics(metrics), metrics
 
     # ------------------------------------------------------------------
     # Metriques
@@ -484,20 +512,9 @@ class TplinkDriver:
     # Readiness
     # ------------------------------------------------------------------
 
-    def readiness(self) -> RouterReadiness:
-        """Etat de disponibilite calcule. Ne leve jamais -- `UNKNOWN` si indispo.
-
-        Seuils RSRP/RSRQ documentes (unites LTE standard). Le SNR firmware
-        n'entre pas dans la readiness : son echelle n'est pas un SINR en dB
-        (voir commentaire ci-dessous).
-        """
-        ok, metrics = self._with_session(self._collect_metrics)
-        if not ok or metrics is None:
-            return RouterReadiness(
-                state=Readiness.UNKNOWN,
-                reasons=(),
-            )
-
+    def _readiness_from_metrics(self, metrics: RouterMetrics) -> RouterReadiness:
+        """Calcule la readiness depuis des metriques deja lues -- aucune
+        session. Partage entre `readiness()` et `snapshot()`."""
         reasons: list[str] = []
         unknown = False
 
@@ -547,14 +564,26 @@ class TplinkDriver:
                 "sonde de bout en bout : fuite par la fibre -- defaut de "
                 "configuration du chemin de test, pas une panne du secours"
             )
-        # UNKNOWN ou pas de sonde recente : ne degrade pas la readiness a
-        # lui seul (sonde a la demande, pas systematique en A1).
 
         if reasons:
             return RouterReadiness(state=Readiness.DEGRADED, reasons=tuple(reasons))
         if unknown:
             return RouterReadiness(state=Readiness.UNKNOWN, reasons=())
         return RouterReadiness(state=Readiness.OK, reasons=())
+
+    def readiness(self) -> RouterReadiness:
+        """Etat de disponibilite calcule. Ne leve jamais -- `UNKNOWN` si indispo.
+
+        Seuils RSRP/RSRQ documentes (unites LTE standard). Le SNR firmware
+        n'entre pas dans la readiness : son echelle n'est pas un SINR en dB.
+        """
+        ok, metrics = self._with_session(self._collect_metrics)
+        if not ok or metrics is None:
+            return RouterReadiness(
+                state=Readiness.UNKNOWN,
+                reasons=(),
+            )
+        return self._readiness_from_metrics(metrics)
 
     # ------------------------------------------------------------------
     # Sonde de bout en bout (C11) -- preuve de chemin, 4 valeurs
