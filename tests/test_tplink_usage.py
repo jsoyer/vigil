@@ -266,6 +266,7 @@ class TestUsageEventsAndNotifyIntegration:
         )
         event_log = EventLog(max_events=10, persist_path="/dev/null")
         registry, _ = _make_registry(driver=driver, event_log=event_log)
+        registry.set_primary_status_fn(lambda: False)
 
         calls, original = _capture_notify()
         import managed_devices
@@ -295,6 +296,7 @@ class TestUsageEventsAndNotifyIntegration:
         )
         event_log = EventLog(max_events=10, persist_path="/dev/null")
         registry, _ = _make_registry(driver=driver, event_log=event_log)
+        registry.set_primary_status_fn(lambda: False)
 
         calls, original = _capture_notify()
         import managed_devices
@@ -693,8 +695,8 @@ class TestInUseGatedOnPrimaryLink:
         assert "tplink_in_use" in types
         assert any(c["level"] == Level.CRITICAL for c in calls)
 
-    def test_in_use_still_emitted_without_primary_callback(self):
-        """Sans callback (tests, boot) : comportement historique conserve."""
+    def test_in_use_suppressed_when_primary_unknown(self):
+        """Boot / pas de snapshot watchdog : on n'invente pas une bascule."""
         from events import EventLog
 
         driver = _FakeDriver(
@@ -715,7 +717,67 @@ class TestInUseGatedOnPrimaryLink:
             managed_devices.notify = original
 
         types = [e["type"] for e in event_log.get_all()]
-        assert "tplink_in_use" in types
+        assert "tplink_in_use" not in types
+        assert len(calls) == 0
+
+
+class TestHopNotifyAntiRebond:
+    def test_single_cycle_hop_failure_does_not_notify(self):
+        from events import EventLog
+        from drivers._base import Hop
+
+        driver = _FakeDriver(
+            health_result=RouterHealth(
+                reachable=False,
+                internet_ok=None,
+                rtt_ms=None,
+                failed_hop=Hop.BRIDGE,
+                detail="route absente",
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "tplink_hop_failed" not in types
+        assert len(calls) == 0
+
+    def test_sustained_hop_failure_notifies_once(self):
+        from events import EventLog
+        from drivers._base import Hop
+
+        driver = _FakeDriver(
+            health_result=RouterHealth(
+                reachable=False,
+                internet_ok=None,
+                rtt_ms=None,
+                failed_hop=Hop.ROUTE,
+                detail="jamais joignable",
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert types.count("tplink_hop_failed") == 1
 
 
 class TestPollerElectionC12PureFunction:
