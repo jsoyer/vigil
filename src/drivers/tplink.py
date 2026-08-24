@@ -342,7 +342,7 @@ class TplinkDriver:
                 if ok
                 else (
                     f"Pont '{self.bridge_host}' injoignable -- cause possible : "
-                    "Pi Zero, port PoE, budget PoE ou cable (a diagnostiquer sur site)"
+                    "hote pont, port PoE, budget PoE ou cable (a diagnostiquer sur site)"
                 )
             )
             return ok, rtt, detail
@@ -542,13 +542,9 @@ class TplinkDriver:
                 "sonde de bout en bout : pas de data sur le lien "
                 "(attache mais forfait/APN en cause ?)"
             )
-        elif probe is ProbeResult.LEAK:
-            reasons.append(
-                "sonde de bout en bout : fuite par la fibre -- defaut de "
-                "configuration du chemin de test, pas une panne du secours"
-            )
-        # UNKNOWN ou pas de sonde recente : ne degrade pas la readiness a
-        # lui seul (sonde a la demande, pas systematique en A1).
+        # LEAK : defaut de config du chemin de test, PAS une panne du
+        # secours -- ne degrade pas la readiness (deja notifie via
+        # tplink_probe_leak). UNKNOWN / pas de sonde : idem.
 
         if reasons:
             return RouterReadiness(state=Readiness.DEGRADED, reasons=tuple(reasons))
@@ -634,26 +630,35 @@ class TplinkDriver:
             return False
         return None  # LEAK, UNKNOWN, ou pas de sonde recente
 
-    def probe_end_to_end(self) -> ProbeResult:
+    def probe_end_to_end(self, record: bool = True) -> ProbeResult:
         """Sonde de bout en bout (C11) : verifie que le lien 4G porte
         reellement du trafic, avec double preuve de chemin independante --
         IP publique observee differente de celle du site, ET compteurs de
         trafic du MR110 en mouvement. Un succes n'est retenu que si les deux
         concordent ; sinon, LEAK (jamais un faux OK). Ne leve jamais, ne
-        bloque pas au-dela du timeout."""
+        bloque pas au-dela du timeout.
+
+        `record=False` : resultat renvoye au caller (bouton Verifier) sans
+        ecrire le cache lu par `readiness()` -- sinon un FAIL/LEAK de
+        diagnostic empoisonne la readiness ~60s et declenche backup_degraded.
+        """
+        result = self._run_end_to_end_probe()
+        if record:
+            return self._record_probe(result)
+        return result
+
+    def _run_end_to_end_probe(self) -> ProbeResult:
         ok_before, before_counters = self._with_session(
             lambda c: _get(_safe_call(c.get_status), "total_statistics")
         )
         if not ok_before:
-            return self._record_probe(ProbeResult.UNKNOWN)
+            return ProbeResult.UNKNOWN
 
         invoked, observed_ip = self._run_probe_command()
         if not invoked:
-            return self._record_probe(ProbeResult.UNKNOWN)
+            return ProbeResult.UNKNOWN
         if not observed_ip:
-            # Commande executee mais sans reponse exploitable : pas de data
-            # sur le lien.
-            return self._record_probe(ProbeResult.FAIL)
+            return ProbeResult.FAIL
 
         ok_after, after_counters = self._with_session(
             lambda c: _get(_safe_call(c.get_status), "total_statistics")
@@ -667,19 +672,12 @@ class TplinkDriver:
 
         site_ip = self._get_site_public_ip()
         if site_ip is None:
-            # Fibre down et pas de derniere IP connue en repli : on ne peut
-            # pas prouver le chemin -- jamais OK dans le doute.
-            return self._record_probe(ProbeResult.UNKNOWN)
+            return ProbeResult.UNKNOWN
 
         if observed_ip == site_ip or not counters_moved:
-            # IP identique a celle du site -> fuite par la fibre.
-            # Compteurs figes, meme si l'IP differe -> la requete n'a pas
-            # traverse le routeur. Les deux cas sont un defaut de
-            # configuration du chemin de test (meme traitement que C8),
-            # jamais une panne du secours.
-            return self._record_probe(ProbeResult.LEAK)
+            return ProbeResult.LEAK
 
-        return self._record_probe(ProbeResult.OK)
+        return ProbeResult.OK
 
     # ------------------------------------------------------------------
     # Actions

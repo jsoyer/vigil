@@ -650,6 +650,14 @@ class TestTplinkMetricsLabeled:
         result = render_metrics(_default_state())
         assert 'vigil_tplink_usage_state{device="tp1",label="A"} 0' in result
 
+    def test_on_backup_gauge_when_present(self, monkeypatch):
+        d1 = _fake_tplink_device(id="tp1", label="A", on_backup=True)
+        d2 = _fake_tplink_device(id="tp2", label="B", on_backup=False)
+        self._mock_devices(monkeypatch, [d1, d2])
+        result = render_metrics(_default_state())
+        assert 'vigil_tplink_on_backup{device="tp1",label="A"} 1' in result
+        assert 'vigil_tplink_on_backup{device="tp2",label="B"} 0' in result
+
     def test_failed_hop_only_for_unreachable_device(self, monkeypatch):
         d1 = _fake_tplink_device(id="tp1", label="A", reachable=True, failed_hop=None)
         d2 = _fake_tplink_device(

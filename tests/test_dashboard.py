@@ -266,18 +266,21 @@ class TestDashboardTplinkDeviceCard:
 
     def test_failed_hop_labels_present(self):
         assert "function tplinkHopLabel(" in DASHBOARD_HTML
-        assert "Pont Pi Zero en panne" in DASHBOARD_HTML
-        assert "Liaison sans fil Pi Zero - routeur en panne" in DASHBOARD_HTML
+        assert "Chemin local vers le MR110 en panne" in DASHBOARD_HTML
+        assert "MR110 injoignable sur le lien local" in DASHBOARD_HTML
         assert "Routeur injoignable" in DASHBOARD_HTML
         assert "Route reseau absente ou mal configuree" in DASHBOARD_HTML
+        assert "Pi Zero" not in DASHBOARD_HTML
 
     def test_bridge_failure_message_stays_cautious_about_poe(self):
-        """Spec: on a bridge failure, stay cautious about the cause -- the
-        Pi Zero is PoE-powered, so the fault can be the Pi, the switch
-        port, the PoE budget or the cable."""
-        bridge_msg_start = DASHBOARD_HTML.index("Pont Pi Zero en panne")
-        bridge_msg = DASHBOARD_HTML[bridge_msg_start : bridge_msg_start + 120]
+        """Un hop bridge reste prudent sur la cause (interface, cable, PoE)."""
+        bridge_msg_start = DASHBOARD_HTML.index("Chemin local vers le MR110 en panne")
+        bridge_msg = DASHBOARD_HTML[bridge_msg_start : bridge_msg_start + 160]
         assert "PoE" in bridge_msg
+
+    def test_en_service_banner_requires_on_backup(self):
+        assert "d.on_backup === true" in DASHBOARD_HTML
+        assert "d.on_backup === undefined" in DASHBOARD_HTML
 
     def test_usage_banner_states_distinct(self):
         """'En service' and 'Sature' must be visually AND textually

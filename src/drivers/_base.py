@@ -33,8 +33,8 @@ class Readiness(str, Enum):
 class Hop(str, Enum):
     """Saut du chemin d'audit -- sert a attribuer une panne au bon endroit."""
 
-    BRIDGE = "bridge"  # le Pi Zero (ou l'hote lui-meme en mode bridged, C16)
-    WIRELESS = "wireless"  # le saut WiFi Pi Zero <-> MR110
+    BRIDGE = "bridge"  # le guardian / hote pont (ou l'hote lui-meme en bridged, C16)
+    WIRELESS = "wireless"  # le saut local (WiFi ou ethernet) vers le MR110
     DEVICE = "device"  # le routeur lui-meme
     ROUTE = "route"  # defaut de configuration du chemin (C8), pas une panne
 

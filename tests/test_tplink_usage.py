@@ -81,7 +81,7 @@ class _FakeDriver:
     def metrics(self) -> RouterMetrics:
         return self._metrics_result
 
-    def probe_end_to_end(self) -> ProbeResult:
+    def probe_end_to_end(self, record: bool = True) -> ProbeResult:
         idx = min(self.probe_calls, len(self._probe_results) - 1)
         result = self._probe_results[idx]
         self.probe_calls += 1
@@ -407,7 +407,8 @@ class TestPeriodicProbeC11:
 
         driver = _FakeDriver(
             readiness_result=RouterReadiness(
-                state=Readiness.DEGRADED, reasons=("sonde en echec",)
+                state=Readiness.DEGRADED,
+                reasons=("sonde de bout en bout : pas de data sur le lien",),
             ),
             probe_results=[ProbeResult.FAIL],
         )
@@ -423,11 +424,13 @@ class TestPeriodicProbeC11:
 
         try:
             registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
         finally:
             managed_devices.notify = original
 
         types = [e["type"] for e in event_log.get_all()]
         assert "tplink_link_down" in types
+        assert "backup_degraded" not in types
 
     def test_probe_unknown_never_alerts(self):
         from events import EventLog
@@ -719,6 +722,24 @@ class TestInUseGatedOnPrimaryLink:
         types = [e["type"] for e in event_log.get_all()]
         assert "tplink_in_use" not in types
         assert len(calls) == 0
+
+    def test_status_exposes_on_backup_distinct_from_in_use(self):
+        driver = _FakeDriver(
+            metrics_result=RouterMetrics(
+                rx_speed_bps=5_000_000, tx_speed_bps=0, clients_total=2
+            )
+        )
+        registry, _ = _make_registry(driver=driver)
+        registry.set_primary_status_fn(lambda: True)
+        registry.get_status("1", force=True)
+        status = registry.get_status("1", force=True)
+        assert status["in_use"] is True
+        assert status["on_backup"] is False
+
+        registry.set_primary_status_fn(lambda: False)
+        status = registry.get_status("1", force=True)
+        assert status["in_use"] is True
+        assert status["on_backup"] is True
 
 
 class TestHopNotifyAntiRebond:

@@ -61,7 +61,7 @@ class _FakeDriver:
     def metrics(self) -> RouterMetrics:
         return RouterMetrics(rx_speed_bps=0, tx_speed_bps=0, clients_total=0)
 
-    def probe_end_to_end(self):
+    def probe_end_to_end(self, record: bool = True):
         raise NotImplementedError("non utilise par ces tests")
 
     def reboot(self) -> bool:
