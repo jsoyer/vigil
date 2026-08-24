@@ -300,6 +300,7 @@ class ManagedDeviceRegistry:
         self._usage_tracker = UsageTracker(debounce_cycles=USAGE_DEBOUNCE_CYCLES)
         self._readiness_state: dict[str, str] = {}
         self._readiness_pending: dict[str, tuple[str | None, int]] = {}
+        self._hop_pending: dict[str, tuple[str | None, int]] = {}
         self._usage_notified_active: dict[str, bool] = {}
         self._primary_status_fn: Callable[[], bool | None] | None = None
         self._hop_state: dict[str, str | None] = {}
@@ -339,7 +340,8 @@ class ManagedDeviceRegistry:
         du site (notification `tplink_in_use` ignoree).
         `False` : lien principal HS -- le trafic 4G est une vraie bascule.
         `None` : inconnu (pas encore de snapshot watchdog, ou callback
-        absent) -- on conserve le comportement historique (notifier).
+        absent) -- on n'invente pas une bascule : pas de CRITICAL
+        `tplink_in_use`, pas d'escalade C18.
         """
         self._primary_status_fn = primary_status_fn
 
@@ -439,9 +441,11 @@ class ManagedDeviceRegistry:
 
             now = time.time()
             in_use = self._update_usage(device_id, cfg, status)
-            # Escalade C18 : un trafic 4G pendant que l'USG porte encore
-            # internet n'est pas "le site sur son secours".
-            on_backup = in_use and self._primary_link_up() is not True
+            # Escalade C18 : uniquement si le snapshot USG dit explicitement
+            # que le principal est HS. `None` (boot, pas encore de cycle
+            # watchdog) n'est PAS une bascule -- sinon chaque restart
+            # produit une CRITICAL tplink_in_use pendant ~30s.
+            on_backup = in_use and self._primary_link_up() is False
             self._update_quota(device_id, cfg, status, on_backup)
             self._update_readiness_notify(device_id, cfg, readiness, on_backup)
             self._update_hop_notify(device_id, cfg, health)
@@ -704,11 +708,12 @@ class ManagedDeviceRegistry:
         )
         if changed:
             if confirmed == USAGE_IN_USE:
-                if self._primary_link_up() is True:
+                if self._primary_link_up() is not False:
                     logging.info(
                         "TPLINK '%s' : trafic 4G au-dessus du plancher mais "
-                        "le lien principal (USG) est joignable -- pas une "
-                        "bascule, notification tplink_in_use ignoree",
+                        "le lien principal n'est pas constate HS "
+                        "(USG OK ou snapshot pas encore pret) -- "
+                        "notification tplink_in_use ignoree",
                         cfg.label,
                     )
                     return True
@@ -716,6 +721,14 @@ class ManagedDeviceRegistry:
                 event_type = events.TPLINK_IN_USE
                 self._usage_notified_active[device_id] = True
             elif confirmed == USAGE_SATURATED:
+                if self._primary_link_up() is not False:
+                    logging.info(
+                        "TPLINK '%s' : debit proche du plafond Cat 4 mais "
+                        "le lien principal n'est pas constate HS -- "
+                        "notification tplink_saturated ignoree",
+                        cfg.label,
+                    )
+                    return True
                 text, level, ctx = messages.tplink_saturated(cfg.label)
                 event_type = events.TPLINK_SATURATED
                 self._usage_notified_active[device_id] = True
@@ -788,20 +801,34 @@ class ManagedDeviceRegistry:
     def _update_hop_notify(
         self, device_id: str, cfg: TplinkDeviceConfig, health: RouterHealth
     ) -> None:
-        prev = self._hop_state.get(device_id)
-        current = health.failed_hop.value if health.failed_hop else None
-        if current == prev:
+        raw = health.failed_hop.value if health.failed_hop else None
+        confirmed = self._hop_state.get(device_id)
+
+        if raw == confirmed:
+            self._hop_pending.pop(device_id, None)
             return
-        self._hop_state[device_id] = current
-        if current in ("bridge", "route"):
-            text, level, ctx = messages.tplink_hop_failed(cfg.label, current)
+
+        cand, count = self._hop_pending.get(device_id, (None, 0))
+        if cand == raw:
+            count += 1
+        else:
+            cand, count = raw, 1
+
+        if count < USAGE_DEBOUNCE_CYCLES:
+            self._hop_pending[device_id] = (cand, count)
+            return
+
+        self._hop_pending.pop(device_id, None)
+        self._hop_state[device_id] = raw
+        if raw in ("bridge", "route"):
+            text, level, ctx = messages.tplink_hop_failed(cfg.label, raw)
             notify(text, level, ctx)
             if self._event_log is not None:
                 self._event_log.record(
                     events.TPLINK_HOP_FAILED,
                     device_id=device_id,
                     label=cfg.label,
-                    hop=current,
+                    hop=raw,
                 )
 
     # ------------------------------------------------------------------
