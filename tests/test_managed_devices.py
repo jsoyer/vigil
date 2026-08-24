@@ -90,7 +90,7 @@ class _FakeDriver:
         self.metrics_calls += 1
         return self._metrics_result
 
-    def probe_end_to_end(self) -> ProbeResult:
+    def probe_end_to_end(self, record: bool = True) -> ProbeResult:
         self.probe_calls += 1
         idx = min(self.probe_calls - 1, len(self._probe_results) - 1)
         return self._probe_results[idx]
@@ -378,6 +378,35 @@ class TestCheckEndToEnd:
         registry, _ = _make_registry(driver=driver)
         result = registry.check("1")
         assert result["attached"] is False
+
+    def test_check_does_not_record_probe_on_real_driver(self):
+        """Bouton Verifier : FAIL/LEAK ne doit pas ecrire le cache readiness."""
+        from unittest.mock import Mock
+
+        from drivers.tplink import TplinkDriver
+
+        mock_client = Mock()
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+        }
+        driver = TplinkDriver(
+            host="192.168.10.1",
+            password="s3cr3t",
+            label="mr110-test",
+            client_factory=lambda: mock_client,
+            ping_fn=Mock(return_value=(True, 10.0)),
+            route_check_fn=Mock(return_value=(True, None)),
+            local_command_fn=Mock(return_value=(True, "not-an-ip")),
+            get_public_ip_fn=Mock(return_value="198.51.100.1"),
+        )
+        registry, _ = _make_registry(driver=driver)
+        result = registry.check("1")
+        assert result["result"] == "fail"
+        assert driver._last_probe_result is None
 
 
 # ---------------------------------------------------------------------------

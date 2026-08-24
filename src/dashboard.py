@@ -727,9 +727,9 @@ function tplinkReadinessBadge(readiness) {
 
 function tplinkHopLabel(hop) {
   if (hop === 'bridge') {
-    return 'Pont Pi Zero en panne (alimente en PoE : peut venir du Pi, du port switch, du budget PoE ou du cable)';
+    return 'Chemin local vers le MR110 en panne (interface, cable, PoE ou config de route -- a diagnostiquer sur le guardian)';
   }
-  if (hop === 'wireless') return 'Liaison sans fil Pi Zero - routeur en panne';
+  if (hop === 'wireless') return 'MR110 injoignable sur le lien local (WiFi ou ethernet)';
   if (hop === 'device') return 'Routeur injoignable';
   if (hop === 'route') return 'Route reseau absente ou mal configuree';
   return '';
@@ -739,7 +739,7 @@ function tplinkSignalLine(d) {
   var fields = [
     ['RSRP', d.rsrp, 'dBm'],
     ['RSRQ', d.rsrq, 'dB'],
-    ['SNR', d.snr, 'dB'],
+    ['SNR', d.snr, ''],
     ['Reseau', d.network_type, ''],
     ['SIM', d.sim_status, ''],
     ['Operateur', d.isp_name, '']
@@ -755,6 +755,12 @@ function tplinkSignalLine(d) {
 // src/managed_devices.py and src/metrics.py -- these values must stay in
 // sync with those files.
 function tplinkUsageState(d) {
+  // L'API expose usage_state deja confirme (anti-rebond 2 cycles).
+  // Le recalcul local sur le debit instantane faisait apparaitre
+  // "En service" sur un pic alors que ntfy restait silencieux.
+  if (d.usage_state === 'idle' || d.usage_state === 'in_use' || d.usage_state === 'saturated') {
+    return d.usage_state;
+  }
   var rx = typeof d.rx_speed_bps === 'number' ? d.rx_speed_bps : null;
   var tx = typeof d.tx_speed_bps === 'number' ? d.tx_speed_bps : null;
   var clients = typeof d.clients_total === 'number' ? d.clients_total : null;
@@ -857,10 +863,13 @@ function renderTplinkList(devices) {
       '<span class="tplink-label">' + d.label + '</span>' +
       '<span class="badge ' + badge.cls + '">' + badge.text + '</span>';
     var usage = tplinkUsageState(d);
-    if (usage === 'in_use') {
-      html += '<div class="tplink-usage-banner tplink-usage-active">En service</div>';
-    } else if (usage === 'saturated') {
+    // on_backup = le site tourne sur ce secours (USG HS). in_use seul
+    // veut juste dire "trafic 4G" -- ne pas afficher En service.
+    var onBackup = d.on_backup === true;
+    if (onBackup && usage === 'saturated') {
       html += '<div class="tplink-usage-banner tplink-usage-saturated">Sature</div>';
+    } else if (onBackup || (d.on_backup === undefined && usage === 'in_use')) {
+      html += '<div class="tplink-usage-banner tplink-usage-active">En service</div>';
     }
     html += '<button class="btn" onclick="tplinkCheck(\\'' + id + '\\')">Verifier</button>' +
       '<button class="btn btn-danger" onclick="tplinkReboot(\\'' + id + '\\')">Redemarrer</button>' +

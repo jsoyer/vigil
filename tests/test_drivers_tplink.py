@@ -407,12 +407,18 @@ class TestProbeLeak:
         assert driver.probe_end_to_end() is ProbeResult.LEAK
 
     def test_probe_leak_rapportee_comme_defaut_config_pas_panne_secours(self):
-        """LEAK ne degrade pas la readiness comme une panne du MR110 -- pas
-        de reason mentionnant le secours lui-meme, uniquement le chemin de
-        test."""
+        """LEAK ne degrade pas la readiness -- defaut du chemin de test."""
+        from src.drivers._base import Readiness
         from src.drivers.tplink import ProbeResult
 
         mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
         mock_client.get_status.return_value = {"total_statistics": 1000}
         driver, _ = _make_driver(
             client=mock_client,
@@ -422,7 +428,35 @@ class TestProbeLeak:
         result = driver.probe_end_to_end()
         assert result is ProbeResult.LEAK
         readiness = driver.readiness()
-        assert any("chemin de test" in r or "fuite" in r for r in readiness.reasons)
+        assert readiness.state is Readiness.OK
+        assert not any("fuite" in r or "chemin de test" in r for r in readiness.reasons)
+
+    def test_probe_end_to_end_record_false_n_ecrit_pas_le_cache(self):
+        """Bouton Verifier : un FAIL diagnostique ne doit pas empoisonner
+        readiness() via le cache 60s."""
+        from src.drivers._base import Readiness
+        from src.drivers.tplink import ProbeResult
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, _ = _make_driver(
+            client=mock_client,
+            local_command_fn=Mock(return_value=(True, "not-an-ip")),
+            get_public_ip_fn=Mock(return_value="198.51.100.1"),
+        )
+        result = driver.probe_end_to_end(record=False)
+        assert result is ProbeResult.FAIL
+        assert driver._last_probe_result is None
+        readiness = driver.readiness()
+        assert readiness.state is Readiness.OK
+        assert not any("sonde de bout en bout" in r for r in readiness.reasons)
 
 
 class TestAttachedWithoutData:
@@ -586,7 +620,46 @@ class TestReadinessSeuils:
         assert readiness.state is Readiness.UNKNOWN
 
     def test_champ_absent_seul_ne_degrade_pas(self):
-        """Un champ absent produit UNKNOWN, jamais DEGRADED a lui seul."""
+        """Un champ RSRP/RSRQ/SIM absent produit UNKNOWN, jamais DEGRADED."""
+        from src.drivers._base import Readiness
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": None,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, _ = _make_driver(client=mock_client)
+        readiness = driver.readiness()
+        assert readiness.state is Readiness.UNKNOWN
+        assert readiness.reasons == ()
+
+    def test_snr_sentinel_ne_degrade_pas(self):
+        """Bugfix 2.3.2 -- le firmware pousse snr=-130 (sentinelle idle)
+        sous l'ancien seuil -100. SIM/RSRP/RSRQ OK => readiness OK, jamais
+        un faux DEGRADED sur le SNR seul."""
+        from src.drivers._base import Readiness
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -99,
+            "rsrq": -14,
+            "snr": -130,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, _ = _make_driver(client=mock_client, snr_min=-100)
+        readiness = driver.readiness()
+        assert readiness.state is Readiness.OK
+        assert readiness.reasons == ()
+
+    def test_snr_absent_n_empeche_pas_ok(self):
+        """SNR n'entre plus dans la readiness : champ absent + reste OK
+        => OK, plus UNKNOWN."""
         from src.drivers._base import Readiness
 
         mock_client = Mock()
@@ -600,7 +673,7 @@ class TestReadinessSeuils:
         mock_client.get_status.return_value = {"total_statistics": 1000}
         driver, _ = _make_driver(client=mock_client)
         readiness = driver.readiness()
-        assert readiness.state is Readiness.UNKNOWN
+        assert readiness.state is Readiness.OK
         assert readiness.reasons == ()
 
 
@@ -720,6 +793,77 @@ class TestTimeout:
         driver._ping_fn = Mock(return_value=(True, 5.0))
         result = driver.probe_end_to_end()
         assert result is ProbeResult.UNKNOWN
+
+
+class TestSnapshotUneSession:
+    """get_status() ne doit plus ouvrir 3 sessions admin par cycle."""
+
+    def test_snapshot_autorise_une_seule_fois(self):
+        from src.drivers._base import Readiness
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, client = _make_driver(client=mock_client)
+        health, readiness, metrics = driver.snapshot()
+        assert health.reachable is True
+        assert readiness.state is Readiness.OK
+        assert metrics.rsrp == -95
+        assert client.authorize.call_count == 1
+        assert client.logout.call_count == 1
+
+    def test_snapshot_ping_ko_n_ouvre_pas_de_session(self):
+        mock_client = Mock()
+        driver, client = _make_driver(
+            client=mock_client, ping_fn=Mock(return_value=(False, None))
+        )
+        health, readiness, _metrics = driver.snapshot()
+        assert health.reachable is False
+        assert client.authorize.call_count == 0
+
+    def test_registry_get_status_uses_single_session(self):
+        from managed_devices import ManagedDeviceRegistry
+        from config import TplinkDeviceConfig
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -95,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {
+            "total_statistics": 1000,
+            "clients_total": 0,
+            "cur_rx_speed": 0,
+            "cur_tx_speed": 0,
+        }
+        driver, client = _make_driver(client=mock_client)
+        cfg = TplinkDeviceConfig(
+            index=1,
+            label="mr110-test",
+            host="192.168.10.1",
+            password="s3cr3t",
+            mode="bridged",
+            bridge_host="",
+            rsrp_min=-110,
+            rsrq_min=-20,
+            snr_min=-100,
+        )
+        registry = ManagedDeviceRegistry(
+            devices=[cfg], driver_factory=lambda _cfg: driver
+        )
+        status = registry.get_status("1", force=True)
+        assert status is not None
+        assert status["reachable"] is True
+        assert client.authorize.call_count == 1
 
 
 class TestNoTplinkConfigured:

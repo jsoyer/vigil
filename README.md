@@ -869,8 +869,9 @@ TPLINK_1_MODE=bridged            # bridged: cet hôte a un lien direct au MR110
                                   #          (TPLINK_1_BRIDGE_HOST requis)
 TPLINK_1_RSRP_MIN=-110           # dBm, défaut -110
 TPLINK_1_RSRQ_MIN=-20            # dB, défaut -20
-TPLINK_1_SNR_MIN=-100            # unité firmware, défaut -100 -- voir
-                                  # docs/spikes/2026-08-23-mr110-compat.md
+TPLINK_1_SNR_MIN=-100            # conserve pour compat .env ; le SNR
+                                  # firmware n'entre plus dans la readiness
+                                  # (échelle non fiable, sentinelle -130)
 ```
 
 **Dashboard** : section TP-Link dédiée (liste, statut, sonde, reboot +
