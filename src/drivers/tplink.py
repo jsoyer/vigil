@@ -487,8 +487,9 @@ class TplinkDriver:
     def readiness(self) -> RouterReadiness:
         """Etat de disponibilite calcule. Ne leve jamais -- `UNKNOWN` si indispo.
 
-        Seuils RSRP/RSRQ documentes ; SNR seuille tres conservateur (voir
-        commentaire ci-dessous) faute de certitude sur l'echelle du firmware.
+        Seuils RSRP/RSRQ documentes (unites LTE standard). Le SNR firmware
+        n'entre pas dans la readiness : son echelle n'est pas un SINR en dB
+        (voir commentaire ci-dessous).
         """
         ok, metrics = self._with_session(self._collect_metrics)
         if not ok or metrics is None:
@@ -524,19 +525,16 @@ class TplinkDriver:
         elif metrics.rsrq < self.rsrq_min:
             reasons.append(f"rsrq={metrics.rsrq} < seuil {self.rsrq_min}")
 
-        # SNR : l'echelle remontee par le firmware du MR110 est douteuse
-        # (spike 2026-08-23 : -20 a Dijon et -70 a Nice, deux liens pourtant
-        # fonctionnels a 3/5 barres -- un SNR reel en dB serait aberrant a
-        # ces niveaux si le service fonctionne). Faute de clarification sur
-        # l'unite exacte, le defaut est fixe tres bas (-100) pour ne JAMAIS
-        # declencher de faux DEGRADED sur la base de cette seule valeur : le
-        # champ reste lu et expose (jamais ignore), mais le seuil n'est un
-        # gardien reel qu'une fois recalibre sur le terrain avec l'unite
-        # confirmee -- a resserrer explicitement via TPLINK_<n>_SNR_MIN.
-        if not isinstance(metrics.snr, (int, float)):
-            unknown = True
-        elif metrics.snr < self.snr_min:
-            reasons.append(f"snr={metrics.snr} < seuil {self.snr_min}")
+        # SNR : l'echelle remontee par le firmware du MR110 n'est pas un
+        # SINR LTE en dB (spike 2026-08-23 : -20 Dijon / -70 Nice, deux
+        # liens fonctionnels a 3/5 barres). En production le firmware
+        # pousse aussi une sentinelle -130 (radio idle / mesure absente)
+        # qui passait sous le seuil "conservateur" -100 et declenchait un
+        # faux DEGRADED, puis un "de nouveau pret" au cycle suivant.
+        # Le champ reste lu et expose (dashboard, metriques) ; il ne
+        # participe plus a la readiness. RSRP/RSRQ suffisent -- ce sont
+        # les seules unites LTE confirmees. self.snr_min est conserve
+        # pour ne pas casser TPLINK_<n>_SNR_MIN dans les .env existants.
 
         probe = self._cached_probe_result()
         if probe is ProbeResult.FAIL:

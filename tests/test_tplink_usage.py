@@ -501,6 +501,223 @@ class TestPeriodicProbeC11:
         assert driver.reboot_calls == 0
 
 
+class TestReadinessNotifyAntiRebond:
+    """Bugfix 2.3.2 -- un flap d'un cycle (snr sentinelle, etc.) ne doit
+    plus produire le couple backup_degraded + backup_ready."""
+
+    def test_single_cycle_degraded_does_not_notify(self):
+        from events import EventLog
+
+        driver = _FakeDriver(
+            readiness_result=RouterReadiness(
+                state=Readiness.DEGRADED, reasons=("snr=-130 < seuil -100",)
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "backup_degraded" not in types
+        assert len(calls) == 0
+
+    def test_flap_degraded_then_ok_does_not_notify(self):
+        from events import EventLog
+
+        driver = _FakeDriver(
+            readiness_result=RouterReadiness(
+                state=Readiness.DEGRADED, reasons=("snr=-130 < seuil -100",)
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            driver._readiness_result = RouterReadiness(state=Readiness.OK, reasons=())
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "backup_degraded" not in types
+        assert "backup_ready" not in types
+        assert len(calls) == 0
+
+    def test_sustained_degraded_notifies_once_then_ready(self):
+        from events import EventLog
+
+        driver = _FakeDriver(
+            readiness_result=RouterReadiness(
+                state=Readiness.DEGRADED, reasons=("rsrp=-125 < seuil -110",)
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+            driver._readiness_result = RouterReadiness(state=Readiness.OK, reasons=())
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert types.count("backup_degraded") == 1
+        assert types.count("backup_ready") == 1
+
+    def test_unknown_to_ok_does_not_claim_ready(self):
+        from events import EventLog
+
+        driver = _FakeDriver(
+            readiness_result=RouterReadiness(state=Readiness.UNKNOWN, reasons=())
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+            driver._readiness_result = RouterReadiness(state=Readiness.OK, reasons=())
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "backup_ready" not in types
+        assert len(calls) == 0
+
+
+class TestInUseGatedOnPrimaryLink:
+    """Bugfix 2.3.2 -- ne pas crier 'le site tourne sur son secours'
+    quand l'USG porte encore internet."""
+
+    def test_in_use_suppressed_when_primary_up(self):
+        from events import EventLog
+
+        driver = _FakeDriver(
+            metrics_result=RouterMetrics(
+                rx_speed_bps=5_000_000, tx_speed_bps=0, clients_total=2
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+        registry.set_primary_status_fn(lambda: True)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "tplink_in_use" not in types
+        assert len(calls) == 0
+
+    def test_idle_not_emitted_if_in_use_was_suppressed(self):
+        from events import EventLog
+
+        driver = _FakeDriver(
+            metrics_result=RouterMetrics(
+                rx_speed_bps=5_000_000, tx_speed_bps=0, clients_total=2
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+        registry.set_primary_status_fn(lambda: True)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+            driver._metrics_result = RouterMetrics(
+                rx_speed_bps=0, tx_speed_bps=0, clients_total=2
+            )
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "tplink_in_use" not in types
+        assert "tplink_idle" not in types
+        assert len(calls) == 0
+
+    def test_in_use_emitted_when_primary_down(self):
+        from events import EventLog
+        from notifier._types import Level
+
+        driver = _FakeDriver(
+            metrics_result=RouterMetrics(
+                rx_speed_bps=5_000_000, tx_speed_bps=0, clients_total=2
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+        registry.set_primary_status_fn(lambda: False)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "tplink_in_use" in types
+        assert any(c["level"] == Level.CRITICAL for c in calls)
+
+    def test_in_use_still_emitted_without_primary_callback(self):
+        """Sans callback (tests, boot) : comportement historique conserve."""
+        from events import EventLog
+
+        driver = _FakeDriver(
+            metrics_result=RouterMetrics(
+                rx_speed_bps=5_000_000, tx_speed_bps=0, clients_total=2
+            )
+        )
+        event_log = EventLog(max_events=10, persist_path="/dev/null")
+        registry, _ = _make_registry(driver=driver, event_log=event_log)
+
+        calls, original = _capture_notify()
+        import managed_devices
+
+        try:
+            registry.get_status("1", force=True)
+            registry.get_status("1", force=True)
+        finally:
+            managed_devices.notify = original
+
+        types = [e["type"] for e in event_log.get_all()]
+        assert "tplink_in_use" in types
+
+
 class TestPollerElectionC12PureFunction:
     """Fonction pure de peer.py -- aucune dependance reseau."""
 

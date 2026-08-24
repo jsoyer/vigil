@@ -952,6 +952,14 @@ def start_http_server(
     # inchange), jamais a sa place -- voir managed_devices.request_reboot().
     managed_devices.registry.set_ntfy_send(_publish_confirm_actions)
 
+    def _primary_link_up() -> bool | None:
+        snapshot = holder.state
+        if snapshot is None:
+            return None
+        return bool(snapshot.gateway_ok and snapshot.internet_ok_count >= 2)
+
+    managed_devices.registry.set_primary_status_fn(_primary_link_up)
+
     thread = threading.Thread(
         target=server.serve_forever,
         name="http-state-server",

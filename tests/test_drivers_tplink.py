@@ -586,7 +586,46 @@ class TestReadinessSeuils:
         assert readiness.state is Readiness.UNKNOWN
 
     def test_champ_absent_seul_ne_degrade_pas(self):
-        """Un champ absent produit UNKNOWN, jamais DEGRADED a lui seul."""
+        """Un champ RSRP/RSRQ/SIM absent produit UNKNOWN, jamais DEGRADED."""
+        from src.drivers._base import Readiness
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": None,
+            "rsrq": -12,
+            "snr": -20,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, _ = _make_driver(client=mock_client)
+        readiness = driver.readiness()
+        assert readiness.state is Readiness.UNKNOWN
+        assert readiness.reasons == ()
+
+    def test_snr_sentinel_ne_degrade_pas(self):
+        """Bugfix 2.3.2 -- le firmware pousse snr=-130 (sentinelle idle)
+        sous l'ancien seuil -100. SIM/RSRP/RSRQ OK => readiness OK, jamais
+        un faux DEGRADED sur le SNR seul."""
+        from src.drivers._base import Readiness
+
+        mock_client = Mock()
+        mock_client.get_lte_status.return_value = {
+            "sim_status": "3",
+            "rsrp": -99,
+            "rsrq": -14,
+            "snr": -130,
+            "network_type": "LTE",
+        }
+        mock_client.get_status.return_value = {"total_statistics": 1000}
+        driver, _ = _make_driver(client=mock_client, snr_min=-100)
+        readiness = driver.readiness()
+        assert readiness.state is Readiness.OK
+        assert readiness.reasons == ()
+
+    def test_snr_absent_n_empeche_pas_ok(self):
+        """SNR n'entre plus dans la readiness : champ absent + reste OK
+        => OK, plus UNKNOWN."""
         from src.drivers._base import Readiness
 
         mock_client = Mock()
@@ -600,7 +639,7 @@ class TestReadinessSeuils:
         mock_client.get_status.return_value = {"total_statistics": 1000}
         driver, _ = _make_driver(client=mock_client)
         readiness = driver.readiness()
-        assert readiness.state is Readiness.UNKNOWN
+        assert readiness.state is Readiness.OK
         assert readiness.reasons == ()
 
 
