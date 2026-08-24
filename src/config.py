@@ -600,11 +600,9 @@ def _load_tplink_devices() -> tuple[TplinkDeviceConfig, ...]:
         # RSRQ : marge sur les valeurs observees au spike (-14 Dijon, -18
         # Nice, toutes deux fonctionnelles).
         rsrq_min = _get_int_env(f"TPLINK_{index}_RSRQ_MIN", default=-20, minimum=-30)
-        # SNR : echelle du firmware douteuse au spike (-20 Dijon, -70 Nice,
-        # deux liens pourtant fonctionnels) -- seuil tres conservateur par
-        # defaut pour ne jamais declencher de faux DEGRADED tant que
-        # l'unite exacte n'est pas confirmee sur le terrain. Voir
-        # src/drivers/tplink.py (readiness()) pour la justification complete.
+        # SNR : conserve pour compat .env (TPLINK_<n>_SNR_MIN) mais n'entre
+        # plus dans la readiness -- l'echelle firmware n'est pas un SINR en
+        # dB (spike -20/-70, sentinelle prod -130). Voir tplink.py.
         snr_min = _get_int_env(f"TPLINK_{index}_SNR_MIN", default=-100, minimum=-200)
 
         quota_volume_raw = os.getenv(f"TPLINK_{index}_QUOTA_VOLUME_MB", "")

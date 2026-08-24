@@ -299,6 +299,9 @@ class ManagedDeviceRegistry:
         self._quota_store = quota_store if quota_store is not None else _quota_store
         self._usage_tracker = UsageTracker(debounce_cycles=USAGE_DEBOUNCE_CYCLES)
         self._readiness_state: dict[str, str] = {}
+        self._readiness_pending: dict[str, tuple[str | None, int]] = {}
+        self._usage_notified_active: dict[str, bool] = {}
+        self._primary_status_fn: Callable[[], bool | None] | None = None
         self._hop_state: dict[str, str | None] = {}
         self._link_state: dict[str, str] = {}
         self._leak_warned: dict[str, bool] = {}
@@ -325,6 +328,35 @@ class ManagedDeviceRegistry:
         """Injecte la fonction de publication des boutons Ntfy (voir
         `__init__`). Idempotent, comme `set_event_log`."""
         self._ntfy_send = ntfy_send
+
+    def set_primary_status_fn(
+        self, primary_status_fn: Callable[[], bool | None] | None
+    ) -> None:
+        """Injecte un callback `() -> bool | None` qui dit si le lien
+        principal (USG / internet) est actuellement joignable.
+
+        `True` : fibre/USG OK -- un trafic 4G n'est alors PAS une bascule
+        du site (notification `tplink_in_use` ignoree).
+        `False` : lien principal HS -- le trafic 4G est une vraie bascule.
+        `None` : inconnu (pas encore de snapshot watchdog, ou callback
+        absent) -- on conserve le comportement historique (notifier).
+        """
+        self._primary_status_fn = primary_status_fn
+
+    def _primary_link_up(self) -> bool | None:
+        fn = self._primary_status_fn
+        if fn is None:
+            return None
+        try:
+            result = fn()
+        except Exception as exc:
+            logging.debug(
+                "Statut du lien principal indisponible (%s)", type(exc).__name__
+            )
+            return None
+        if result is None:
+            return None
+        return bool(result)
 
     def record_event(self, event_type: str, **data: object) -> None:
         """Enregistre un evenement via l'event_log de bootstrap, si defini
@@ -403,10 +435,13 @@ class ManagedDeviceRegistry:
 
             now = time.time()
             in_use = self._update_usage(device_id, cfg, status)
-            self._update_quota(device_id, cfg, status, in_use)
-            self._update_readiness_notify(device_id, cfg, readiness, in_use)
+            # Escalade C18 : un trafic 4G pendant que l'USG porte encore
+            # internet n'est pas "le site sur son secours".
+            on_backup = in_use and self._primary_link_up() is not True
+            self._update_quota(device_id, cfg, status, on_backup)
+            self._update_readiness_notify(device_id, cfg, readiness, on_backup)
             self._update_hop_notify(device_id, cfg, health)
-            self._check_probe(device_id, cfg, driver, in_use, now)
+            self._check_probe(device_id, cfg, driver, on_backup, now)
 
             # Sprint 3 A2 -- champs additionnels pour exposition Home
             # Assistant (C13) : jamais invente, absent/None si jamais
@@ -665,12 +700,24 @@ class ManagedDeviceRegistry:
         )
         if changed:
             if confirmed == USAGE_IN_USE:
+                if self._primary_link_up() is True:
+                    logging.info(
+                        "TPLINK '%s' : trafic 4G au-dessus du plancher mais "
+                        "le lien principal (USG) est joignable -- pas une "
+                        "bascule, notification tplink_in_use ignoree",
+                        cfg.label,
+                    )
+                    return True
                 text, level, ctx = messages.tplink_in_use(cfg.label)
                 event_type = events.TPLINK_IN_USE
+                self._usage_notified_active[device_id] = True
             elif confirmed == USAGE_SATURATED:
                 text, level, ctx = messages.tplink_saturated(cfg.label)
                 event_type = events.TPLINK_SATURATED
+                self._usage_notified_active[device_id] = True
             else:
+                if not self._usage_notified_active.pop(device_id, False):
+                    return False
                 text, level, ctx = messages.tplink_idle(cfg.label)
                 event_type = events.TPLINK_IDLE
             notify(text, level, ctx)
@@ -689,12 +736,28 @@ class ManagedDeviceRegistry:
         readiness: RouterReadiness,
         in_use: bool,
     ) -> None:
-        prev = self._readiness_state.get(device_id)
-        current = readiness.state.value
-        if current == prev:
+        raw = readiness.state.value
+        confirmed = self._readiness_state.get(device_id)
+
+        if raw == confirmed:
+            self._readiness_pending.pop(device_id, None)
             return
-        self._readiness_state[device_id] = current
-        if current == "degraded":
+
+        cand, count = self._readiness_pending.get(device_id, (None, 0))
+        if cand == raw:
+            count += 1
+        else:
+            cand, count = raw, 1
+
+        if count < USAGE_DEBOUNCE_CYCLES:
+            self._readiness_pending[device_id] = (cand, count)
+            return
+
+        self._readiness_pending.pop(device_id, None)
+        prev = confirmed
+        self._readiness_state[device_id] = raw
+
+        if raw == "degraded":
             reason = (
                 "; ".join(readiness.reasons) if readiness.reasons else "raison inconnue"
             )
@@ -708,7 +771,9 @@ class ManagedDeviceRegistry:
                     reason=reason,
                     in_use=in_use,
                 )
-        elif current == "ok" and prev is not None:
+        elif raw == "ok" and prev == "degraded":
+            # Uniquement apres un vrai DEGRADED notifie -- pas au passage
+            # UNKNOWN -> OK (ca produisait un "de nouveau pret" orphelin).
             text, level, ctx = messages.backup_ready(cfg.label)
             notify(text, level, ctx)
             if self._event_log is not None:
