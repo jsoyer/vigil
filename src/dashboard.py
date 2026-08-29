@@ -897,15 +897,42 @@ function renderTplinkList(devices) {
   }).join('');
 }
 
+function showTplinkPlaceholder(text) {
+  var container = document.getElementById('tplink-list');
+  if (!container) return;
+  container.innerHTML = '';
+  var li = document.createElement('li');
+  var span = document.createElement('span');
+  span.className = 'event-data';
+  span.textContent = text;
+  li.appendChild(span);
+  container.appendChild(li);
+}
+
 async function refreshTplink() {
-  if (!getApiToken()) return;
+  // GET /api/tplink est authentifie (C19). Sans jeton le placeholder
+  // "Chargement..." restait affiche a vie -- identique master et slave,
+  // ce n'est pas un sondage MR110 en cours.
+  if (!getApiToken()) {
+    showTplinkPlaceholder(
+      'Jeton API requis -- saisissez-le en haut de page (master et slave).'
+    );
+    return;
+  }
   await refreshTplinkQuota();
   try {
     var result = await apiRequest('/api/tplink', 'GET');
-    renderTplinkList(Array.isArray(result.data) ? result.data : []);
+    var payload = result.data;
+    if (Array.isArray(payload)) {
+      renderTplinkList(payload);
+      return;
+    }
+    var err = (payload && payload.error) ? payload.error : 'reponse inattendue';
+    showTplinkPlaceholder('TP-Link indisponible : ' + err);
   } catch(err) {
-    // apiRequest() already surfaced a clear message via showTokenPrompt()
-    // on 401; other errors are transient and covered by the next refresh.
+    showTplinkPlaceholder(
+      'TP-Link indisponible : ' + ((err && err.message) ? err.message : 'erreur')
+    );
   }
 }
 

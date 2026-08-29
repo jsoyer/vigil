@@ -229,6 +229,13 @@ class TestDashboardTplinkSection:
     def test_tplink_list_endpoint_referenced(self):
         assert "/api/tplink" in DASHBOARD_HTML
 
+    def test_tplink_missing_token_replaces_loading_placeholder(self):
+        """Sans jeton, ne pas laisser 'Chargement...' : GET /api/tplink
+        est authentifie (C19), master et slave identiques."""
+        assert "function showTplinkPlaceholder(" in DASHBOARD_HTML
+        assert "Jeton API requis -- saisissez-le en haut de page" in DASHBOARD_HTML
+        assert "if (!getApiToken()) return;" not in DASHBOARD_HTML
+
     def test_tplink_check_function_and_endpoint(self):
         assert "function tplinkCheck(" in DASHBOARD_HTML
         assert "/check" in DASHBOARD_HTML
